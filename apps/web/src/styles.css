@@ -63,6 +63,10 @@ h2 { margin: 0; }
   margin-top: 22px;
 }
 
+.auth-grid.single {
+  grid-template-columns: minmax(320px, 560px);
+}
+
 .card, .panel {
   border: 1px solid rgba(148, 163, 184, 0.24);
   border-radius: 24px;
@@ -81,6 +85,12 @@ h2 { margin: 0; }
 
 .panel {
   padding: 24px;
+}
+
+.panel-copy {
+  color: #b8c7da;
+  line-height: 1.6;
+  margin: -4px 0 18px;
 }
 
 .panel.wide {

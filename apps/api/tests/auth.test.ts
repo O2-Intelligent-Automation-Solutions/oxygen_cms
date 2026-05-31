@@ -100,4 +100,25 @@ describe('auth and RBAC API', () => {
     expect(response.statusCode).toBe(403);
     await app.close();
   });
+  it('reports bootstrap status before and after the first admin exists', async () => {
+    const authRepository = createInMemoryAuthRepository();
+    const app = await buildApp({ logger: false, authRepository });
+
+    const before = await app.inject({ method: 'GET', url: '/api/auth/bootstrap-status' });
+    expect(before.statusCode).toBe(200);
+    expect(before.json()).toEqual({ requiresBootstrap: true });
+
+    await app.inject({
+      method: 'POST',
+      url: '/api/auth/bootstrap',
+      payload: { email: 'admin@example.com', displayName: 'Admin User', password: 'AdminPassword!42' }
+    });
+
+    const after = await app.inject({ method: 'GET', url: '/api/auth/bootstrap-status' });
+    expect(after.statusCode).toBe(200);
+    expect(after.json()).toEqual({ requiresBootstrap: false });
+
+    await app.close();
+  });
+
 });

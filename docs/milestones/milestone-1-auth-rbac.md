@@ -7,8 +7,8 @@ Secure OxyGen CMS with local users, role assignments, and group/folder membershi
 ## Delivered Scope
 
 - Password hashing with per-user salts using Node `scrypt`.
-- Admin bootstrap API.
-- Login/logout/me API endpoints.
+- Admin bootstrap API and initial setup wizard UI.
+- The login UI is hidden until the first SystemAdmin account exists.
 - Bearer-token authenticated request middleware.
 - Role authorization middleware.
 - SystemAdmin-only user and group administration APIs.
@@ -18,6 +18,7 @@ Secure OxyGen CMS with local users, role assignments, and group/folder membershi
 ## API Endpoints
 
 ```http
+GET  /api/auth/bootstrap-status
 POST /api/auth/bootstrap
 POST /api/auth/login
 POST /api/auth/logout

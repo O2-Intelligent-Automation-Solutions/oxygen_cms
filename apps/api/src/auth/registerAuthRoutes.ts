@@ -37,6 +37,10 @@ export function requireRole(role: RoleName) {
 }
 
 export async function registerAuthRoutes(app: FastifyInstance, repository: AuthRepository) {
+  app.get('/api/auth/bootstrap-status', async () => ({
+    requiresBootstrap: !(await repository.hasUsers())
+  }));
+
   app.post('/api/auth/bootstrap', async (request, reply) => {
     const input = bootstrapSchema.parse(request.body);
     try {

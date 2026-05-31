@@ -1,5 +1,5 @@
 import { Activity, Database, Server, ShieldCheck, UserPlus, Users } from 'lucide-react';
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 
 type RoleName = 'SystemAdmin' | 'PartnerAdmin' | 'Operator' | 'Viewer';
 
@@ -16,6 +16,7 @@ type AuthProfile = {
 
 type Group = { id: string; name: string; description: string | null };
 type UserProfile = AuthProfile;
+type BootstrapStatus = { requiresBootstrap: boolean };
 
 const capabilities = [
   { icon: Server, label: 'Instance monitoring', detail: 'Track OxyGen availability, SSL, auth, and API health.' },
@@ -39,6 +40,7 @@ async function api<T>(path: string, options: RequestInit & { token?: string } = 
 
 export function App() {
   const [token, setToken] = useState<string>('');
+  const [requiresBootstrap, setRequiresBootstrap] = useState<boolean | null>(null);
   const [profile, setProfile] = useState<AuthProfile | null>(null);
   const [groups, setGroups] = useState<Group[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
@@ -48,6 +50,20 @@ export function App() {
   const [selectedGroupId, setSelectedGroupId] = useState<string>('');
 
   const isSystemAdmin = useMemo(() => profile?.roles.includes('SystemAdmin') ?? false, [profile]);
+
+  useEffect(() => {
+    let active = true;
+    api<BootstrapStatus>('/api/auth/bootstrap-status')
+      .then((status) => {
+        if (active) setRequiresBootstrap(status.requiresBootstrap);
+      })
+      .catch((err) => {
+        if (active) setError(err instanceof Error ? err.message : 'Unable to load setup status.');
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   async function refreshAdminData(authToken = token) {
     if (!authToken) return;
@@ -74,7 +90,8 @@ export function App() {
           password: form.get('password')
         })
       });
-      setMessage('Admin bootstrap succeeded. You can now log in.');
+      setMessage('Initial setup succeeded. You can now sign in with the administrator account.');
+      setRequiresBootstrap(false);
       event.currentTarget.reset();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Bootstrap failed.');
@@ -173,46 +190,58 @@ export function App() {
         ))}
       </section>
 
-      <section className="auth-grid" aria-label="Authentication and RBAC administration">
-        <article className="panel">
-          <div className="panel-heading">
-            <ShieldCheck aria-hidden="true" />
-            <div>
-              <p className="eyebrow small">Milestone 1</p>
-              <h2>Admin bootstrap</h2>
-            </div>
-          </div>
-          <form onSubmit={handleBootstrap}>
-            <label>Email<input name="email" type="email" placeholder="admin@example.com" required /></label>
-            <label>Display name<input name="displayName" placeholder="System Admin" required /></label>
-            <label>Password<input name="password" type="password" minLength={12} placeholder="12+ characters" required /></label>
-            <button type="submit">Bootstrap admin</button>
-          </form>
-        </article>
+      {requiresBootstrap === null && <p className="status">Checking CMS setup status…</p>}
 
-        <article className="panel">
-          <div className="panel-heading">
-            <UserPlus aria-hidden="true" />
-            <div>
-              <p className="eyebrow small">Secure access</p>
-              <h2>Login</h2>
+      {requiresBootstrap === true && (
+        <section className="auth-grid single" aria-label="Initial CMS setup">
+          <article className="panel setup-panel">
+            <div className="panel-heading">
+              <ShieldCheck aria-hidden="true" />
+              <div>
+                <p className="eyebrow small">Initial CMS setup</p>
+                <h2>Create the first administrator</h2>
+              </div>
             </div>
-          </div>
-          <form onSubmit={handleLogin}>
-            <label>Email<input name="email" type="email" placeholder="admin@example.com" required /></label>
-            <label>Password<input name="password" type="password" required /></label>
-            <button type="submit">Sign in</button>
-          </form>
-          {profile && (
-            <div className="profile-card">
-              <strong>{profile.user.displayName}</strong>
-              <span>{profile.user.email}</span>
-              <span>Roles: {profile.roles.join(', ')}</span>
-              <button className="secondary" type="button" onClick={handleLogout}>Sign out</button>
+            <p className="panel-copy">
+              No CMS users exist yet. Create the first local administrator account to finish setup.
+              The sign-in screen will be shown after this setup step is complete.
+            </p>
+            <form onSubmit={handleBootstrap}>
+              <label>Administrator email<input name="email" type="email" placeholder="admin@example.com" required /></label>
+              <label>Display name<input name="displayName" placeholder="System Admin" required /></label>
+              <label>Password<input name="password" type="password" minLength={12} placeholder="12+ characters" required /></label>
+              <button type="submit">Create administrator</button>
+            </form>
+          </article>
+        </section>
+      )}
+
+      {requiresBootstrap === false && (
+        <section className="auth-grid single" aria-label="Authentication and RBAC administration">
+          <article className="panel">
+            <div className="panel-heading">
+              <UserPlus aria-hidden="true" />
+              <div>
+                <p className="eyebrow small">Secure access</p>
+                <h2>Sign in</h2>
+              </div>
             </div>
-          )}
-        </article>
-      </section>
+            <form onSubmit={handleLogin}>
+              <label>Email<input name="email" type="email" placeholder="admin@example.com" required /></label>
+              <label>Password<input name="password" type="password" required /></label>
+              <button type="submit">Sign in</button>
+            </form>
+            {profile && (
+              <div className="profile-card">
+                <strong>{profile.user.displayName}</strong>
+                <span>{profile.user.email}</span>
+                <span>Roles: {profile.roles.join(', ')}</span>
+                <button className="secondary" type="button" onClick={handleLogout}>Sign out</button>
+              </div>
+            )}
+          </article>
+        </section>
+      )}
 
       {(message || error) && <p className={error ? 'status error' : 'status'}>{error || message}</p>}
 
