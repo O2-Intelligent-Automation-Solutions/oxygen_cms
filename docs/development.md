@@ -46,7 +46,10 @@ Remote development review:
 npm test
 npm run typecheck
 npm run build
+npm audit
 ```
+
+Run `npm audit` before and after each milestone commit. GitHub Dependabot alerts must be resolved before starting the next milestone.
 
 ## Scope Guard
 
