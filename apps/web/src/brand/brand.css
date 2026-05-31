@@ -1,0 +1,48 @@
+@font-face {
+  font-family: 'O2 Azonix';
+  src: url('./assets/fonts/AzonixRegular.otf') format('opentype');
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'O2 Nexa';
+  src: url('./assets/fonts/NexaLight.otf') format('opentype');
+  font-weight: 300;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'O2 Nexa';
+  src: url('./assets/fonts/NexaBold.otf') format('opentype');
+  font-weight: 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'OxyGen Eras';
+  src: url('./assets/fonts/ErasMediumITC.ttf') format('truetype');
+  font-display: swap;
+}
+
+:root {
+  --brand-bg: #07131f;
+  --brand-bg-2: #0b1f35;
+  --brand-surface: rgba(9, 23, 38, 0.82);
+  --brand-surface-strong: rgba(8, 18, 31, 0.92);
+  --brand-line: rgba(80, 191, 220, 0.26);
+  --brand-line-strong: rgba(32, 214, 210, 0.46);
+  --brand-primary: #20d6d2;
+  --brand-primary-2: #1d9bd7;
+  --brand-accent: #52e0a9;
+  --brand-warning: #ffd166;
+  --brand-danger: #ff7a7a;
+  --brand-text: #edf7ff;
+  --brand-muted: #b7c9dc;
+  --brand-muted-2: #7da0bc;
+  --brand-shadow: 0 24px 80px rgba(0, 0, 0, 0.34);
+  --brand-radius-lg: 28px;
+  --brand-radius-md: 16px;
+  --brand-font-display: 'O2 Azonix', 'Eurostile Extended', 'Arial Black', system-ui, sans-serif;
+  --brand-font-body: 'O2 Nexa', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --brand-font-product: 'OxyGen Eras', 'O2 Nexa', 'Segoe UI', system-ui, sans-serif;
+}

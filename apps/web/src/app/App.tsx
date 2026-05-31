@@ -1,5 +1,8 @@
 import { Activity, Database, Server, ShieldCheck, UserPlus, Users } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import o2Logo from '../brand/assets/o2-ias-logo-dark.png';
+import oxygenLogo from '../brand/assets/oxygen-logo-inline-dark.png';
+import oxygenFullLogo from '../brand/assets/oxygen-logo-full-dark.png';
 
 type RoleName = 'SystemAdmin' | 'PartnerAdmin' | 'Operator' | 'Viewer';
 
@@ -171,8 +174,18 @@ export function App() {
 
   return (
     <main className="shell">
+      <header className="brand-bar" aria-label="Product branding">
+        <a className="brand-lockup" href="/" aria-label="OxyGen CMS home">
+          <img className="brand-logo" src={oxygenLogo} alt="OxyGen" />
+          <span className="brand-product">Central Management Server</span>
+        </a>
+        <div className="company-lockup">
+          <span>Powered by</span>
+          <img src={o2Logo} alt="O2 Intelligent Automation Solutions" />
+        </div>
+      </header>
+
       <section className="hero">
-        <p className="eyebrow">OxyGen CMS</p>
         <h1>Central monitoring for OxyGen BPM deployments.</h1>
         <p className="summary">
           A lightweight management server for monitoring OxyGen health, licensing, global settings,
@@ -195,6 +208,9 @@ export function App() {
       {requiresBootstrap === true && (
         <section className="auth-grid single" aria-label="Initial CMS setup">
           <article className="panel setup-panel">
+            <div className="panel-brand-mark-wrap">
+              <img className="panel-brand-mark" src={oxygenFullLogo} alt="OxyGen" />
+            </div>
             <div className="panel-heading">
               <ShieldCheck aria-hidden="true" />
               <div>
