@@ -1,10 +1,20 @@
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import Fastify, { type FastifyServerOptions } from 'fastify';
+import { createInMemoryAuthRepository } from './auth/inMemoryAuthRepository.js';
+import { registerAuthRoutes } from './auth/registerAuthRoutes.js';
+import type { AuthRepository } from './auth/types.js';
 import { loadConfig } from './config/loadConfig.js';
 
-export async function buildApp(options: FastifyServerOptions = {}) {
-  const app = Fastify(options);
+type BuildAppOptions = FastifyServerOptions & {
+  authRepository?: AuthRepository;
+};
+
+const defaultAuthRepository = createInMemoryAuthRepository();
+
+export async function buildApp(options: BuildAppOptions = {}) {
+  const { authRepository = defaultAuthRepository, ...fastifyOptions } = options;
+  const app = Fastify(fastifyOptions);
   const config = loadConfig();
 
   await app.register(helmet);
@@ -19,6 +29,8 @@ export async function buildApp(options: FastifyServerOptions = {}) {
     environment: config.nodeEnv,
     timestamp: new Date().toISOString()
   }));
+
+  await registerAuthRoutes(app, authRepository);
 
   return app;
 }

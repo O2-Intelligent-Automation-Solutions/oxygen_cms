@@ -8,15 +8,17 @@
 
 body { margin: 0; min-width: 320px; min-height: 100vh; }
 
+button, input, select { font: inherit; }
+
 .shell {
   min-height: 100vh;
-  padding: 72px clamp(24px, 6vw, 96px);
+  padding: 56px clamp(20px, 5vw, 80px);
   background:
     radial-gradient(circle at top left, rgba(44, 123, 229, 0.32), transparent 30rem),
     linear-gradient(135deg, #08111f 0%, #0d1b2e 48%, #13243b 100%);
 }
 
-.hero { max-width: 900px; margin-bottom: 48px; }
+.hero { max-width: 900px; margin-bottom: 40px; }
 
 .eyebrow {
   color: #8bc6ff;
@@ -25,35 +27,158 @@ body { margin: 0; min-width: 320px; min-height: 100vh; }
   text-transform: uppercase;
 }
 
+.eyebrow.small {
+  margin: 0 0 4px;
+  font-size: 0.72rem;
+}
+
 h1 {
   margin: 0;
-  font-size: clamp(2.5rem, 7vw, 5.75rem);
+  font-size: clamp(2.3rem, 6vw, 5.2rem);
   line-height: 0.95;
   letter-spacing: -0.06em;
 }
 
+h2 { margin: 0; }
+
 .summary {
   max-width: 760px;
   color: #b8c7da;
-  font-size: clamp(1.1rem, 2vw, 1.35rem);
+  font-size: clamp(1.05rem, 2vw, 1.25rem);
   line-height: 1.7;
 }
 
-.cards {
+.cards, .auth-grid, .admin-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   gap: 18px;
 }
 
-.card {
-  min-height: 220px;
-  padding: 26px;
+.cards {
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  margin-bottom: 22px;
+}
+
+.auth-grid, .admin-grid {
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  margin-top: 22px;
+}
+
+.card, .panel {
   border: 1px solid rgba(148, 163, 184, 0.24);
   border-radius: 24px;
-  background: rgba(15, 23, 42, 0.72);
+  background: rgba(15, 23, 42, 0.76);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.22);
 }
 
-.card svg { color: #5eead4; width: 32px; height: 32px; }
+.card {
+  min-height: 210px;
+  padding: 26px;
+}
+
+.card svg, .panel-heading svg { color: #5eead4; width: 32px; height: 32px; flex: 0 0 auto; }
 .card h2 { margin: 22px 0 10px; font-size: 1.2rem; }
 .card p { color: #aec0d4; line-height: 1.6; }
+
+.panel {
+  padding: 24px;
+}
+
+.panel.wide {
+  min-height: 200px;
+}
+
+.panel-heading {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  margin-bottom: 18px;
+}
+
+form {
+  display: grid;
+  gap: 14px;
+}
+
+label {
+  display: grid;
+  gap: 7px;
+  color: #cbd5e1;
+  font-size: 0.92rem;
+}
+
+input, select {
+  width: 100%;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 12px;
+  background: rgba(2, 6, 23, 0.7);
+  color: #e5eefb;
+  padding: 12px 14px;
+  outline: none;
+}
+
+input:focus, select:focus {
+  border-color: #5eead4;
+  box-shadow: 0 0 0 3px rgba(94, 234, 212, 0.12);
+}
+
+button {
+  border: 0;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #2dd4bf, #38bdf8);
+  color: #03111f;
+  cursor: pointer;
+  font-weight: 800;
+  padding: 12px 16px;
+}
+
+button.secondary {
+  background: rgba(148, 163, 184, 0.16);
+  color: #e5eefb;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+}
+
+.profile-card, .status, .row {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 14px;
+  background: rgba(2, 6, 23, 0.4);
+}
+
+.profile-card {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 14px;
+  color: #cbd5e1;
+}
+
+.status {
+  margin: 22px 0 0;
+  padding: 14px 16px;
+  color: #a7f3d0;
+}
+
+.status.error {
+  color: #fecaca;
+  border-color: rgba(248, 113, 113, 0.4);
+}
+
+.list {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+  padding: 12px;
+  color: #cbd5e1;
+}
+
+.row strong { color: #f8fafc; }
+
+@media (max-width: 720px) {
+  .shell { padding: 36px 16px; }
+  .auth-grid, .admin-grid { grid-template-columns: 1fr; }
+}
