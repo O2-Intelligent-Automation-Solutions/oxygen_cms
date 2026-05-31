@@ -5,3 +5,7 @@ OxyGen Central Management Server (CMS) is an optional central monitoring and man
 ## Planning
 
 - [Phase 1 Implementation Plan](docs/plans/phase-1-oxygen-cms.md)
+
+## Development
+
+- [Development Setup](docs/development.md)

@@ -1,0 +1,55 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: oxygen-cms-mysql
+    environment:
+      MYSQL_DATABASE: oxygen_cms
+      MYSQL_USER: oxygen_cms
+      MYSQL_PASSWORD: oxygen_cms_dev_password
+      MYSQL_ROOT_PASSWORD: oxygen_cms_root_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - oxygen-cms-mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    image: node:22-bookworm-slim
+    container_name: oxygen-cms-api
+    working_dir: /workspace
+    command: sh -c "npm install && npm --workspace @oxygen-cms/api run dev"
+    environment:
+      NODE_ENV: development
+      API_HOST: 0.0.0.0
+      API_PORT: 3000
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: oxygen_cms
+      MYSQL_USER: oxygen_cms
+      MYSQL_PASSWORD: oxygen_cms_dev_password
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/workspace
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  web:
+    image: node:22-bookworm-slim
+    container_name: oxygen-cms-web
+    working_dir: /workspace
+    command: sh -c "npm install && npm --workspace @oxygen-cms/web run dev"
+    ports:
+      - "5173:5173"
+    volumes:
+      - .:/workspace
+    depends_on:
+      - api
+
+volumes:
+  oxygen-cms-mysql:
