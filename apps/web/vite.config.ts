@@ -4,7 +4,10 @@ import react from '@vitejs/plugin-react';
 export default defineConfig({
   plugins: [react()],
   server: {
+    host: '0.0.0.0',
     port: 5173,
+    // Allow remote review through IPs, DNS names, SSH tunnels, and reverse proxies during development.
+    allowedHosts: true,
     proxy: {
       '/api': 'http://localhost:3000'
     }
