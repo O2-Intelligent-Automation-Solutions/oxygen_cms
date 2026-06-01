@@ -83,7 +83,8 @@ export function App() {
     event.preventDefault();
     setError('');
     setMessage('');
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     try {
       await api<AuthProfile>('/api/auth/bootstrap', {
         method: 'POST',
@@ -95,7 +96,7 @@ export function App() {
       });
       setMessage('Initial setup succeeded. You can now sign in with the administrator account.');
       setRequiresBootstrap(false);
-      event.currentTarget.reset();
+      formElement.reset();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Bootstrap failed.');
     }
@@ -124,7 +125,8 @@ export function App() {
     event.preventDefault();
     setError('');
     setMessage('');
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     try {
       const response = await api<{ group: Group }>('/api/groups', {
         method: 'POST',
@@ -132,7 +134,7 @@ export function App() {
         body: JSON.stringify({ name: form.get('name'), description: form.get('description') })
       });
       setMessage(`Created group ${response.group.name}.`);
-      event.currentTarget.reset();
+      formElement.reset();
       await refreshAdminData();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Group creation failed.');
@@ -143,7 +145,8 @@ export function App() {
     event.preventDefault();
     setError('');
     setMessage('');
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     try {
       const response = await api<UserProfile>('/api/users', {
         method: 'POST',
@@ -157,7 +160,7 @@ export function App() {
         })
       });
       setMessage(`Created user ${response.user.email}.`);
-      event.currentTarget.reset();
+      formElement.reset();
       await refreshAdminData();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'User creation failed.');
@@ -186,7 +189,10 @@ export function App() {
       </header>
 
       <section className="hero">
-        <h1>Central monitoring for OxyGen BPM deployments.</h1>
+        <h1 className="hero-title">
+          <span>Centralized management for</span>
+          <span>OxyGen BPM deployments.</span>
+        </h1>
         <p className="summary">
           A lightweight management server for monitoring OxyGen health, licensing, global settings,
           and workflow status across partner and customer environments.

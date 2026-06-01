@@ -94,10 +94,19 @@ h1 {
   margin: 0;
   max-width: 980px;
   font-family: var(--brand-font-product);
-  font-size: clamp(2.2rem, 5.6vw, 5rem);
+  font-size: clamp(1.75rem, 6vw, 5rem);
   font-weight: 500;
-  line-height: 1;
+  line-height: 1.04;
   letter-spacing: -0.045em;
+}
+
+.hero-title span {
+  display: block;
+  white-space: nowrap;
+}
+
+@media (max-width: 460px) {
+  .hero-title span { white-space: normal; }
 }
 
 h2 { margin: 0; }
@@ -162,8 +171,7 @@ h2 { margin: 0; }
   display: flex;
   justify-content: center;
   align-items: center;
-  min-height: 138px;
-  padding: 22px 0 18px;
+  padding: 11px 0 18px;
   overflow: visible;
 }
 
