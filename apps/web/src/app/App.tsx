@@ -1,7 +1,11 @@
 import {
-  Activity, ChevronDown, ChevronRight, Database, FolderTree, LayoutDashboard, ListFilter,
-  LogOut, Pencil, Plus, Server, Settings, ShieldCheck, Trash2, UserCircle, UserPlus, Users, X
+  Activity, ChevronDown, ChevronLeft, ChevronRight, Database, LayoutDashboard,
+  LogOut, Pencil, Plus, Server, Settings, ShieldCheck, Trash2, UserCircle, UserPlus
 } from 'lucide-react';
+import { Grid, GridColumn, type GridCustomCellProps, type GridDataStateChangeEvent } from '@progress/kendo-react-grid';
+import { Button } from '@progress/kendo-react-buttons';
+import { Dialog, DialogActionsBar } from '@progress/kendo-react-dialogs';
+import { process, type State } from '@progress/kendo-data-query';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import o2Logo from '../brand/assets/o2-ias-logo-dark.png';
 import oxygenLogo from '../brand/assets/oxygen-logo-inline-dark.png';
@@ -18,9 +22,11 @@ type AuthProfile = {
 type Group = { id: string; name: string; description: string | null };
 type UserProfile = AuthProfile;
 type BootstrapStatus = { requiresBootstrap: boolean };
-type NavSection = 'dashboard' | 'organizations' | 'users' | 'user-groups' | 'roles' | 'settings-general' | 'settings-advanced';
+type NavSection = 'dashboard' | 'organizations' | 'instances' | 'users' | 'user-groups' | 'roles' | 'settings-general' | 'settings-advanced';
 type ModalKind = 'user' | 'group';
 type ModalState = { kind: ModalKind; data?: UserProfile | Group } | null;
+type GroupGridRow = { id: string; name: string; description: string; raw: Group };
+type UserGridRow = { id: string; displayName: string; email: string; role: string; groups: string; raw: UserProfile };
 
 const capabilities = [
   { icon: Server, label: 'Instance monitoring', detail: 'Track OxyGen availability, SSL, auth, and API health.' },
@@ -54,8 +60,13 @@ export function App() {
   const [activeSection, setActiveSection] = useState<NavSection>('dashboard');
   const [openAccordions, setOpenAccordions] = useState<Set<string>>(new Set(['security']));
   const [modal, setModal] = useState<ModalState>(null);
-  const [userFilter, setUserFilter] = useState('');
-  const [groupFilter, setGroupFilter] = useState('');
+  const [isDrawerExpanded, setIsDrawerExpanded] = useState(false);
+  const [userGridState, setUserGridState] = useState<State>({
+    sort: [{ field: 'displayName', dir: 'asc' }]
+  });
+  const [groupGridState, setGroupGridState] = useState<State>({
+    sort: [{ field: 'name', dir: 'asc' }]
+  });
 
   const isSystemAdmin = useMemo(() => profile?.roles.includes('SystemAdmin') ?? false, [profile]);
 
@@ -133,20 +144,72 @@ export function App() {
     });
   }
 
-  const filteredUsers = useMemo(() => {
-    const q = userFilter.toLowerCase();
-    return q ? users.filter(u => u.user.email.toLowerCase().includes(q) || u.user.displayName.toLowerCase().includes(q) || u.roles.join(' ').toLowerCase().includes(q)) : users;
-  }, [users, userFilter]);
+  const userRows = useMemo<UserGridRow[]>(() => users.map((entry) => ({
+    id: entry.user.id,
+    displayName: entry.user.displayName,
+    email: entry.user.email,
+    role: entry.roles.join(', '),
+    groups: entry.groups.map((group) => group.name).join(', '),
+    raw: entry
+  })), [users]);
 
-  const filteredGroups = useMemo(() => {
-    const q = groupFilter.toLowerCase();
-    return q ? groups.filter(g => g.name.toLowerCase().includes(q) || (g.description || '').toLowerCase().includes(q)) : groups;
-  }, [groups, groupFilter]);
+  const groupRows = useMemo<GroupGridRow[]>(() => groups.map((group) => ({
+    id: group.id,
+    name: group.name,
+    description: group.description || '',
+    raw: group
+  })), [groups]);
+
+  const processedUsers = useMemo(() => process(userRows, userGridState), [userRows, userGridState]);
+  const processedGroups = useMemo(() => process(groupRows, groupGridState), [groupRows, groupGridState]);
+
+  function handleUserGridStateChange(event: GridDataStateChangeEvent) {
+    setUserGridState(event.dataState);
+  }
+
+  function handleGroupGridStateChange(event: GridDataStateChangeEvent) {
+    setGroupGridState(event.dataState);
+  }
+
+  function GroupEditCell(props: GridCustomCellProps) {
+    const row = props.dataItem as GroupGridRow;
+    return (
+      <td {...props.tdProps} className="k-command-cell">
+        <Button className="btn-icon-info" onClick={() => setModal({ kind: 'group', data: row.raw })} title="Edit" type="button" fillMode="flat"><Pencil /></Button>
+      </td>
+    );
+  }
+
+  function GroupDeleteCell(props: GridCustomCellProps) {
+    return (
+      <td {...props.tdProps} className="k-command-cell">
+        <Button className="btn-icon-danger" title="Delete" type="button" fillMode="flat"><Trash2 /></Button>
+      </td>
+    );
+  }
+
+  function UserEditCell(props: GridCustomCellProps) {
+    const row = props.dataItem as UserGridRow;
+    return (
+      <td {...props.tdProps} className="k-command-cell">
+        <Button className="btn-icon-info" onClick={() => setModal({ kind: 'user', data: row.raw })} title="Edit" type="button" fillMode="flat"><Pencil /></Button>
+      </td>
+    );
+  }
+
+  function UserDeleteCell(props: GridCustomCellProps) {
+    return (
+      <td {...props.tdProps} className="k-command-cell">
+        <Button className="btn-icon-danger" title="Delete" type="button" fillMode="flat"><Trash2 /></Button>
+      </td>
+    );
+  }
 
   const sectionMeta = (() => {
     switch (activeSection) {
       case 'dashboard': return { eyebrow: 'Dashboard', heading: `Welcome, ${profile?.user.displayName || ''}` };
       case 'organizations': return { eyebrow: 'Organizations', heading: 'Tenants / Partners' };
+      case 'instances': return { eyebrow: 'Organizations', heading: 'Instances' };
       case 'users': return { eyebrow: 'Security', heading: 'Users' };
       case 'user-groups': return { eyebrow: 'Security', heading: 'User Groups' };
       case 'roles': return { eyebrow: 'Security', heading: 'Roles' };
@@ -156,7 +219,7 @@ export function App() {
   })();
 
   return (
-    <main className="shell">
+    <main className={`shell${profile ? ' app-shell' : ''}`}>
       <header className="brand-bar">
         <a className="brand-lockup" href="/" aria-label="OxyGen CMS home">
           <img className="brand-logo" src={oxygenLogo} alt="OxyGen" />
@@ -214,8 +277,16 @@ export function App() {
       )}
 
       {profile && (
-        <div className="admin-layout">
-          <aside className="admin-sidebar">
+        <div className={`admin-layout ${isDrawerExpanded ? 'drawer-expanded' : 'drawer-collapsed'}`}>
+          <aside className={`admin-sidebar ${isDrawerExpanded ? 'expanded' : 'collapsed'}`}>
+            <button
+              className="sidebar-toggle"
+              type="button"
+              onClick={() => setIsDrawerExpanded((v) => !v)}
+              aria-label={isDrawerExpanded ? 'Collapse navigation' : 'Expand navigation'}
+            >
+              {isDrawerExpanded ? <ChevronLeft /> : <ChevronRight />}
+            </button>
             <div className="sidebar-user">
               <UserCircle />
               <div>
@@ -227,9 +298,18 @@ export function App() {
               <button className={`nav-link${activeSection === 'dashboard' ? ' active' : ''}`} onClick={() => setActiveSection('dashboard')}>
                 <LayoutDashboard /><span>Dashboard</span>
               </button>
-              <button className={`nav-link${activeSection === 'organizations' ? ' active' : ''}`} onClick={() => setActiveSection('organizations')}>
-                <Server /><span>Organizations</span>
-              </button>
+              <div className="nav-accordion">
+                <button className="nav-link nav-accordion-toggle" onClick={() => toggleAccordion('organizations')}>
+                  <Server /><span>Organizations</span>
+                  {openAccordions.has('organizations') ? <ChevronDown /> : <ChevronRight />}
+                </button>
+                {openAccordions.has('organizations') && (
+                  <div className="nav-accordion-children">
+                    <button className={`nav-link child${activeSection === 'organizations' ? ' active' : ''}`} onClick={() => setActiveSection('organizations')}><span>Tenants / Partners</span></button>
+                    <button className={`nav-link child${activeSection === 'instances' ? ' active' : ''}`} onClick={() => setActiveSection('instances')}><span>Instances</span></button>
+                  </div>
+                )}
+              </div>
 
               <div className="nav-accordion">
                 <button className="nav-link nav-accordion-toggle" onClick={() => toggleAccordion('security')}>
@@ -261,7 +341,7 @@ export function App() {
             <button className="sidebar-logout" onClick={handleLogout}><LogOut /><span>Sign out</span></button>
           </aside>
 
-          <section className="admin-content">
+          <section className={`admin-content ${activeSection === 'users' || activeSection === 'user-groups' ? 'grid-section' : ''}`}>
             <div className="page-header">
               <p className="eyebrow small">{sectionMeta.eyebrow}</p>
               <h2>{sectionMeta.heading}</h2>
@@ -276,72 +356,55 @@ export function App() {
             )}
 
             {activeSection === 'organizations' && (
-              <article className="panel"><p className="panel-copy">Milestone 2 will add instance enrollment and organization grouping here.</p></article>
+              <article className="panel"><p className="panel-copy">Milestone 2 will add tenant and partner organization management here.</p></article>
+            )}
+
+            {activeSection === 'instances' && (
+              <article className="panel"><p className="panel-copy">Milestone 2 will add OxyGen instance enrollment, connectivity tests, and status monitoring here.</p></article>
             )}
 
             {activeSection === 'user-groups' && isSystemAdmin && (
-              <article className="panel data-panel">
+              <article className="panel data-panel kendo-data-panel">
                 <div className="dp-head">
-                  <div className="dp-search"><ListFilter /><input placeholder="Filter…" value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)} /></div>
-                  <button className="btn-create" onClick={() => setModal({ kind: 'group' })}><Plus /> Create Group</button>
+                  <Button className="btn-create" onClick={() => setModal({ kind: 'group' })} type="button" themeColor="primary"><Plus /> Create "Group"</Button>
                 </div>
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th className="col-actions"></th>
-                      <th onClick={() => setGroupFilter('')} className="col-sort">Name</th>
-                      <th>Description</th>
-                      <th className="col-actions"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredGroups.map((g) => (
-                      <tr key={g.id}>
-                        <td className="col-actions"><button className="btn-icon-info" onClick={() => setModal({ kind: 'group', data: g })} title="Edit"><Pencil /></button></td>
-                        <td>{g.name}</td>
-                        <td>{g.description || '—'}</td>
-                        <td className="col-actions"><button className="btn-icon-danger" title="Delete"><Trash2 /></button></td>
-                      </tr>
-                    ))}
-                    {filteredGroups.length === 0 && (
-                      <tr><td colSpan={4} className="data-empty">No groups found.</td></tr>
-                    )}
-                  </tbody>
-                </table>
+                <Grid
+                  className="cms-kendo-grid"
+                  data={processedGroups}
+                  sortable
+                  filterable
+                  resizable
+                  {...groupGridState}
+                  onDataStateChange={handleGroupGridStateChange}
+                >
+                  <GridColumn title="" width="52px" filterable={false} sortable={false} cells={{ data: GroupEditCell }} />
+                  <GridColumn field="name" title="Name" filter="text" />
+                  <GridColumn field="description" title="Description" filter="text" />
+                  <GridColumn title="" width="52px" filterable={false} sortable={false} cells={{ data: GroupDeleteCell }} />
+                </Grid>
               </article>
             )}
 
             {activeSection === 'users' && isSystemAdmin && (
-              <article className="panel data-panel">
+              <article className="panel data-panel kendo-data-panel">
                 <div className="dp-head">
-                  <div className="dp-search"><ListFilter /><input placeholder="Filter…" value={userFilter} onChange={(e) => setUserFilter(e.target.value)} /></div>
-                  <button className="btn-create" onClick={() => setModal({ kind: 'user' })}><Plus /> Create User</button>
+                  <Button className="btn-create" onClick={() => setModal({ kind: 'user' })} type="button" themeColor="primary"><Plus /> Create "User"</Button>
                 </div>
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th className="col-actions"></th>
-                      <th className="col-sort">Name</th>
-                      <th>Email</th>
-                      <th>Role</th>
-                      <th className="col-actions"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredUsers.map((u) => (
-                      <tr key={u.user.id}>
-                        <td className="col-actions"><button className="btn-icon-info" onClick={() => setModal({ kind: 'user', data: u })} title="Edit"><Pencil /></button></td>
-                        <td>{u.user.displayName}</td>
-                        <td>{u.user.email}</td>
-                        <td>{u.roles.join(', ')}</td>
-                        <td className="col-actions"><button className="btn-icon-danger" title="Delete"><Trash2 /></button></td>
-                      </tr>
-                    ))}
-                    {filteredUsers.length === 0 && (
-                      <tr><td colSpan={5} className="data-empty">No users found.</td></tr>
-                    )}
-                  </tbody>
-                </table>
+                <Grid
+                  className="cms-kendo-grid"
+                  data={processedUsers}
+                  sortable
+                  filterable
+                  resizable
+                  {...userGridState}
+                  onDataStateChange={handleUserGridStateChange}
+                >
+                  <GridColumn title="" width="52px" filterable={false} sortable={false} cells={{ data: UserEditCell }} />
+                  <GridColumn field="displayName" title="Name" filter="text" />
+                  <GridColumn field="email" title="Email" filter="text" />
+                  <GridColumn field="role" title="Role" filter="text" />
+                  <GridColumn title="" width="52px" filterable={false} sortable={false} cells={{ data: UserDeleteCell }} />
+                </Grid>
               </article>
             )}
 
@@ -359,39 +422,44 @@ export function App() {
       )}
 
       {modal && (
-        <div className="modal-overlay" onClick={() => setModal(null)} role="dialog" aria-modal="true">
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head">
-              <h3>{modal.kind === 'user' ? (modal.data ? 'Edit User' : 'Create User') : modal.data ? 'Edit Group' : 'Create Group'}</h3>
-              <button className="btn-icon-info" onClick={() => setModal(null)}><X /></button>
-            </div>
-            {modal.kind === 'user' ? (
-              <form onSubmit={handleCreateUser}>
-                <label>Email<input name="email" type="email" placeholder="operator@example.com" defaultValue={(modal.data as UserProfile)?.user.email || ''} required /></label>
-                <label>Display name<input name="displayName" placeholder="Operator" defaultValue={(modal.data as UserProfile)?.user.displayName || ''} required /></label>
-                <label>Password<input name="password" type="password" minLength={12} placeholder="12+ characters" required={!modal.data} /></label>
-                <label>Role
-                  <select value={selectedRole} onChange={(e) => setSelectedRole(e.target.value as RoleName)}>
-                    {roleNames.map((r) => <option key={r} value={r}>{r}</option>)}
-                  </select>
-                </label>
-                <label>Group
-                  <select value={selectedGroupId} onChange={(e) => setSelectedGroupId(e.target.value)}>
-                    <option value="">None</option>
-                    {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
-                  </select>
-                </label>
-                <div className="modal-actions"><button type="button" className="btn-ghost" onClick={() => setModal(null)}>Cancel</button><button type="submit">{modal.data ? 'Save' : 'Create'}</button></div>
-              </form>
-            ) : (
-              <form onSubmit={handleCreateGroup}>
-                <label>Name<input name="name" placeholder="Customer Group A" defaultValue={(modal.data as Group)?.name || ''} required /></label>
-                <label>Description<input name="description" placeholder="Optional" defaultValue={(modal.data as Group)?.description || ''} /></label>
-                <div className="modal-actions"><button type="button" className="btn-ghost" onClick={() => setModal(null)}>Cancel</button><button type="submit">{modal.data ? 'Save' : 'Create'}</button></div>
-              </form>
-            )}
-          </div>
-        </div>
+        <Dialog
+          className="cms-dialog"
+          title={modal.kind === 'user' ? (modal.data ? 'Edit User' : 'Create User') : modal.data ? 'Edit Group' : 'Create Group'}
+          onClose={() => setModal(null)}
+          width={520}
+        >
+          {modal.kind === 'user' ? (
+            <form className="modal-form" onSubmit={handleCreateUser}>
+              <label>Email<input name="email" type="email" placeholder="operator@example.com" defaultValue={(modal.data as UserProfile)?.user.email || ''} required /></label>
+              <label>Display name<input name="displayName" placeholder="Operator" defaultValue={(modal.data as UserProfile)?.user.displayName || ''} required /></label>
+              <label>Password<input name="password" type="password" minLength={12} placeholder="12+ characters" required={!modal.data} /></label>
+              <label>Role
+                <select value={selectedRole} onChange={(e) => setSelectedRole(e.target.value as RoleName)}>
+                  {roleNames.map((r) => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </label>
+              <label>Group
+                <select value={selectedGroupId} onChange={(e) => setSelectedGroupId(e.target.value)}>
+                  <option value="">None</option>
+                  {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                </select>
+              </label>
+              <DialogActionsBar>
+                <Button type="button" fillMode="flat" onClick={() => setModal(null)}>Cancel</Button>
+                <Button type="submit" themeColor="primary">{modal.data ? 'Save' : 'Create'}</Button>
+              </DialogActionsBar>
+            </form>
+          ) : (
+            <form className="modal-form" onSubmit={handleCreateGroup}>
+              <label>Name<input name="name" placeholder="Customer Group A" defaultValue={(modal.data as Group)?.name || ''} required /></label>
+              <label>Description<input name="description" placeholder="Optional" defaultValue={(modal.data as Group)?.description || ''} /></label>
+              <DialogActionsBar>
+                <Button type="button" fillMode="flat" onClick={() => setModal(null)}>Cancel</Button>
+                <Button type="submit" themeColor="primary">{modal.data ? 'Save' : 'Create'}</Button>
+              </DialogActionsBar>
+            </form>
+          )}
+        </Dialog>
       )}
 
       {(message || error) && <p className={error ? 'status error' : 'status'}>{error || message}</p>}

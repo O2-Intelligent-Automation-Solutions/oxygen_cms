@@ -6,5 +6,7 @@ coverage/
 .DS_Store
 npm-debug.log*
 *.tsbuildinfo
+telerik-license.txt
+kendo-ui-license.txt
 apps/*/dist/
 packages/*/dist/

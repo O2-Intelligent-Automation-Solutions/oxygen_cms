@@ -16,5 +16,18 @@
   },
   "engines": {
     "node": ">=22"
+  },
+  "dependencies": {
+    "@progress/kendo-data-query": "^1.7.4",
+    "@progress/kendo-licensing": "^1.11.2",
+    "@progress/kendo-react-buttons": "^15.0.0",
+    "@progress/kendo-react-common": "^15.0.0",
+    "@progress/kendo-react-data-tools": "^15.0.0",
+    "@progress/kendo-react-dialogs": "^15.0.0",
+    "@progress/kendo-react-grid": "^15.0.0",
+    "@progress/kendo-react-inputs": "^15.0.0",
+    "@progress/kendo-react-intl": "^15.0.0",
+    "@progress/kendo-react-labels": "^15.0.0",
+    "@progress/kendo-theme-default": "^14.1.0"
   }
 }
