@@ -10,3 +10,4 @@ telerik-license.txt
 kendo-ui-license.txt
 apps/*/dist/
 packages/*/dist/
+apps/api/data/

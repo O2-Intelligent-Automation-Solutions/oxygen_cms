@@ -417,6 +417,33 @@ Acceptance criteria:
 - Admin can create users and groups.
 - Users can only see instances belonging to assigned groups.
 
+## Milestone 1.5 — Database Provisioning and Durable Security Persistence
+
+**Objective:** Configure/create the CMS MySQL database before first-admin setup and move security/tenant data from the in-memory review repository to durable, versioned persistence.
+
+Tasks:
+
+1. Convert first-run setup into a multi-step wizard: database setup, schema validation/migration, first admin creation.
+2. Support connecting to an existing local/remote MySQL server.
+3. Allow selecting an existing database or creating a new database.
+4. Default the database name to `O2IAS_CMS`, while allowing override.
+5. Support default local MySQL provisioning via Docker Compose for repeatable setup testing.
+6. Prompt for the application database user/password when provisioning a local database.
+7. Save database settings to local ignored application settings.
+8. Add versioned schema migrations with `cms_schema_versions`.
+9. Create durable tables for tenants, roles, users, groups, role assignments, group assignments, and sessions.
+10. Replace the runtime in-memory auth repository with MySQL-backed persistence while preserving existing API contracts.
+11. Update docs and validation gates.
+
+Acceptance criteria:
+
+- User cannot create the first admin until CMS is connected to a valid database and schema is current.
+- User can connect to existing MySQL and select/create `O2IAS_CMS` or an overridden database name.
+- User can provision a local MySQL instance for repeatable development testing.
+- Restarting the API preserves users, groups, roles, tenants, and sessions.
+- Schema versions are recorded and pending migrations are applied in order.
+- Existing auth/RBAC/tenant UI behavior remains unchanged after persistence is wired.
+
 ## Milestone 2 — Manual Instance Enrollment
 
 **Objective:** Allow admins to enroll remote OxyGen instances.

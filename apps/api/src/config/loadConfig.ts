@@ -30,7 +30,7 @@ export function loadConfig(env: Environment = process.env): AppConfig {
       port: parsePort(env.MYSQL_PORT, 3306),
       user: env.MYSQL_USER ?? 'oxygen_cms',
       password: env.MYSQL_PASSWORD ?? 'oxygen_cms_dev_password',
-      database: env.MYSQL_DATABASE ?? 'oxygen_cms'
+      database: env.MYSQL_DATABASE ?? 'O2IAS_CMS'
     }
   };
 }

@@ -13,7 +13,7 @@ describe('loadConfig', () => {
         host: 'localhost',
         port: 3306,
         user: 'oxygen_cms',
-        database: 'oxygen_cms'
+        database: 'O2IAS_CMS'
       }
     });
   });
