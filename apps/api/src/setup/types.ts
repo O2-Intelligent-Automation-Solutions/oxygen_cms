@@ -1,4 +1,5 @@
 export const DEFAULT_CMS_DATABASE_NAME = 'O2IAS_CMS';
+export const CURRENT_SCHEMA_VERSION = '0.01';
 
 export type SetupNextStep = 'database' | 'schema' | 'admin' | 'complete';
 
@@ -7,6 +8,7 @@ export type SetupDatabaseStatus = {
   connected: boolean;
   schemaCurrent: boolean;
   defaultDatabaseName: string;
+  targetSchemaVersion: string;
 };
 
 export type SetupAdminStatus = {

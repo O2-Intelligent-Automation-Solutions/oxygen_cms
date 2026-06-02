@@ -12,10 +12,16 @@ export type DatabaseSettings = {
 export type SetupSettingsStore = {
   getDatabaseSettings(): Promise<DatabaseSettings | null>;
   saveDatabaseSettings(settings: DatabaseSettings): Promise<void>;
+  isSchemaCurrent(): Promise<boolean>;
+  markSchemaCurrent(): Promise<void>;
 };
 
 type SetupSettingsFile = {
   database?: DatabaseSettings;
+  schema?: {
+    current: boolean;
+    updatedAt: string;
+  };
 };
 
 export function createFileSetupSettingsStore(path: string): SetupSettingsStore {
@@ -40,7 +46,15 @@ export function createFileSetupSettingsStore(path: string): SetupSettingsStore {
     },
     async saveDatabaseSettings(database) {
       const settings = await readSettings();
-      await writeSettings({ ...settings, database });
+      await writeSettings({ ...settings, database, schema: { current: false, updatedAt: new Date().toISOString() } });
+    },
+    async isSchemaCurrent() {
+      const settings = await readSettings();
+      return settings.schema?.current === true;
+    },
+    async markSchemaCurrent() {
+      const settings = await readSettings();
+      await writeSettings({ ...settings, schema: { current: true, updatedAt: new Date().toISOString() } });
     }
   };
 }

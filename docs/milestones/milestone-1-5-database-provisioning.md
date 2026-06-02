@@ -4,15 +4,46 @@
 
 Move CMS setup from an in-memory review store to a durable, versioned MySQL database. The first-run wizard must configure or create the CMS database **before** creating the first CMS administrator.
 
+## Current Status
+
+Milestone 1.5 is partially implemented and browser-reviewed as a setup-wizard scaffold.
+
+Completed and reviewed:
+
+- Multi-step first-run wizard order: database → schema → first admin.
+- Database setup UI with local/existing MySQL mode selector.
+- Default database name: `O2IAS_CMS`.
+- Default app DB user: `oxygen_cms`.
+- Secure auto-generated application DB password.
+- Inline `Generate Password` button to the right of the password input.
+- Eye icon inside the password input to show/hide the generated password.
+- Apply Schema step displays target schema version `0.01`.
+- Local setup settings are saved in `apps/api/data/settings.json` and ignored by git.
+- Schema migration runner supports string versions such as `0.01` and `0.02`.
+- Initial DDL artifact exists at `apps/api/src/db/migrations/001_security_tenant_schema.sql`.
+- Validation gate passes: typecheck, build, tests, audit.
+
+Still to implement:
+
+- Real MySQL connectivity test.
+- Existing database listing.
+- Database create/select behavior.
+- Application DB user creation/update with least privilege.
+- MySQL schema execution and `cms_schema_versions` recording.
+- MySQL-backed `AuthRepository`.
+- Restart persistence tests for users/groups/roles/tenants/sessions.
+
 ## User Experience
 
-The current first-admin setup flow becomes a multi-step first-run provisioning wizard:
+The current first-admin setup flow is a multi-step first-run provisioning wizard:
 
 1. **Database setup**
 2. **Schema validation / migration**
 3. **First CMS administrator creation**
 
 The user must not be asked to create the first admin until CMS has connected to a valid database and applied the current schema version.
+
+See also: [First-Run Setup Wizard](../setup-wizard.md).
 
 ## Database Setup Modes
 
@@ -22,22 +53,17 @@ The user supplies:
 
 - Hostname / IP
 - Port, default `3306`
-- Administrative SQL username
-- Administrative SQL password
+- Database name, default `O2IAS_CMS`
+- Application DB username
+- Application DB password
 - TLS/SSL option, if needed later
 
-CMS then allows the user to:
+Future implementation will allow the user to:
 
 - Select an existing database, or
 - Create a new database
 
-Default database name:
-
-```text
-O2IAS_CMS
-```
-
-The database name must be editable.
+The database name must remain editable.
 
 ### Mode B — Create a new local MySQL instance, default path
 
@@ -49,7 +75,14 @@ The user is prompted for the application database user:
 
 - App DB username
 - App DB password
-- Confirm password
+
+Password UX rules:
+
+- Generate a secure password automatically.
+- Allow the user to record it.
+- Allow the user to replace it.
+- Provide an eye icon to show/hide it.
+- Keep `Generate Password` inline to the right of the input.
 
 CMS creates or connects to:
 
@@ -61,13 +94,13 @@ CMS creates or connects to:
 
 After CMS connects to or creates the target database, it saves the application DB settings to local application settings.
 
-Initial development implementation may save to a local ignored settings file, for example:
+Current development implementation saves to:
 
 ```text
 apps/api/data/settings.json
 ```
 
-Production hardening later can move secrets to env vars, Docker secrets, or OS secret storage.
+Production hardening later can move secrets to env vars, Docker secrets, OS secret storage, or encrypted local config.
 
 Settings must not be committed.
 
@@ -90,6 +123,13 @@ applied_at
 checksum
 ```
 
+Current versioning convention:
+
+- Pre-production schemas use `0.xx`.
+- Current target schema: `0.01`.
+- Production-ready schema releases may move to `1.x`.
+- Store versions as strings (`VARCHAR(32)`), not integers.
+
 Schema startup behavior:
 
 1. Connect to configured database.
@@ -104,9 +144,9 @@ Milestone 1.5 persists the current in-memory security model:
 - tenants
 - roles
 - users
-- groups
-- user_roles
-- user_groups
+- user groups
+- user role assignments
+- user group assignments
 - sessions
 
 Rules to preserve:
@@ -120,18 +160,18 @@ Rules to preserve:
 
 ## Docker / Repeatable Test Assets
 
-Create Docker assets as part of this milestone:
+Current Docker assets:
 
 ```text
 docker-compose.yml
-docker/mysql/init/
+docker/mysql/init/.gitkeep
 ```
 
 The Docker setup should support repeatable local provisioning tests without requiring manual MySQL installation.
 
 ## API Scope
 
-Add setup/provisioning APIs separate from authenticated admin APIs because they run before the first admin exists:
+Setup/provisioning APIs run before the first admin exists:
 
 ```http
 GET  /api/setup/status
@@ -155,46 +195,51 @@ requires setup if database is not configured OR schema is not current OR no admi
 
 ## UI Scope
 
-Update the setup UI to include:
+Current setup UI includes:
 
-- Setup progress indicator
 - Database mode selection:
   - Create local MySQL instance
   - Connect to existing local/remote MySQL server
-- Connection form
 - Database name field, default `O2IAS_CMS`
-- Existing database selector for existing server mode
-- App DB user/password fields for local-create mode
-- Test connection button
-- Create/connect button
-- Schema migration status
-- Then first admin form
+- App DB user/password fields
+- Generated password with show/hide icon
+- Inline generate password button
+- Test/save database settings action
+- Schema migration status and target schema version
+- First admin form after schema is current
 
 ## Acceptance Criteria
 
+### Completed in Current Scaffold
+
 - Fresh checkout can start setup wizard with no configured DB.
-- User can choose default local MySQL provisioning path.
-- User can connect to an existing MySQL server and select/create `O2IAS_CMS` or another DB name.
+- User can choose default local MySQL provisioning path in UI.
 - DB settings are saved locally and ignored by git.
-- Schema version table is created and current migration is recorded.
-- Current users/groups/roles/tenants APIs use durable MySQL-backed persistence.
-- Restarting the API preserves users/groups/roles/tenants/sessions.
-- Existing auth/RBAC/tenant tests pass against the durable repository.
+- Setup status reports `targetSchemaVersion: "0.01"`.
+- Apply Schema screen clearly states the target schema version.
 - New setup tests cover DB setup status and schema versioning.
 - `npm run typecheck` passes.
 - `npm run build` passes.
 - `npm test` passes.
 - `npm audit` reports 0 vulnerabilities.
 
-## Proposed Implementation Order
+### Remaining for Milestone Completion
 
-1. Add setup status model and tests.
-2. Add local settings store for DB configuration.
-3. Add schema migration runner and `cms_schema_versions` table.
-4. Add initial SQL migration for current security/tenant tables.
-5. Add MySQL-backed auth repository behind the current `AuthRepository` interface.
-6. Add setup database test/list/provision APIs.
-7. Add Docker Compose MySQL service for repeatable testing.
-8. Update first-run React wizard to run DB setup before admin creation.
-9. Update docs and validation commands.
+- User can connect to an existing MySQL server and select/create `O2IAS_CMS` or another DB name.
+- Schema version table is created in MySQL and current migration is recorded.
+- Current users/groups/roles/tenants APIs use durable MySQL-backed persistence.
+- Restarting the API preserves users/groups/roles/tenants/sessions.
+- Existing auth/RBAC/tenant tests pass against the durable repository.
+
+## Proposed Implementation Order From Here
+
+1. Implement `MySQLSchemaMigrationAdapter`.
+2. Add real MySQL connection test API.
+3. Add database list/create/select API behavior.
+4. Add app DB user provisioning/privilege logic.
+5. Execute `001_security_tenant_schema.sql` during Apply Schema.
+6. Record `0.01` in `cms_schema_versions`.
+7. Add MySQL-backed `AuthRepository`.
+8. Add restart persistence tests.
+9. Update setup wizard copy as real MySQL actions replace scaffold responses.
 10. Run full validation and pause for review before Milestone 2.

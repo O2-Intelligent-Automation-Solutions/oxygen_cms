@@ -1,5 +1,6 @@
 import type { AuthRepository } from '../auth/types.js';
-import { DEFAULT_CMS_DATABASE_NAME, type SetupDatabaseStatus, type SetupNextStep, type SetupStatus } from './types.js';
+import type { SetupSettingsStore } from './fileSetupSettingsStore.js';
+import { CURRENT_SCHEMA_VERSION, DEFAULT_CMS_DATABASE_NAME, type SetupDatabaseStatus, type SetupNextStep, type SetupStatus } from './types.js';
 
 export type SetupStatusProvider = {
   getDatabaseStatus(): Promise<SetupDatabaseStatus>;
@@ -12,7 +13,24 @@ export function createDefaultSetupStatusProvider(): SetupStatusProvider {
         configured: false,
         connected: false,
         schemaCurrent: false,
-        defaultDatabaseName: DEFAULT_CMS_DATABASE_NAME
+        defaultDatabaseName: DEFAULT_CMS_DATABASE_NAME,
+        targetSchemaVersion: CURRENT_SCHEMA_VERSION
+      };
+    }
+  };
+}
+
+export function createFileSetupStatusProvider(store: SetupSettingsStore): SetupStatusProvider {
+  return {
+    async getDatabaseStatus() {
+      const database = await store.getDatabaseSettings();
+      const schemaCurrent = await store.isSchemaCurrent();
+      return {
+        configured: Boolean(database),
+        connected: Boolean(database),
+        schemaCurrent: Boolean(database) && schemaCurrent,
+        defaultDatabaseName: DEFAULT_CMS_DATABASE_NAME,
+        targetSchemaVersion: CURRENT_SCHEMA_VERSION
       };
     }
   };

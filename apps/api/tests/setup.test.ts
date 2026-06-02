@@ -1,10 +1,30 @@
-import { describe, expect, it } from 'vitest';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { createInMemoryAuthRepository } from '../src/auth/inMemoryAuthRepository.js';
+import { createFileSetupSettingsStore } from '../src/setup/fileSetupSettingsStore.js';
+import { createFileSetupStatusProvider } from '../src/setup/setupStatus.js';
+
+const tempDirs: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true })));
+  tempDirs.length = 0;
+});
 
 describe('first-run database setup API', () => {
   it('reports database setup is required before first admin creation on a fresh install', async () => {
-    const app = await buildApp({ logger: false, authRepository: createInMemoryAuthRepository() });
+    const dir = await mkdtemp(join(tmpdir(), 'oxygen-cms-setup-api-'));
+    tempDirs.push(dir);
+    const setupSettingsStore = createFileSetupSettingsStore(join(dir, 'settings.json'));
+    const app = await buildApp({
+      logger: false,
+      authRepository: createInMemoryAuthRepository(),
+      setupSettingsStore,
+      setupStatusProvider: createFileSetupStatusProvider(setupSettingsStore)
+    });
 
     const status = await app.inject({ method: 'GET', url: '/api/setup/status' });
 
@@ -14,7 +34,8 @@ describe('first-run database setup API', () => {
         configured: false,
         connected: false,
         schemaCurrent: false,
-        defaultDatabaseName: 'O2IAS_CMS'
+        defaultDatabaseName: 'O2IAS_CMS',
+        targetSchemaVersion: '0.01'
       },
       admin: {
         exists: false
@@ -22,6 +43,52 @@ describe('first-run database setup API', () => {
       nextStep: 'database',
       requiresSetup: true
     });
+
+    await app.close();
+  });
+
+  it('advances the setup wizard from database provisioning to schema and then admin creation', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'oxygen-cms-setup-api-'));
+    tempDirs.push(dir);
+    const setupSettingsStore = createFileSetupSettingsStore(join(dir, 'settings.json'));
+    const app = await buildApp({
+      logger: false,
+      authRepository: createInMemoryAuthRepository(),
+      setupSettingsStore,
+      setupStatusProvider: createFileSetupStatusProvider(setupSettingsStore)
+    });
+
+    const test = await app.inject({
+      method: 'POST',
+      url: '/api/setup/database/test-connection',
+      payload: { mode: 'local-mysql', database: 'O2IAS_CMS', appUser: 'oxygen_cms', appPassword: 'StrongPassword!42' }
+    });
+    expect(test.statusCode).toBe(200);
+    expect(test.json()).toMatchObject({ ok: true, database: 'O2IAS_CMS' });
+
+    const provision = await app.inject({
+      method: 'POST',
+      url: '/api/setup/database/provision',
+      payload: { mode: 'local-mysql', database: 'O2IAS_CMS', appUser: 'oxygen_cms', appPassword: 'StrongPassword!42' }
+    });
+    expect(provision.statusCode).toBe(200);
+    expect(provision.json()).toMatchObject({ ok: true, nextStep: 'schema' });
+
+    const schemaStatus = await app.inject({ method: 'GET', url: '/api/setup/status' });
+    expect(schemaStatus.json().nextStep).toBe('schema');
+    expect(schemaStatus.json().database).toMatchObject({ configured: true, connected: true, schemaCurrent: false });
+
+    const schema = await app.inject({ method: 'POST', url: '/api/setup/database/apply-schema' });
+    expect(schema.statusCode).toBe(200);
+    expect(schema.json()).toMatchObject({ ok: true, nextStep: 'admin' });
+
+    const adminStatus = await app.inject({ method: 'GET', url: '/api/setup/status' });
+    const applySchemaBody = schema.json();
+    expect(applySchemaBody.targetSchemaVersion).toBe('0.01');
+    expect(applySchemaBody.appliedVersions).toEqual(['0.01']);
+
+    expect(adminStatus.json().nextStep).toBe('admin');
+    expect(adminStatus.json().database).toMatchObject({ configured: true, connected: true, schemaCurrent: true });
 
     await app.close();
   });

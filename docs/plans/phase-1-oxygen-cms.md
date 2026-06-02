@@ -6,7 +6,38 @@
 
 **Architecture:** CMS is a single deployable React/Node application with a local MySQL database, local authentication/RBAC, encrypted remote OxyGen credentials, and a background polling worker. Phase 1 is CMS-initiated HTTPS polling only; it does not require agents, tunnels, callbacks, or writes back to remote OxyGen instances.
 
-**Tech Stack:** React + TypeScript + Vite frontend, Node.js + TypeScript API, MySQL, Prisma or Knex migrations, Docker, local HTTPS binding via mounted certificate/key files.
+**Tech Stack:** React + TypeScript + Vite frontend, Node.js + TypeScript API, MySQL, TypeScript schema migration runner, Docker, local HTTPS binding via mounted certificate/key files.
+
+---
+
+## Current Status Checkpoint — 2026-06-02
+
+The project is currently in **Milestone 1.5 — Database Provisioning and Durable Security Persistence**.
+
+Reviewed and approved browser-testable work:
+
+- First-run setup wizard order is database → schema → first administrator → sign in.
+- Database setup UI supports local/existing MySQL modes at scaffold level.
+- Default CMS database is `O2IAS_CMS`.
+- Application DB password is generated automatically, editable, show/hide capable, and regenerated inline.
+- Apply Schema step explicitly displays target schema version `0.01`.
+- Pre-production schema versions must remain in the `0.xx` range.
+- Initial security/tenant DDL is committed at `apps/api/src/db/migrations/001_security_tenant_schema.sql`.
+- Setup settings are persisted locally at `apps/api/data/settings.json` and ignored by git.
+
+Still required before Milestone 1.5 is complete:
+
+- Real MySQL connection testing and database list/create/select behavior.
+- Real SQL schema execution and `cms_schema_versions` recording.
+- MySQL-backed auth/RBAC/tenant repository.
+- Restart persistence tests.
+
+Related docs:
+
+- [Current Status](../current-status.md)
+- [Database Architecture](../database-architecture.md)
+- [First-Run Setup Wizard](../setup-wizard.md)
+- [Milestone 1.5](../milestones/milestone-1-5-database-provisioning.md)
 
 ---
 

@@ -226,6 +226,71 @@ input:focus, select:focus {
   box-shadow: 0 0 0 3px rgba(32, 214, 210, 0.13);
 }
 
+.password-action-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.password-input-wrap {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+
+.password-input-wrap input {
+  padding-right: 48px;
+}
+
+.password-visibility-toggle {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  padding: 0;
+  background: transparent;
+  color: var(--brand-muted);
+  box-shadow: none;
+  transform: translateY(-50%);
+}
+
+.password-visibility-toggle:hover {
+  color: var(--brand-primary);
+  background: rgba(32, 214, 210, 0.1);
+}
+
+.password-visibility-toggle svg {
+  width: 18px;
+  height: 18px;
+}
+
+.compact-button {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 9px 12px;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.compact-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+label small {
+  color: var(--brand-muted-2);
+  line-height: 1.45;
+}
+
 button {
   border: 0;
   border-radius: 12px;

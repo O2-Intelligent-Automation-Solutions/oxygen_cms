@@ -7,7 +7,8 @@ Secure OxyGen CMS with local users, role assignments, and group/folder membershi
 ## Delivered Scope
 
 - Password hashing with per-user salts using Node `scrypt`.
-- Admin bootstrap API and initial setup wizard UI.
+- Initial setup wizard UI.
+- Database-first setup wizard scaffold introduced in Milestone 1.5; first admin creation is now gated behind database setup and schema version `0.01`.
 - The login UI is hidden until the first SystemAdmin account exists.
 - Bearer-token authenticated request middleware.
 - Role authorization middleware.
@@ -41,7 +42,9 @@ POST /api/users
 - Passwords are never returned by the API.
 - Password hashes are salted and verified with timing-safe comparison.
 - User/group admin endpoints require `SystemAdmin`.
-- This milestone uses an in-memory repository at runtime for immediate review; the MySQL schema is included and will be wired to a durable repository as persistence work expands.
+- Database setup secrets are stored only in ignored local setup state during the current scaffold.
+- Current runtime auth remains in-memory for review; the MySQL DDL and migration metadata are committed and will be wired to a durable repository as Milestone 1.5 continues.
+- Pre-production schema version `0.01` defines the initial security/tenant tables.
 
 ## Validation Gate
 

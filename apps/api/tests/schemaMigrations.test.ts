@@ -6,8 +6,8 @@ describe('schema migration runner', () => {
     const calls: string[] = [];
     const applied: string[] = [];
     const migrations: SchemaMigration[] = [
-      { version: 1, name: 'create security tables', checksum: 'abc123', upSql: 'create table users (id varchar(36));' },
-      { version: 2, name: 'add instances', checksum: 'def456', upSql: 'create table instances (id varchar(36));' }
+      { version: '0.01', name: 'create security tables', checksum: 'abc123', upSql: 'create table users (id varchar(36));' },
+      { version: '0.02', name: 'add instances', checksum: 'def456', upSql: 'create table instances (id varchar(36));' }
     ];
     const adapter: SchemaMigrationAdapter = {
       async ensureVersionTable() { calls.push('ensureVersionTable'); },
@@ -20,10 +20,10 @@ describe('schema migration runner', () => {
 
     expect(calls).toEqual([
       'ensureVersionTable',
-      'apply:1',
-      'record:1',
-      'apply:2',
-      'record:2'
+      'apply:0.01',
+      'record:0.01',
+      'apply:0.02',
+      'record:0.02'
     ]);
   });
 });

@@ -1,6 +1,6 @@
 import {
-  Activity, ChevronDown, ChevronLeft, ChevronRight, Database, LayoutDashboard,
-  LogOut, Pencil, Plus, Server, Settings, ShieldCheck, Trash2, UserCircle, UserPlus
+  Activity, ChevronDown, ChevronLeft, ChevronRight, Database, Eye, EyeOff, LayoutDashboard,
+  LogOut, Pencil, Plus, RotateCw, Server, Settings, ShieldCheck, Trash2, UserCircle, UserPlus
 } from 'lucide-react';
 import { Grid, GridColumn, type GridCustomCellProps, type GridDataStateChangeEvent } from '@progress/kendo-react-grid';
 import { Button } from '@progress/kendo-react-buttons';
@@ -20,6 +20,9 @@ type Role = { id: string; name: string; description: string | null; tenantId: Te
 type Tenant = { id: string; name: string; description: string | null };
 type UserProfile = AuthProfile;
 type BootstrapStatus = { requiresBootstrap: boolean };
+type SetupNextStep = 'database' | 'schema' | 'admin' | 'complete';
+type SetupStatus = { database: { configured: boolean; connected: boolean; schemaCurrent: boolean; defaultDatabaseName: string; targetSchemaVersion: string }; admin: { exists: boolean }; nextStep: SetupNextStep; requiresSetup: boolean };
+type DatabaseSetupResponse = { ok: boolean; mode?: string; database: string; message?: string; nextStep?: SetupNextStep; targetSchemaVersion?: string; appliedVersions?: string[] };
 type NavSection = 'dashboard' | 'organizations' | 'instances' | 'users' | 'user-groups' | 'roles' | 'settings-general' | 'settings-advanced';
 type ModalKind = 'user' | 'group' | 'role' | 'tenant';
 type ModalEntity = UserProfile | Group | Role | Tenant;
@@ -35,6 +38,14 @@ const capabilities = [
   { icon: Database, label: 'Settings intelligence', detail: 'Query global settings across customer instances.' },
   { icon: ShieldCheck, label: 'Secure access', detail: 'Local authentication, roles, and group-scoped access.' },
 ];
+
+const passwordAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*()-_=+[]{}';
+
+function generateSecurePassword(length = 24) {
+  const values = new Uint32Array(length);
+  crypto.getRandomValues(values);
+  return Array.from(values, (value) => passwordAlphabet[value % passwordAlphabet.length]).join('');
+}
 
 function apiErrorMessage(status: number, body: Record<string, unknown>) {
   const base = String(body.error || body.message || `Request failed with status ${status}`);
@@ -55,6 +66,10 @@ async function api<T>(path: string, options: RequestInit & { token?: string } = 
 export function App() {
   const [token, setToken] = useState('');
   const [requiresBootstrap, setRequiresBootstrap] = useState<boolean | null>(null);
+  const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null);
+  const [databaseMode, setDatabaseMode] = useState<'local-mysql' | 'existing-mysql'>('local-mysql');
+  const [appDbPassword, setAppDbPassword] = useState(() => generateSecurePassword());
+  const [showAppDbPassword, setShowAppDbPassword] = useState(false);
   const [profile, setProfile] = useState<AuthProfile | null>(null);
   const [groups, setGroups] = useState<Group[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
@@ -78,11 +93,20 @@ export function App() {
   const tenantName = (tenantId: TenantId) => tenantId ? tenants.find((tenant) => tenant.id === tenantId)?.name || 'Unknown tenant' : 'Global';
   const availableRoles = roles.length ? roles : [{ id: 'operator', name: 'Operator', description: null, tenantId: null, isSystem: false }];
 
+  async function loadSetupStatus(active = true) {
+    try {
+      const s = await api<SetupStatus>('/api/setup/status');
+      if (!active) return;
+      setSetupStatus(s);
+      setRequiresBootstrap(s.requiresSetup && s.nextStep !== 'complete');
+    } catch (err) {
+      if (active) setError(err instanceof Error ? err.message : 'Unable to load setup status.');
+    }
+  }
+
   useEffect(() => {
     let active = true;
-    api<BootstrapStatus>('/api/auth/bootstrap-status')
-      .then((s) => { if (active) setRequiresBootstrap(s.requiresBootstrap); })
-      .catch((err) => { if (active) setError(err instanceof Error ? err.message : 'Unable to load setup status.'); });
+    loadSetupStatus(active);
     return () => { active = false; };
   }, []);
 
@@ -109,13 +133,44 @@ export function App() {
     if (!implemented) showNotImplemented(label || section);
   }
 
+  async function handleDatabaseSetup(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault(); clearStatus();
+    const el = e.currentTarget;
+    const f = new FormData(el);
+    const payload = {
+      mode: databaseMode,
+      host: f.get('host') || 'localhost',
+      port: Number(f.get('port') || 3306),
+      database: f.get('database') || 'O2IAS_CMS',
+      adminUser: f.get('adminUser') || undefined,
+      adminPassword: f.get('adminPassword') || undefined,
+      appUser: f.get('appUser') || 'oxygen_cms',
+      appPassword: f.get('appPassword')
+    };
+    try {
+      const test = await api<DatabaseSetupResponse>('/api/setup/database/test-connection', { method: 'POST', body: JSON.stringify(payload) });
+      const provision = await api<DatabaseSetupResponse>('/api/setup/database/provision', { method: 'POST', body: JSON.stringify(payload) });
+      setMessage(`${test.message || 'Database settings validated.'} Saved ${provision.database}; proceed to schema update.`);
+      await loadSetupStatus();
+    } catch (err) { setError(err instanceof Error ? err.message : 'Database setup failed.'); }
+  }
+
+  async function handleApplySchema() {
+    clearStatus();
+    try {
+      const schema = await api<DatabaseSetupResponse>('/api/setup/database/apply-schema', { method: 'POST' });
+      setMessage(`Schema version ${schema.targetSchemaVersion || setupStatus?.database.targetSchemaVersion || '0.01'} is current for ${schema.database}. Applied versions: ${(schema.appliedVersions || []).join(', ') || 'none'}.`);
+      await loadSetupStatus();
+    } catch (err) { setError(err instanceof Error ? err.message : 'Schema update failed.'); }
+  }
+
   async function handleBootstrap(e: FormEvent<HTMLFormElement>) {
     e.preventDefault(); clearStatus();
     const el = e.currentTarget;
     const f = new FormData(el);
     try {
       await api<AuthProfile>('/api/auth/bootstrap', { method: 'POST', body: JSON.stringify({ email: f.get('email'), displayName: f.get('displayName'), password: f.get('password') }) });
-      setMessage('Initial setup succeeded. You can now sign in.'); setRequiresBootstrap(false); el.reset();
+      setMessage('Initial setup succeeded. You can now sign in.'); setRequiresBootstrap(false); el.reset(); await loadSetupStatus();
     } catch (err) { setError(err instanceof Error ? err.message : 'Bootstrap failed.'); }
   }
 
@@ -252,7 +307,17 @@ export function App() {
   return (
     <main className={`shell${profile ? ' app-shell' : ''}`}>
       <header className="brand-bar"><a className="brand-lockup" href="/" aria-label="OxyGen CMS home"><img className="brand-logo" src={oxygenLogo} alt="OxyGen" /><span className="brand-product">Central Management Server</span></a><div className="company-lockup"><span>Powered by</span><img src={o2Logo} alt="O2 Intelligent Automation Solutions" /></div></header>
-      {!profile && (<><section className="hero"><h1 className="hero-title"><span>Centralized management for</span><span>OxyGen BPM deployments.</span></h1><p className="summary">A lightweight management server for monitoring OxyGen health, licensing, global settings, and workflow status across partner and customer environments.</p></section><section className="cards">{capabilities.map(({ icon: Icon, label, detail }) => (<article className="card" key={label}><Icon /><h2>{label}</h2><p>{detail}</p></article>))}</section>{requiresBootstrap === null && <p className="status">Checking setup status…</p>}{requiresBootstrap === true && (<section className="auth-grid single"><article className="panel setup-panel"><div className="panel-brand-mark-wrap"><img className="panel-brand-mark" src={oxygenFullLogo} alt="OxyGen" /></div><div className="panel-heading"><ShieldCheck /><div><p className="eyebrow small">Initial CMS setup</p><h2>Create the first administrator</h2></div></div><p className="panel-copy">No CMS users exist yet. Create the first local administrator to finish setup.</p><form onSubmit={handleBootstrap}><label>Email<input name="email" type="email" placeholder="admin@example.com" required /></label><label>Display name<input name="displayName" placeholder="System Admin" required /></label><label>Password<input name="password" type="password" minLength={12} placeholder="12+ characters" required /></label><button type="submit">Create administrator</button></form></article></section>)}{requiresBootstrap === false && !profile && (<section className="auth-grid single"><article className="panel"><div className="panel-heading"><UserPlus /><div><p className="eyebrow small">Secure access</p><h2>Sign in</h2></div></div><form onSubmit={handleLogin}><label>Email<input name="email" type="email" placeholder="admin@example.com" required /></label><label>Password<input name="password" type="password" required /></label><button type="submit">Sign in</button></form></article></section>)}</>)}
+      {!profile && (
+        <>
+          <section className="hero"><h1 className="hero-title"><span>Centralized management for</span><span>OxyGen BPM deployments.</span></h1><p className="summary">A lightweight management server for monitoring OxyGen health, licensing, global settings, and workflow status across partner and customer environments.</p></section>
+          <section className="cards">{capabilities.map(({ icon: Icon, label, detail }) => (<article className="card" key={label}><Icon /><h2>{label}</h2><p>{detail}</p></article>))}</section>
+          {setupStatus === null && <p className="status">Checking setup status…</p>}
+          {setupStatus?.nextStep === 'database' && (<section className="auth-grid single"><article className="panel setup-panel"><div className="panel-brand-mark-wrap"><img className="panel-brand-mark" src={oxygenFullLogo} alt="OxyGen" /></div><div className="panel-heading"><Database /><div><p className="eyebrow small">Initial CMS setup</p><h2>Configure database</h2></div></div><p className="panel-copy">Configure or create the CMS database before creating the first administrator. Default database name is <strong>O2IAS_CMS</strong>.</p><form onSubmit={handleDatabaseSetup}><label>Database setup mode<select value={databaseMode} onChange={(e) => setDatabaseMode(e.target.value as 'local-mysql' | 'existing-mysql')}><option value="local-mysql">Create local MySQL instance (default)</option><option value="existing-mysql">Connect to existing local/remote MySQL server</option></select></label>{databaseMode === 'existing-mysql' && (<><label>SQL server host<input name="host" placeholder="localhost or db.example.com" defaultValue="localhost" required /></label><label>SQL server port<input name="port" type="number" defaultValue="3306" required /></label><label>SQL admin user<input name="adminUser" placeholder="root" /></label><label>SQL admin password<input name="adminPassword" type="password" /></label></>)}<label>Database name<input name="database" defaultValue={setupStatus.database.defaultDatabaseName} required /></label><label>Application DB user<input name="appUser" defaultValue="oxygen_cms" required /></label><label>Application DB password<div className="password-action-row"><span className="password-input-wrap"><input name="appPassword" type={showAppDbPassword ? 'text' : 'password'} minLength={12} value={appDbPassword} onChange={(e) => setAppDbPassword(e.target.value)} required /><button className="password-visibility-toggle" type="button" onClick={() => setShowAppDbPassword((visible) => !visible)} aria-label={showAppDbPassword ? 'Hide generated application database password' : 'Show generated application database password'}>{showAppDbPassword ? <EyeOff /> : <Eye />}</button></span><button className="secondary compact-button password-generate-button" type="button" onClick={() => { setAppDbPassword(generateSecurePassword()); setShowAppDbPassword(true); }}><RotateCw /> Generate Password</button></div><small>Generated automatically. Show it to record it, or replace it with your own 12+ character password.</small></label><button type="submit">Test and save database settings</button></form></article></section>)}
+          {setupStatus?.nextStep === 'schema' && (<section className="auth-grid single"><article className="panel setup-panel"><div className="panel-heading"><Database /><div><p className="eyebrow small">Initial CMS setup</p><h2>Update database schema</h2></div></div><p className="panel-copy">Database settings are saved. The wizard is ready to apply CMS schema version <strong>{setupStatus.database.targetSchemaVersion}</strong>. Pre-production CMS schemas use 0.xx version numbers.</p><button type="button" onClick={handleApplySchema}>Apply schema version {setupStatus.database.targetSchemaVersion}</button></article></section>)}
+          {setupStatus?.nextStep === 'admin' && (<section className="auth-grid single"><article className="panel setup-panel"><div className="panel-brand-mark-wrap"><img className="panel-brand-mark" src={oxygenFullLogo} alt="OxyGen" /></div><div className="panel-heading"><ShieldCheck /><div><p className="eyebrow small">Initial CMS setup</p><h2>Create the first administrator</h2></div></div><p className="panel-copy">Database setup is complete. Create the first local administrator to finish setup.</p><form onSubmit={handleBootstrap}><label>Email<input name="email" type="email" placeholder="admin@example.com" required /></label><label>Display name<input name="displayName" placeholder="System Admin" required /></label><label>Password<input name="password" type="password" minLength={12} placeholder="12+ characters" required /></label><button type="submit">Create administrator</button></form></article></section>)}
+          {setupStatus?.nextStep === 'complete' && (<section className="auth-grid single"><article className="panel"><div className="panel-heading"><UserPlus /><div><p className="eyebrow small">Secure access</p><h2>Sign in</h2></div></div><form onSubmit={handleLogin}><label>Email<input name="email" type="email" placeholder="admin@example.com" required /></label><label>Password<input name="password" type="password" required /></label><button type="submit">Sign in</button></form></article></section>)}
+        </>
+      )}
 
       {profile && (<div className={`admin-layout ${isDrawerExpanded ? 'drawer-expanded' : 'drawer-collapsed'}`}><aside className={`admin-sidebar ${isDrawerExpanded ? 'expanded' : 'collapsed'}`}><button className="sidebar-toggle" type="button" onClick={() => setIsDrawerExpanded((v) => !v)} aria-label={isDrawerExpanded ? 'Collapse navigation' : 'Expand navigation'}>{isDrawerExpanded ? <ChevronLeft /> : <ChevronRight />}</button><div className="sidebar-user"><UserCircle /><div><span className="su-name">{profile.user.displayName}</span><span className="su-role">{profile.roles[0]}</span></div></div><nav className="sidebar-nav"><button className={`nav-link${activeSection === 'dashboard' ? ' active' : ''}`} onClick={() => nav('dashboard')}><LayoutDashboard /><span>Dashboard</span></button><div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => toggleAccordion('organizations')}><Server /><span>Organizations</span>{openAccordions.has('organizations') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('organizations') && (<div className="nav-accordion-children"><button className={`nav-link child${activeSection === 'organizations' ? ' active' : ''}`} onClick={() => nav('organizations')}><span>Tenants / Partners</span></button><button className={`nav-link child${activeSection === 'instances' ? ' active' : ''}`} onClick={() => nav('instances', false, 'Instances')}><span>Instances</span></button></div>)}</div><div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => toggleAccordion('security')}><ShieldCheck /><span>Security</span>{openAccordions.has('security') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('security') && (<div className="nav-accordion-children"><button className={`nav-link child${activeSection === 'users' ? ' active' : ''}`} onClick={() => nav('users')}><span>Users</span></button><button className={`nav-link child${activeSection === 'user-groups' ? ' active' : ''}`} onClick={() => nav('user-groups')}><span>User Groups</span></button><button className={`nav-link child${activeSection === 'roles' ? ' active' : ''}`} onClick={() => nav('roles')}><span>Roles</span></button></div>)}</div><div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => toggleAccordion('settings')}><Settings /><span>Settings</span>{openAccordions.has('settings') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('settings') && (<div className="nav-accordion-children"><button className={`nav-link child${activeSection === 'settings-general' ? ' active' : ''}`} onClick={() => nav('settings-general', false, 'General Settings')}><span>General</span></button><button className={`nav-link child${activeSection === 'settings-advanced' ? ' active' : ''}`} onClick={() => nav('settings-advanced', false, 'Advanced Settings')}><span>Advanced</span></button></div>)}</div></nav><button className="sidebar-logout" onClick={handleLogout}><LogOut /><span>Sign out</span></button></aside>
         <section className={`admin-content ${gridSection ? 'grid-section' : ''}`}><div className="page-header"><p className="eyebrow small">{sectionMeta.eyebrow}</p><h2>{sectionMeta.heading}</h2></div>

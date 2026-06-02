@@ -1,8 +1,8 @@
--- OxyGen CMS schema migration 001
+-- OxyGen CMS schema migration 001 / version 0.01
 -- Security, tenancy, roles, groups, users, and sessions.
 
 CREATE TABLE IF NOT EXISTS cms_schema_versions (
-  version INT NOT NULL PRIMARY KEY,
+  version VARCHAR(32) NOT NULL PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
   checksum VARCHAR(128) NOT NULL,
   applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP

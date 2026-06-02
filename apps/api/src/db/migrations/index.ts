@@ -2,7 +2,7 @@ import type { SchemaMigration } from '../../setup/schemaMigrations.js';
 
 const securityTenantSchemaSql = `
 CREATE TABLE IF NOT EXISTS cms_schema_versions (
-  version INT NOT NULL PRIMARY KEY,
+  version VARCHAR(32) NOT NULL PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
   checksum VARCHAR(128) NOT NULL,
   applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -88,9 +88,9 @@ INSERT IGNORE INTO roles (id, name, description, tenant_id, protected) VALUES
 
 export const schemaMigrations: SchemaMigration[] = [
   {
-    version: 1,
+    version: '0.01',
     name: 'security tenant schema',
-    checksum: '23b41d3b9423d0947195328c00ee3739d9250c0e38275d0b4968be2d0e36e2a2',
+    checksum: '70bef5fa79ea3a743dc5e398156f66c6bee0a34b550093a021138b2071fb0573',
     upSql: securityTenantSchemaSql
   }
 ];
