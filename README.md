@@ -16,7 +16,7 @@ Reviewed browser-testable state:
 - Apply Schema step clearly displays the target schema version.
 - Current pre-production schema version: `0.01`.
 - Setup state is stored locally in `apps/api/data/settings.json` and ignored by git.
-- Real MySQL provisioning/execution is the next implementation pass; the current wizard actions are scaffolded for review.
+- Real MySQL provisioning/schema execution is implemented for self-contained managed development mode via Docker Compose.
 
 See [Current Status](docs/current-status.md) for details.
 
