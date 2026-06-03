@@ -17,7 +17,7 @@ Completed and reviewed:
 - Secure auto-generated application DB password.
 - Inline `Generate Password` button to the right of the password input.
 - Eye icon inside the password input to show/hide the generated password.
-- Apply Schema step displays target schema version `0.01`.
+- Apply Schema step displays target schema version `0.02`.
 - Local setup settings are saved in `apps/api/data/settings.json` and ignored by git.
 - Schema migration runner supports string versions such as `0.01` and `0.02`.
 - Initial DDL artifact exists at `apps/api/src/db/migrations/001_security_tenant_schema.sql`.
@@ -130,7 +130,7 @@ checksum
 Current versioning convention:
 
 - Pre-production schemas use `0.xx`.
-- Current target schema: `0.01`.
+- Current target schema: `0.02`.
 - Production-ready schema releases may move to `1.x`.
 - Store versions as strings (`VARCHAR(32)`), not integers.
 
@@ -219,7 +219,7 @@ Current setup UI includes:
 - Fresh checkout can start setup wizard with no configured DB.
 - User can choose default local MySQL provisioning path in UI.
 - DB settings are saved locally and ignored by git.
-- Setup status reports `targetSchemaVersion: "0.01"`.
+- Setup status reports `targetSchemaVersion: "0.02"`.
 - Apply Schema screen clearly states the target schema version.
 - New setup tests cover DB setup status and schema versioning.
 - `npm run typecheck` passes.

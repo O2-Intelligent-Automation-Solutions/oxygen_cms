@@ -15,12 +15,12 @@ The first-run setup UI now follows this order:
    - Custom existing MySQL deployments collect privileged schema credentials separately from application runtime credentials.
 2. **Apply schema**
    - Shows target CMS schema version before applying.
-   - Current pre-production target schema version: `0.01`.
+   - Current pre-production target schema version: `0.02`.
 3. **Create first administrator**
    - Admin creation is blocked until database settings are saved and schema is current.
 4. **Sign in**
-   - After schema is current, auth/RBAC operations use the configured MySQL database through the setup-aware auth repository.
-   - Admin users, roles, groups, tenants, and sessions survive API/Web process restarts.
+   - After schema is current, auth/RBAC and instance enrollment operations use the configured MySQL database through setup-aware repositories.
+   - Admin users, roles, groups, tenants, sessions, and enrolled OxyGen instances survive API/Web process restarts.
 
 ## Current API Contract
 
@@ -34,27 +34,57 @@ POST /api/setup/database/provision
 POST /api/setup/database/apply-schema
 ```
 
+Authenticated CRUD endpoints:
+
+```http
+GET /api/tenants
+POST /api/tenants
+PATCH /api/tenants/:tenantId
+DELETE /api/tenants/:tenantId
+
+GET /api/roles
+POST /api/roles
+PATCH /api/roles/:roleId
+DELETE /api/roles/:roleId
+
+GET /api/groups
+POST /api/groups
+PATCH /api/groups/:groupId
+DELETE /api/groups/:groupId
+
+GET /api/users
+POST /api/users
+PATCH /api/users/:userId
+DELETE /api/users/:userId
+
+GET /api/instances
+POST /api/instances
+PATCH /api/instances/:instanceId
+DELETE /api/instances/:instanceId
+POST /api/instances/:instanceId/test-connectivity
+```
+
 ## Implemented in This Slice
 
 - Managed deployment capability endpoint that redacts MySQL secrets.
 - Self-contained managed provisioning endpoint using deployment-provided MySQL secrets.
 - Step-by-step database wizard UI.
 - Docker Compose flags for managed MySQL mode.
-- Real MySQL provisioning and schema execution remain code-backed; live self-contained provisioning requires Docker/MySQL to be available in the runtime environment.
+- Real MySQL provisioning and schema execution for self-contained development deployments.
 - Disposable development database scripts:
   - `npm run dev:db:reset` — destroy/recreate the MySQL container and clear local setup state.
   - `npm run dev:managed` — run API/Web in self-contained managed MySQL mode.
   - `npm run dev:managed:smoke` — exercise managed provision + schema endpoints.
-- MySQL-backed auth repository:
+- MySQL-backed auth/RBAC repository:
   - Uses the configured runtime application DB credentials after schema is current.
   - Persists bootstrap admin, sessions, tenants, roles, groups, and users in MySQL.
-  - Integration test: `npm run test:mysql-auth`.
-- Instance enrollment scaffold:
+  - Integration test: `npm run test:mysql-crud`.
+- MySQL-backed instance repository:
   - Adds authenticated `/api/instances` CRUD endpoints.
   - SystemAdmin users can create, update, delete, and run the current connectivity-test scaffold.
   - Non-admin users only see instances assigned to their CMS user groups.
-  - The browser Instances page now has an enrollment grid and create/edit modal.
-  - Current instance repository is in-memory for browser review; MySQL persistence and live OxyGen connectivity are the next implementation slices.
+  - The browser Instances page has an enrollment grid and create/edit modal.
+  - Persists enrolled instances in MySQL after schema version `0.02` is applied.
 
 ## Validation Gate
 

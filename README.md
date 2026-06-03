@@ -14,7 +14,7 @@ Reviewed browser-testable state:
 - Database name defaults to `O2IAS_CMS`.
 - Application DB password is auto-generated, editable, visible via an eye toggle, and can be regenerated inline.
 - Apply Schema step clearly displays the target schema version.
-- Current pre-production schema version: `0.01`.
+- Current pre-production schema version: `0.02`.
 - Setup state is stored locally in `apps/api/data/settings.json` and ignored by git.
 - Real MySQL provisioning/schema execution is implemented for self-contained managed development mode via Docker Compose.
 
@@ -44,16 +44,17 @@ npm audit
 Expected current result:
 
 ```text
-14 tests passed
+15 tests passed
 0 vulnerabilities
 ```
 
 ## Schema DDL
 
-The current schema DDL artifact is committed at:
+The current schema DDL artifacts are committed at:
 
 ```text
 apps/api/src/db/migrations/001_security_tenant_schema.sql
+apps/api/src/db/migrations/002_oxygen_instances.sql
 ```
 
 The embedded migration registry is at:

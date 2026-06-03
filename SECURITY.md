@@ -6,7 +6,7 @@ OxyGen CMS is in pre-production Phase 1 development.
 
 | Version / Schema | Supported | Notes |
 | --- | --- | --- |
-| `0.xx` | Active development | Pre-production schema versions. Current target: `0.01`. |
+| `0.xx` | Active development | Pre-production schema versions. Current target: `0.02`. |
 | `1.x` | Future | Production-ready schema line after Phase 1 hardening. |
 
 ## Current Security Architecture
@@ -45,7 +45,7 @@ apps/api/src/db/migrations/001_security_tenant_schema.sql
 Current schema version:
 
 ```text
-0.01
+0.02
 ```
 
 The `cms_schema_versions` table records applied schema versions and checksums. Pre-production versions must use the `0.xx` convention until production readiness.

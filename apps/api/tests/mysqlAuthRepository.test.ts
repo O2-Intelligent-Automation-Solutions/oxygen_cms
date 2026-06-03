@@ -17,13 +17,14 @@ describeMysql('MySQL auth repository', () => {
     });
 
     try {
-      await pool.query('DELETE FROM sessions');
-      await pool.query('DELETE FROM user_group_assignments');
-      await pool.query('DELETE FROM user_role_assignments');
-      await pool.query('DELETE FROM users');
-      await pool.query('DELETE FROM user_groups');
-      await pool.query('DELETE FROM roles WHERE protected = 0 AND name NOT IN (\'PartnerAdmin\', \'Operator\', \'Viewer\')');
-      await pool.query('DELETE FROM tenants');
+      await pool.query("DELETE FROM oxygen_instances WHERE group_id IN (SELECT id FROM user_groups WHERE name = 'Partner A Operators')");
+      await pool.query("DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE email IN ('admin@example.com', 'operator@example.com'))");
+      await pool.query("DELETE FROM user_group_assignments WHERE user_id IN (SELECT id FROM users WHERE email IN ('admin@example.com', 'operator@example.com'))");
+      await pool.query("DELETE FROM user_role_assignments WHERE user_id IN (SELECT id FROM users WHERE email IN ('admin@example.com', 'operator@example.com'))");
+      await pool.query("DELETE FROM users WHERE email IN ('admin@example.com', 'operator@example.com')");
+      await pool.query("DELETE FROM user_groups WHERE name = 'Partner A Operators'");
+      await pool.query("DELETE FROM roles WHERE protected = 0 AND name = 'WorkflowReviewer'");
+      await pool.query("DELETE FROM tenants WHERE name = 'Partner A'");
 
       const firstRepository = createMysqlAuthRepository(pool);
       expect(await firstRepository.hasUsers()).toBe(false);

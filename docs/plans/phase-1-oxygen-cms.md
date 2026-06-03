@@ -20,7 +20,7 @@ Reviewed and approved browser-testable work:
 - Database setup UI supports local/existing MySQL modes at scaffold level.
 - Default CMS database is `O2IAS_CMS`.
 - Application DB password is generated automatically, editable, show/hide capable, and regenerated inline.
-- Apply Schema step explicitly displays target schema version `0.01`.
+- Apply Schema step explicitly displays target schema version `0.02`.
 - Pre-production schema versions must remain in the `0.xx` range.
 - Initial security/tenant DDL is committed at `apps/api/src/db/migrations/001_security_tenant_schema.sql`.
 - Setup settings are persisted locally at `apps/api/data/settings.json` and ignored by git.

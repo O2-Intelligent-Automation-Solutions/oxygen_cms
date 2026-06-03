@@ -8,6 +8,7 @@ import { registerAuthRoutes } from './auth/registerAuthRoutes.js';
 import type { AuthRepository } from './auth/types.js';
 import { loadConfig } from './config/loadConfig.js';
 import { createInMemoryInstanceRepository } from './instances/inMemoryInstanceRepository.js';
+import { createSetupAwareInstanceRepository } from './instances/mysqlInstanceRepository.js';
 import { registerInstanceRoutes } from './instances/registerInstanceRoutes.js';
 import type { InstanceRepository } from './instances/types.js';
 import { registerSetupRoutes } from './setup/registerSetupRoutes.js';
@@ -41,10 +42,11 @@ export async function buildApp(options: BuildAppOptions = {}) {
     setupStatusProvider = defaultSetupStatusProvider,
     databaseProvisioner = defaultDatabaseProvisioner,
     deploymentConfig = defaultDeploymentConfig,
-    instanceRepository = defaultInstanceRepository,
+    instanceRepository: providedInstanceRepository,
     ...fastifyOptions
   } = options;
   const authRepository = options.authRepository ?? createSetupAwareAuthRepository(setupSettingsStore, defaultFallbackAuthRepository);
+  const instanceRepository = providedInstanceRepository ?? createSetupAwareInstanceRepository(setupSettingsStore, defaultInstanceRepository);
   const app = Fastify(fastifyOptions);
   const config = loadConfig();
 
