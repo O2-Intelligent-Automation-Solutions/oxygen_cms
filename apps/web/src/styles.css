@@ -211,7 +211,7 @@ label {
   font-size: 0.92rem;
 }
 
-input, select {
+input, select, textarea {
   width: 100%;
   border: 1px solid rgba(125, 160, 188, 0.32);
   border-radius: 12px;
@@ -221,9 +221,30 @@ input, select {
   outline: none;
 }
 
-input:focus, select:focus {
+textarea {
+  min-height: 78px;
+  resize: vertical;
+  line-height: 1.35;
+}
+
+input:focus, select:focus, textarea:focus {
   border-color: var(--brand-primary);
   box-shadow: 0 0 0 3px rgba(32, 214, 210, 0.13);
+}
+
+input:not([type="checkbox"]):not([type="radio"]),
+select,
+textarea,
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+textarea:-webkit-autofill,
+select:-webkit-autofill {
+  background-color: rgba(3, 12, 22, 0.74) !important;
+  color: var(--brand-text) !important;
+  -webkit-text-fill-color: var(--brand-text) !important;
+  caret-color: var(--brand-text);
+  box-shadow: 0 0 0 1000px rgba(3, 12, 22, 0.94) inset !important;
 }
 
 .password-action-row {
@@ -1111,8 +1132,72 @@ button.secondary {
 }
 
 .modal-form input,
-.modal-form select {
+.modal-form select,
+.modal-form textarea {
   margin-top: 6px;
+}
+
+.modal-form small {
+  display: block;
+  margin-top: 5px;
+  color: var(--brand-muted-2);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.form-section {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid rgba(125, 160, 188, 0.22);
+  border-radius: 14px;
+  background: rgba(3, 12, 22, 0.24);
+}
+
+.form-section legend {
+  padding: 0 6px;
+  color: var(--brand-primary);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.form-row {
+  display: grid;
+  gap: 12px;
+  align-items: start;
+}
+
+.form-row.one { grid-template-columns: minmax(0, 1fr); }
+.form-row.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.form-row.three { grid-template-columns: minmax(116px, 0.7fr) minmax(220px, 1.8fr) minmax(100px, 0.7fr); }
+
+.checkbox-label.inline-checkbox {
+  display: inline-grid;
+  grid-template-columns: 16px max-content;
+  align-items: center;
+  justify-content: start;
+  gap: 8px;
+  width: fit-content;
+  margin: 0;
+  color: var(--brand-text);
+}
+
+.checkbox-label.inline-checkbox input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+}
+
+.cms-kendo-grid td[data-field="description"] {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: normal;
+  line-height: 1.35;
 }
 
 .k-button.btn-create {
