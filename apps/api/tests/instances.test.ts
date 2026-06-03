@@ -8,19 +8,46 @@ async function bootstrap(app: Awaited<ReturnType<typeof buildApp>>, authReposito
   const login = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: 'admin@example.com', password: 'AdminPassword!42' } });
   const adminToken = login.json().token as string;
   const tenant = await authRepository.createTenant({ name: 'Acme Tenant', description: null });
-  const groupA = await authRepository.createGroup({ name: 'Customer Group A', description: null, tenantId: tenant.id });
-  const groupB = await authRepository.createGroup({ name: 'Customer Group B', description: null });
-  await authRepository.createUser({ email: 'operator@example.com', displayName: 'Operator User', password: 'OperatorPassword!42', roleNames: ['Operator'], groupIds: [groupA.id], tenantId: tenant.id });
+  const groupA = await authRepository.createGroup({ name: 'Customer Group A', description: null, tenantId: tenant.id, instanceAccessMode: 'none', instanceIds: [] });
+  const groupB = await authRepository.createGroup({ name: 'Customer Group B', description: null, instanceAccessMode: 'none', instanceIds: [] });
+  await authRepository.createUser({ email: 'operator@example.com', displayName: 'Operator User', password: 'OperatorPassword!42', roleNames: ['Operator'], groupIds: [groupA.id], tenantId: tenant.id, instanceAccessMode: 'inherit', instanceIds: [] });
   const operatorLogin = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: 'operator@example.com', password: 'OperatorPassword!42' } });
   return { adminToken, operatorToken: operatorLogin.json().token as string, tenant, groupA, groupB };
 }
 
 describe('instance enrollment API', () => {
-  it('allows SystemAdmin users to create, list, update, test, and delete expanded OxyGen instances', async () => {
+  it('defaults new OxyGen instances to HTTPS, port 443, and admin username; HTTP defaults to port 80', async () => {
     const authRepository = createInMemoryAuthRepository();
     const instanceRepository = createInMemoryInstanceRepository();
     const app = await buildApp({ logger: false, authRepository, instanceRepository });
-    const { adminToken, tenant, groupA } = await bootstrap(app, authRepository);
+    const { adminToken } = await bootstrap(app, authRepository);
+
+    const httpsDefault = await app.inject({
+      method: 'POST',
+      url: '/api/instances',
+      headers: { authorization: `Bearer ${adminToken}` },
+      payload: { name: 'Default HTTPS', description: null, tenantId: null, host: 'secure.example.com', password: 'RemotePassword!42' }
+    });
+    expect(httpsDefault.statusCode).toBe(201);
+    expect(httpsDefault.json().instance).toMatchObject({ protocol: 'https', host: 'secure.example.com', port: 443, hostname: 'secure.example.com:443', baseUrl: 'https://secure.example.com:443', launchUrl: 'https://secure.example.com:443/OPTWS/OxyGen.aspx', username: 'admin' });
+
+    const httpDefault = await app.inject({
+      method: 'POST',
+      url: '/api/instances',
+      headers: { authorization: `Bearer ${adminToken}` },
+      payload: { name: 'Default HTTP', description: null, tenantId: null, protocol: 'http', host: 'plain.example.com', password: 'RemotePassword!42' }
+    });
+    expect(httpDefault.statusCode).toBe(201);
+    expect(httpDefault.json().instance).toMatchObject({ protocol: 'http', port: 80, hostname: 'plain.example.com:80', baseUrl: 'http://plain.example.com:80', launchUrl: 'http://plain.example.com:80/OPTWS/OxyGen.aspx', username: 'admin' });
+
+    await app.close();
+  });
+
+  it('allows SystemAdmin users to create, list, update, test, and delete expanded OxyGen instances without assigning a user group on the instance', async () => {
+    const authRepository = createInMemoryAuthRepository();
+    const instanceRepository = createInMemoryInstanceRepository();
+    const app = await buildApp({ logger: false, authRepository, instanceRepository });
+    const { adminToken, tenant } = await bootstrap(app, authRepository);
 
     const created = await app.inject({
       method: 'POST',
@@ -35,7 +62,6 @@ describe('instance enrollment API', () => {
         port: 444,
         username: 'admin',
         password: 'RemotePassword!42',
-        groupId: groupA.id,
         pollingIntervalSeconds: 300
       }
     });
@@ -52,7 +78,6 @@ describe('instance enrollment API', () => {
       baseUrl: 'https://acme.example.com:444',
       launchUrl: 'https://acme.example.com:444/OPTWS/OxyGen.aspx',
       username: 'admin',
-      groupId: groupA.id,
       pollingIntervalSeconds: 300,
       isEnabled: true,
       sslValid: null,
@@ -66,6 +91,7 @@ describe('instance enrollment API', () => {
       licenseJson: null,
       settingsJson: null
     });
+    expect(created.json().instance.groupId).toBeUndefined();
     expect(created.json().instance.password).toBeUndefined();
 
     const listed = await app.inject({ method: 'GET', url: '/api/instances', headers: { authorization: `Bearer ${adminToken}` } });
@@ -76,10 +102,11 @@ describe('instance enrollment API', () => {
       method: 'PATCH',
       url: `/api/instances/${created.json().instance.id}`,
       headers: { authorization: `Bearer ${adminToken}` },
-      payload: { name: 'Acme Prod', description: 'Updated deployment', tenantId: tenant.id, protocol: 'https', host: 'acme.example.com', port: 443, username: 'svc', groupId: groupA.id, pollingIntervalSeconds: 600, isEnabled: false }
+      payload: { name: 'Acme Prod', description: 'Updated deployment', tenantId: tenant.id, protocol: 'https', host: 'acme.example.com', port: 443, username: 'svc', pollingIntervalSeconds: 600, isEnabled: false }
     });
     expect(updated.statusCode).toBe(200);
-    expect(updated.json().instance).toMatchObject({ name: 'Acme Prod', description: 'Updated deployment', tenantId: tenant.id, protocol: 'https', host: 'acme.example.com', port: 443, baseUrl: 'https://acme.example.com', launchUrl: 'https://acme.example.com/OPTWS/OxyGen.aspx', username: 'svc', isEnabled: false });
+    expect(updated.json().instance).toMatchObject({ name: 'Acme Prod', description: 'Updated deployment', tenantId: tenant.id, protocol: 'https', host: 'acme.example.com', port: 443, baseUrl: 'https://acme.example.com:443', launchUrl: 'https://acme.example.com:443/OPTWS/OxyGen.aspx', username: 'svc', isEnabled: false });
+    expect(updated.json().instance.groupId).toBeUndefined();
 
     const connectivity = await app.inject({ method: 'POST', url: `/api/instances/${created.json().instance.id}/test-connectivity`, headers: { authorization: `Bearer ${adminToken}` } });
     expect(connectivity.statusCode).toBe(200);
@@ -91,22 +118,47 @@ describe('instance enrollment API', () => {
     await app.close();
   });
 
-  it('limits non-admin instance lists to the user groups assigned to the signed-in user', async () => {
+  it('limits non-admin instance lists using instance access granted from user groups', async () => {
     const authRepository = createInMemoryAuthRepository();
     const instanceRepository = createInMemoryInstanceRepository();
     const app = await buildApp({ logger: false, authRepository, instanceRepository });
-    const { adminToken, operatorToken, tenant, groupA, groupB } = await bootstrap(app, authRepository);
+    const { adminToken, operatorToken, tenant, groupA } = await bootstrap(app, authRepository);
 
-    await app.inject({ method: 'POST', url: '/api/instances', headers: { authorization: `Bearer ${adminToken}` }, payload: { name: 'Visible Instance', description: null, tenantId: tenant.id, protocol: 'https', host: 'visible.example.com', username: 'admin', password: 'RemotePassword!42', groupId: groupA.id } });
-    await app.inject({ method: 'POST', url: '/api/instances', headers: { authorization: `Bearer ${adminToken}` }, payload: { name: 'Hidden Instance', description: null, tenantId: null, protocol: 'https', host: 'hidden.example.com', username: 'admin', password: 'RemotePassword!42', groupId: groupB.id } });
+    const visible = await app.inject({ method: 'POST', url: '/api/instances', headers: { authorization: `Bearer ${adminToken}` }, payload: { name: 'Visible Instance', description: null, tenantId: tenant.id, protocol: 'https', host: 'visible.example.com', username: 'admin', password: 'RemotePassword!42' } });
+    await app.inject({ method: 'POST', url: '/api/instances', headers: { authorization: `Bearer ${adminToken}` }, payload: { name: 'Hidden Instance', description: null, tenantId: null, protocol: 'https', host: 'hidden.example.com', username: 'admin', password: 'RemotePassword!42' } });
+
+    await authRepository.updateGroup(groupA.id, { name: groupA.name, description: groupA.description, tenantId: groupA.tenantId, instanceAccessMode: 'specific', instanceIds: [visible.json().instance.id] });
 
     const listed = await app.inject({ method: 'GET', url: '/api/instances', headers: { authorization: `Bearer ${operatorToken}` } });
 
     expect(listed.statusCode).toBe(200);
     expect(listed.json().instances.map((instance: { name: string }) => instance.name)).toEqual(['Visible Instance']);
 
-    const createAttempt = await app.inject({ method: 'POST', url: '/api/instances', headers: { authorization: `Bearer ${operatorToken}` }, payload: { name: 'Blocked', description: null, tenantId: tenant.id, protocol: 'https', host: 'blocked.example.com', username: 'admin', password: 'RemotePassword!42', groupId: groupA.id } });
+    const createAttempt = await app.inject({ method: 'POST', url: '/api/instances', headers: { authorization: `Bearer ${operatorToken}` }, payload: { name: 'Blocked', description: null, tenantId: tenant.id, protocol: 'https', host: 'blocked.example.com', username: 'admin', password: 'RemotePassword!42' } });
     expect(createAttempt.statusCode).toBe(403);
+
+    await app.close();
+  });
+
+  it('allows direct user instance access to override group access with none or all', async () => {
+    const authRepository = createInMemoryAuthRepository();
+    const instanceRepository = createInMemoryInstanceRepository();
+    const app = await buildApp({ logger: false, authRepository, instanceRepository });
+    const { adminToken, tenant, groupA } = await bootstrap(app, authRepository);
+
+    await app.inject({ method: 'POST', url: '/api/instances', headers: { authorization: `Bearer ${adminToken}` }, payload: { name: 'Instance A', description: null, tenantId: tenant.id, protocol: 'https', host: 'a.example.com', username: 'admin', password: 'RemotePassword!42' } });
+    await app.inject({ method: 'POST', url: '/api/instances', headers: { authorization: `Bearer ${adminToken}` }, payload: { name: 'Instance B', description: null, tenantId: tenant.id, protocol: 'https', host: 'b.example.com', username: 'admin', password: 'RemotePassword!42' } });
+    await authRepository.updateGroup(groupA.id, { name: groupA.name, description: groupA.description, tenantId: groupA.tenantId, instanceAccessMode: 'all', instanceIds: [] });
+
+    const noAccessUser = await authRepository.createUser({ email: 'noaccess@example.com', displayName: 'No Access', password: 'NoAccessPassword!42', roleNames: ['Operator'], groupIds: [groupA.id], tenantId: tenant.id, instanceAccessMode: 'none', instanceIds: [] });
+    const noAccessToken = await authRepository.createSession(noAccessUser.user.id);
+    const noneList = await app.inject({ method: 'GET', url: '/api/instances', headers: { authorization: `Bearer ${noAccessToken}` } });
+    expect(noneList.json().instances).toEqual([]);
+
+    const allAccessUser = await authRepository.createUser({ email: 'allaccess@example.com', displayName: 'All Access', password: 'AllAccessPassword!42', roleNames: ['Operator'], groupIds: [], tenantId: tenant.id, instanceAccessMode: 'all', instanceIds: [] });
+    const allAccessToken = await authRepository.createSession(allAccessUser.user.id);
+    const allList = await app.inject({ method: 'GET', url: '/api/instances', headers: { authorization: `Bearer ${allAccessToken}` } });
+    expect(allList.json().instances.map((instance: { name: string }) => instance.name)).toEqual(['Instance A', 'Instance B']);
 
     await app.close();
   });

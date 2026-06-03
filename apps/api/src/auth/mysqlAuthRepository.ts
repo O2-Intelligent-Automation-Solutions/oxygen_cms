@@ -44,8 +44,9 @@ function toIso(value: unknown): string {
 
 type TenantRow = RowDataPacket & { id: string; name: string; description: string | null; created_at: Date | string; updated_at: Date | string };
 type RoleRow = RowDataPacket & { id: string; name: string; description: string | null; tenant_id: string | null; protected: number | boolean; created_at: Date | string; updated_at: Date | string };
-type GroupRow = RowDataPacket & { id: string; name: string; description: string | null; tenant_id: string | null; created_at: Date | string; updated_at: Date | string };
-type UserRow = RowDataPacket & { id: string; email: string; display_name: string; password_hash: string; password_salt: string; tenant_id: string | null; is_active: number | boolean; created_at: Date | string; updated_at: Date | string };
+type GroupRow = RowDataPacket & { id: string; name: string; description: string | null; tenant_id: string | null; instance_access_mode: CmsGroup['instanceAccessMode']; created_at: Date | string; updated_at: Date | string };
+type UserRow = RowDataPacket & { id: string; email: string; display_name: string; password_hash: string; password_salt: string; tenant_id: string | null; instance_access_mode: CmsUser['instanceAccessMode']; is_active: number | boolean; created_at: Date | string; updated_at: Date | string };
+type InstanceAccessRow = RowDataPacket & { instance_id: string };
 
 function mapTenant(row: TenantRow): CmsTenant {
   return { id: row.id, name: row.name, description: row.description, createdAt: toIso(row.created_at), updatedAt: toIso(row.updated_at) };
@@ -55,11 +56,11 @@ function mapRole(row: RoleRow): CmsRole {
   return { id: row.id, name: row.name, description: row.description, tenantId: row.tenant_id, isSystem: Boolean(row.protected), createdAt: toIso(row.created_at), updatedAt: toIso(row.updated_at) };
 }
 
-function mapGroup(row: GroupRow): CmsGroup {
-  return { id: row.id, name: row.name, description: row.description, tenantId: row.tenant_id, createdAt: toIso(row.created_at), updatedAt: toIso(row.updated_at) };
+function mapGroup(row: GroupRow, instanceIds: string[] = []): CmsGroup {
+  return { id: row.id, name: row.name, description: row.description, tenantId: row.tenant_id, instanceAccessMode: row.instance_access_mode ?? 'none', instanceIds, createdAt: toIso(row.created_at), updatedAt: toIso(row.updated_at) };
 }
 
-function mapUser(row: UserRow): CmsUser {
+function mapUser(row: UserRow, instanceIds: string[] = []): CmsUser {
   return {
     id: row.id,
     email: row.email,
@@ -67,6 +68,8 @@ function mapUser(row: UserRow): CmsUser {
     passwordHash: row.password_hash,
     passwordSalt: row.password_salt,
     tenantId: row.tenant_id,
+    instanceAccessMode: row.instance_access_mode ?? 'inherit',
+    instanceIds,
     isActive: Boolean(row.is_active),
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at)
@@ -93,6 +96,28 @@ export function createMysqlAuthRepository(pool: Pool): AuthRepository {
   async function many<T extends RowDataPacket>(sql: string, params: unknown[] = []): Promise<T[]> {
     const [rows] = await pool.execute<T[]>(sql, params as never[]);
     return rows;
+  }
+
+  async function listUserInstanceIds(userId: string) {
+    return (await many<InstanceAccessRow>('SELECT instance_id FROM user_instance_access WHERE user_id = ? ORDER BY instance_id ASC', [userId])).map((row) => row.instance_id);
+  }
+
+  async function listGroupInstanceIds(groupId: string) {
+    return (await many<InstanceAccessRow>('SELECT instance_id FROM user_group_instance_access WHERE group_id = ? ORDER BY instance_id ASC', [groupId])).map((row) => row.instance_id);
+  }
+
+  async function replaceUserInstanceAccess(userId: string, instanceIds: string[]) {
+    await pool.execute('DELETE FROM user_instance_access WHERE user_id = ?', [userId]);
+    for (const instanceId of instanceIds) {
+      await pool.execute('INSERT INTO user_instance_access (user_id, instance_id) VALUES (?, ?)', [userId, instanceId]);
+    }
+  }
+
+  async function replaceGroupInstanceAccess(groupId: string, instanceIds: string[]) {
+    await pool.execute('DELETE FROM user_group_instance_access WHERE group_id = ?', [groupId]);
+    for (const instanceId of instanceIds) {
+      await pool.execute('INSERT INTO user_group_instance_access (group_id, instance_id) VALUES (?, ?)', [groupId, instanceId]);
+    }
   }
 
   async function findUserByEmail(email: string) {
@@ -157,10 +182,18 @@ export function createMysqlAuthRepository(pool: Pool): AuthRepository {
       [user.id]
     );
 
+    const profileGroups = await Promise.all(groupRows.map(async (group) => ({
+      id: group.id,
+      name: group.name,
+      tenantId: group.tenant_id,
+      instanceAccessMode: group.instance_access_mode ?? 'none',
+      instanceIds: await listGroupInstanceIds(group.id)
+    })));
+
     return {
-      user: toPublicUser(user),
+      user: toPublicUser({ ...user, instanceIds: await listUserInstanceIds(user.id) }),
       roles: roleRows.map((role) => role.name),
-      groups: groupRows.map((group) => ({ id: group.id, name: group.name, tenantId: group.tenant_id }))
+      groups: profileGroups
     };
   }
 
@@ -189,10 +222,11 @@ export function createMysqlAuthRepository(pool: Pool): AuthRepository {
     const password = await hashPassword(input.password);
     const id = randomUUID();
     await pool.execute(
-      'INSERT INTO users (id, email, display_name, password_hash, password_salt, tenant_id, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)',
-      [id, email, input.displayName.trim(), password.passwordHash, password.passwordSalt, tenantId]
+      'INSERT INTO users (id, email, display_name, password_hash, password_salt, tenant_id, instance_access_mode, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, 1)',
+      [id, email, input.displayName.trim(), password.passwordHash, password.passwordSalt, tenantId, input.instanceAccessMode ?? 'inherit']
     );
     await replaceUserAssignments(id, input.roleNames, input.groupIds);
+    await replaceUserInstanceAccess(id, input.instanceIds ?? []);
     const user = await findUserById(id);
     if (!user) throw new Error('User not found.');
     return buildProfile(user);
@@ -212,24 +246,27 @@ export function createMysqlAuthRepository(pool: Pool): AuthRepository {
 
     if (input.password) {
       const password = await hashPassword(input.password);
-      await pool.execute('UPDATE users SET email = ?, display_name = ?, password_hash = ?, password_salt = ? WHERE id = ?', [email, input.displayName.trim(), password.passwordHash, password.passwordSalt, userId]);
+      await pool.execute('UPDATE users SET email = ?, display_name = ?, password_hash = ?, password_salt = ?, instance_access_mode = ? WHERE id = ?', [email, input.displayName.trim(), password.passwordHash, password.passwordSalt, input.instanceAccessMode ?? existing.instanceAccessMode, userId]);
     } else {
-      await pool.execute('UPDATE users SET email = ?, display_name = ? WHERE id = ?', [email, input.displayName.trim(), userId]);
+      await pool.execute('UPDATE users SET email = ?, display_name = ?, instance_access_mode = ? WHERE id = ?', [email, input.displayName.trim(), input.instanceAccessMode ?? existing.instanceAccessMode, userId]);
     }
     await replaceUserAssignments(userId, input.roleNames, input.groupIds);
+    await replaceUserInstanceAccess(userId, input.instanceIds ?? []);
     const user = await findUserById(userId);
     if (!user) throw new Error('User not found.');
     return buildProfile(user);
   }
 
+  async function hasUsers() {
+    const row = await one<RowDataPacket & { count: number }>('SELECT COUNT(*) AS count FROM users');
+    return Number(row?.count ?? 0) > 0;
+  }
+
   return {
-    async hasUsers() {
-      const row = await one<RowDataPacket & { count: number }>('SELECT COUNT(*) AS count FROM users');
-      return Number(row?.count ?? 0) > 0;
-    },
+    hasUsers,
     async bootstrapAdmin(input) {
-      if (await this.hasUsers()) throw new Error('Admin bootstrap has already been completed.');
-      return createUser({ ...input, roleNames: ['SystemAdmin'], groupIds: [], tenantId: null });
+      if (await hasUsers()) throw new Error('Admin bootstrap has already been completed.');
+      return createUser({ ...input, roleNames: ['SystemAdmin'], groupIds: [], tenantId: null, instanceAccessMode: 'all', instanceIds: [] });
     },
     async authenticate(email, password) {
       const user = await findUserByEmail(email);
@@ -326,10 +363,11 @@ export function createMysqlAuthRepository(pool: Pool): AuthRepository {
       const existing = await many<GroupRow>('SELECT * FROM user_groups WHERE name = ?', [input.name.trim()]);
       if (existing.some((group) => group.tenant_id === tenantId)) throw new Error('A group with this name already exists.');
       const id = randomUUID();
-      await pool.execute('INSERT INTO user_groups (id, name, description, tenant_id) VALUES (?, ?, ?, ?)', [id, input.name.trim(), input.description?.trim() || null, tenantId]);
+      await pool.execute('INSERT INTO user_groups (id, name, description, tenant_id, instance_access_mode) VALUES (?, ?, ?, ?, ?)', [id, input.name.trim(), input.description?.trim() || null, tenantId, input.instanceAccessMode ?? 'none']);
+      await replaceGroupInstanceAccess(id, input.instanceIds ?? []);
       const row = await one<GroupRow>('SELECT * FROM user_groups WHERE id = ?', [id]);
       if (!row) throw new Error('Group not found.');
-      return mapGroup(row);
+      return mapGroup(row, await listGroupInstanceIds(id));
     },
     async updateGroup(groupId: string, input: UpdateGroupInput) {
       const existingRow = await one<GroupRow>('SELECT * FROM user_groups WHERE id = ?', [groupId]);
@@ -338,17 +376,19 @@ export function createMysqlAuthRepository(pool: Pool): AuthRepository {
       const tenantId = normalizeTenantId(input.tenantId);
       assertTenantUnchanged(existing, tenantId);
       await assertTenantExists(tenantId);
-      await pool.execute('UPDATE user_groups SET name = ?, description = ? WHERE id = ?', [input.name.trim(), input.description?.trim() || null, groupId]);
+      await pool.execute('UPDATE user_groups SET name = ?, description = ?, instance_access_mode = ? WHERE id = ?', [input.name.trim(), input.description?.trim() || null, input.instanceAccessMode ?? existing.instanceAccessMode, groupId]);
+      await replaceGroupInstanceAccess(groupId, input.instanceIds ?? []);
       const row = await one<GroupRow>('SELECT * FROM user_groups WHERE id = ?', [groupId]);
       if (!row) throw new Error('Group not found.');
-      return mapGroup(row);
+      return mapGroup(row, await listGroupInstanceIds(groupId));
     },
     async deleteGroup(groupId: string) {
       if (!(await one<GroupRow>('SELECT * FROM user_groups WHERE id = ?', [groupId]))) throw new Error('Group not found.');
       await pool.execute('DELETE FROM user_groups WHERE id = ?', [groupId]);
     },
     async listGroups() {
-      return (await many<GroupRow>('SELECT * FROM user_groups ORDER BY name ASC')).map(mapGroup);
+      const rows = await many<GroupRow>('SELECT * FROM user_groups ORDER BY name ASC');
+      return Promise.all(rows.map((row) => listGroupInstanceIds(row.id).then((instanceIds) => mapGroup(row, instanceIds))));
     },
     createUser,
     updateUser,
@@ -388,7 +428,7 @@ export function createSetupAwareAuthRepository(settingsStore: SetupSettingsStore
       return async (...args: never[]) => {
         const repository = await currentRepository();
         const method = repository[property] as (...methodArgs: never[]) => unknown;
-        return method(...args);
+        return method.apply(repository, args);
       };
     }
   });

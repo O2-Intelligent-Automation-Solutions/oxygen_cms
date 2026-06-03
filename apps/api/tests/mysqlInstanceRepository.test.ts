@@ -6,7 +6,7 @@ const runMysqlIntegration = process.env.MYSQL_INTEGRATION_TESTS === 'true';
 const describeMysql = runMysqlIntegration ? describe : describe.skip;
 
 describeMysql('MySQL instance repository', () => {
-  it('persists expanded instance CRUD fields and scoped lists across repository instances', async () => {
+  it('persists expanded instance CRUD fields and scoped lists across repository instances without instance group ownership', async () => {
     const pool = createPool({
       host: process.env.MYSQL_HOST ?? '127.0.0.1',
       port: Number(process.env.MYSQL_PORT ?? 3306),
@@ -17,15 +17,13 @@ describeMysql('MySQL instance repository', () => {
     });
 
     try {
-      await pool.query("DELETE FROM oxygen_instance_check_history WHERE instance_id IN (SELECT id FROM oxygen_instances WHERE name IN ('Acme Production', 'Acme Prod', 'Beta Hidden') OR group_id IN ('11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'))");
-      await pool.query("DELETE FROM oxygen_instance_status WHERE instance_id IN (SELECT id FROM oxygen_instances WHERE name IN ('Acme Production', 'Acme Prod', 'Beta Hidden') OR group_id IN ('11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'))");
-      await pool.query("DELETE FROM oxygen_instances WHERE name IN ('Acme Production', 'Acme Prod', 'Beta Hidden') OR group_id IN ('11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222')");
-      await pool.query("DELETE FROM user_groups WHERE id IN ('11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222')");
+      await pool.query("DELETE FROM oxygen_instance_check_history WHERE instance_id IN (SELECT id FROM oxygen_instances WHERE name IN ('Acme Production', 'Acme Prod', 'Beta Hidden'))");
+      await pool.query("DELETE FROM oxygen_instance_status WHERE instance_id IN (SELECT id FROM oxygen_instances WHERE name IN ('Acme Production', 'Acme Prod', 'Beta Hidden'))");
+      await pool.query("DELETE FROM user_group_instance_access WHERE instance_id IN (SELECT id FROM oxygen_instances WHERE name IN ('Acme Production', 'Acme Prod', 'Beta Hidden'))");
+      await pool.query("DELETE FROM user_instance_access WHERE instance_id IN (SELECT id FROM oxygen_instances WHERE name IN ('Acme Production', 'Acme Prod', 'Beta Hidden'))");
+      await pool.query("DELETE FROM oxygen_instances WHERE name IN ('Acme Production', 'Acme Prod', 'Beta Hidden')");
       await pool.query("DELETE FROM tenants WHERE id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'");
       await pool.query("INSERT INTO tenants (id, name, description) VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'Acme Tenant', NULL)");
-      await pool.query(
-        "INSERT INTO user_groups (id, name, description, tenant_id) VALUES ('11111111-1111-4111-8111-111111111111', 'Group A', NULL, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'), ('22222222-2222-4222-8222-222222222222', 'Group B', NULL, NULL)"
-      );
 
       const firstRepository = createMysqlInstanceRepository(pool);
       const created = await firstRepository.createInstance({
@@ -37,7 +35,6 @@ describeMysql('MySQL instance repository', () => {
         port: 444,
         username: 'admin',
         password: 'RemotePassword!42',
-        groupId: '11111111-1111-4111-8111-111111111111',
         pollingIntervalSeconds: 300
       });
 
@@ -52,7 +49,6 @@ describeMysql('MySQL instance repository', () => {
         baseUrl: 'https://acme.example.com:444',
         launchUrl: 'https://acme.example.com:444/OPTWS/OxyGen.aspx',
         username: 'admin',
-        groupId: '11111111-1111-4111-8111-111111111111',
         pollingIntervalSeconds: 300,
         isEnabled: true,
         status: 'unknown',
@@ -70,12 +66,13 @@ describeMysql('MySQL instance repository', () => {
         lastCheckedAt: null,
         lastError: null
       });
+      expect(created).not.toHaveProperty('groupId');
       expect(created).not.toHaveProperty('password');
 
-      const [statusRows] = await pool.query("SELECT instance_id, availability_status, processing_status, emm_queue_status, sms_status, hangfire_status, license_status FROM oxygen_instance_status WHERE instance_id = ?", [created.id]);
+      const [statusRows] = await pool.query('SELECT instance_id, availability_status, processing_status, emm_queue_status, sms_status, hangfire_status, license_status FROM oxygen_instance_status WHERE instance_id = ?', [created.id]);
       expect(statusRows).toMatchObject([{ instance_id: created.id, availability_status: 'unknown', processing_status: 'unknown', emm_queue_status: 'unknown', sms_status: 'unknown', hangfire_status: 'unknown', license_status: 'unknown' }]);
 
-      await firstRepository.createInstance({
+      const hidden = await firstRepository.createInstance({
         name: 'Beta Hidden',
         description: null,
         tenantId: null,
@@ -83,13 +80,13 @@ describeMysql('MySQL instance repository', () => {
         host: 'beta.example.com',
         port: 8080,
         username: 'svc',
-        password: 'RemotePassword!42',
-        groupId: '22222222-2222-4222-8222-222222222222'
+        password: 'RemotePassword!42'
       });
 
       const secondRepository = createMysqlInstanceRepository(pool);
-      expect((await secondRepository.listInstances({ groupIds: ['11111111-1111-4111-8111-111111111111'] })).map((instance) => instance.name)).toEqual(['Acme Production']);
+      expect((await secondRepository.listInstances({ instanceIds: [created.id] })).map((instance) => instance.name)).toEqual(['Acme Production']);
       expect((await secondRepository.listInstances({ includeAll: true })).map((instance) => instance.name)).toEqual(['Acme Production', 'Beta Hidden']);
+      expect((await secondRepository.listInstances({ instanceIds: [hidden.id] })).map((instance) => instance.name)).toEqual(['Beta Hidden']);
 
       const updated = await secondRepository.updateInstance(created.id, {
         name: 'Acme Prod',
@@ -99,7 +96,6 @@ describeMysql('MySQL instance repository', () => {
         host: 'acme.example.com',
         port: 443,
         username: 'svc-admin',
-        groupId: '11111111-1111-4111-8111-111111111111',
         pollingIntervalSeconds: 600,
         isEnabled: false
       });
@@ -112,9 +108,9 @@ describeMysql('MySQL instance repository', () => {
         protocol: 'https',
         host: 'acme.example.com',
         port: 443,
-        hostname: 'acme.example.com',
-        baseUrl: 'https://acme.example.com',
-        launchUrl: 'https://acme.example.com/OPTWS/OxyGen.aspx',
+        hostname: 'acme.example.com:443',
+        baseUrl: 'https://acme.example.com:443',
+        launchUrl: 'https://acme.example.com:443/OPTWS/OxyGen.aspx',
         username: 'svc-admin',
         pollingIntervalSeconds: 600,
         isEnabled: false

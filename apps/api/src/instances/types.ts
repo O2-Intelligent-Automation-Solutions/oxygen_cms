@@ -16,7 +16,6 @@ export type OxyGenInstance = {
   launchUrl: string;
   apiBaseUrl: string;
   username: string;
-  groupId: string;
   pollingIntervalSeconds: number;
   isEnabled: boolean;
   status: InstanceStatus;
@@ -52,7 +51,6 @@ export type CreateInstanceInput = {
   hostname?: string;
   username: string;
   password: string;
-  groupId: string;
   pollingIntervalSeconds?: number;
   isEnabled?: boolean;
 };
@@ -67,7 +65,6 @@ export type UpdateInstanceInput = {
   hostname?: string;
   username: string;
   password?: string;
-  groupId: string;
   pollingIntervalSeconds?: number;
   isEnabled?: boolean;
 };
@@ -83,7 +80,7 @@ export interface InstanceRepository {
   createInstance(input: CreateInstanceInput): Promise<OxyGenInstance>;
   updateInstance(instanceId: string, input: UpdateInstanceInput): Promise<OxyGenInstance>;
   deleteInstance(instanceId: string): Promise<void>;
-  listInstances(scope?: { groupIds?: string[]; includeAll?: boolean }): Promise<OxyGenInstance[]>;
+  listInstances(scope?: { instanceIds?: string[]; includeAll?: boolean }): Promise<OxyGenInstance[]>;
   getInstance(instanceId: string): Promise<OxyGenInstance | null>;
   testConnectivity(instanceId: string): Promise<ConnectivityResult>;
 }

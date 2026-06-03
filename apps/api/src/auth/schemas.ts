@@ -1,6 +1,9 @@
 import { z } from 'zod';
 
 const tenantIdSchema = z.string().uuid().nullable().optional().transform((value) => value ?? null);
+const instanceIdsSchema = z.array(z.string().uuid()).default([]);
+const groupInstanceAccessModeSchema = z.enum(['none', 'all', 'specific']).default('none');
+const userInstanceAccessModeSchema = z.enum(['inherit', 'none', 'all', 'specific']).default('inherit');
 
 export const loginSchema = z.object({
   email: z.string().email(),
@@ -31,7 +34,9 @@ export const updateRoleSchema = createRoleSchema;
 export const createGroupSchema = z.object({
   name: z.string().trim().min(1),
   description: z.string().trim().optional().nullable(),
-  tenantId: tenantIdSchema
+  tenantId: tenantIdSchema,
+  instanceAccessMode: groupInstanceAccessModeSchema,
+  instanceIds: instanceIdsSchema
 });
 
 export const updateGroupSchema = createGroupSchema;
@@ -42,7 +47,9 @@ export const createUserSchema = z.object({
   password: z.string().min(12),
   roleNames: z.array(z.string().trim().min(1)).min(1),
   groupIds: z.array(z.string().uuid()).default([]),
-  tenantId: tenantIdSchema
+  tenantId: tenantIdSchema,
+  instanceAccessMode: userInstanceAccessModeSchema,
+  instanceIds: instanceIdsSchema
 });
 
 export const updateUserSchema = z.object({
@@ -51,5 +58,7 @@ export const updateUserSchema = z.object({
   password: z.string().min(12).optional().or(z.literal('')).transform((value) => value || undefined),
   roleNames: z.array(z.string().trim().min(1)).min(1),
   groupIds: z.array(z.string().uuid()).default([]),
-  tenantId: tenantIdSchema
+  tenantId: tenantIdSchema,
+  instanceAccessMode: userInstanceAccessModeSchema,
+  instanceIds: instanceIdsSchema
 });

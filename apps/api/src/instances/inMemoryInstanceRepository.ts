@@ -38,16 +38,17 @@ export function normalizeOxyGenEndpoint(input: { protocol?: InstanceProtocol; ho
   const withScheme = /^https?:\/\//i.test(source) ? source : `${input.protocol ?? 'https'}://${source}`;
   const url = new URL(withScheme);
   if (input.protocol && url.protocol !== `${input.protocol}:`) url.protocol = `${input.protocol}:`;
-  if (input.port !== undefined && input.port !== null) url.port = String(input.port);
+  const protocol = url.protocol.replace(':', '') as InstanceProtocol;
+  const requestedPort = input.port !== undefined && input.port !== null ? Number(input.port) : null;
+  const effectivePort = requestedPort ?? (url.port ? Number(url.port) : protocol === 'http' ? 80 : 443);
+  url.port = String(effectivePort);
 
   const path = url.pathname.replace(/\/+$/, '');
   const basePath = path.toLowerCase().endsWith('/oxygen.aspx') ? path.slice(0, -'/OxyGen.aspx'.length) : path;
-  const protocol = url.protocol.replace(':', '') as InstanceProtocol;
-  const requestedPort = input.port !== undefined && input.port !== null ? Number(input.port) : null;
-  const port = requestedPort ?? (url.port ? Number(url.port) : null);
+  const port = effectivePort;
   const host = url.hostname;
-  const includePortInUrl = url.port ? `:${url.port}` : '';
-  const hostname = includePortInUrl ? `${host}${includePortInUrl}` : host;
+  const includePortInUrl = `:${effectivePort}`;
+  const hostname = `${host}${includePortInUrl}`;
   const baseUrl = `${protocol}://${hostname}${basePath}`.replace(/\/+$/, '');
   const launchSuffix = baseUrl.toLowerCase().endsWith('/optws') ? '/OxyGen.aspx' : '/OPTWS/OxyGen.aspx';
   return {
@@ -95,7 +96,6 @@ export function createInMemoryInstanceRepository(): InstanceRepository {
         launchUrl: normalized.launchUrl,
         apiBaseUrl: normalized.apiBaseUrl,
         username: input.username.trim(),
-        groupId: input.groupId,
         pollingIntervalSeconds: input.pollingIntervalSeconds ?? 300,
         isEnabled: input.isEnabled ?? true,
         ...statusDefaults(),
@@ -123,7 +123,6 @@ export function createInMemoryInstanceRepository(): InstanceRepository {
         launchUrl: normalized.launchUrl,
         apiBaseUrl: normalized.apiBaseUrl,
         username: input.username.trim(),
-        groupId: input.groupId,
         pollingIntervalSeconds: input.pollingIntervalSeconds ?? existing.pollingIntervalSeconds,
         isEnabled: input.isEnabled ?? existing.isEnabled,
         updatedAt: nowIso(),
@@ -136,9 +135,9 @@ export function createInMemoryInstanceRepository(): InstanceRepository {
       if (!instances.delete(instanceId)) throw new Error('Instance not found.');
     },
     async listInstances(scope) {
-      const groupIds = scope?.includeAll ? null : new Set(scope?.groupIds ?? []);
+      const instanceIds = scope?.includeAll ? null : new Set(scope?.instanceIds ?? []);
       return Array.from(instances.values())
-        .filter((instance) => !groupIds || groupIds.has(instance.groupId))
+        .filter((instance) => !instanceIds || instanceIds.has(instance.id))
         .map(publicInstance)
         .sort((a, b) => a.name.localeCompare(b.name));
     },

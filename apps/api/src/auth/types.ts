@@ -3,6 +3,8 @@ export const DEFAULT_ROLE_NAMES = ['SystemAdmin', 'TenantAdmin', 'PartnerAdmin',
 export type RoleName = string;
 
 export type TenantId = string | null;
+export type GroupInstanceAccessMode = 'none' | 'all' | 'specific';
+export type UserInstanceAccessMode = 'inherit' | 'none' | 'all' | 'specific';
 
 export type CmsTenant = {
   id: string;
@@ -29,6 +31,8 @@ export type CmsUser = {
   passwordHash: string;
   passwordSalt: string;
   tenantId: TenantId;
+  instanceAccessMode: UserInstanceAccessMode;
+  instanceIds: string[];
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -39,6 +43,8 @@ export type CmsGroup = {
   name: string;
   description: string | null;
   tenantId: TenantId;
+  instanceAccessMode: GroupInstanceAccessMode;
+  instanceIds: string[];
   createdAt: string;
   updatedAt: string;
 };
@@ -48,6 +54,8 @@ export type PublicUser = {
   email: string;
   displayName: string;
   tenantId: TenantId;
+  instanceAccessMode: UserInstanceAccessMode;
+  instanceIds: string[];
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -56,7 +64,7 @@ export type PublicUser = {
 export type AuthProfile = {
   user: PublicUser;
   roles: RoleName[];
-  groups: Array<Pick<CmsGroup, 'id' | 'name' | 'tenantId'>>;
+  groups: Array<Pick<CmsGroup, 'id' | 'name' | 'tenantId' | 'instanceAccessMode' | 'instanceIds'>>;
 };
 
 export type CreateUserInput = {
@@ -66,6 +74,8 @@ export type CreateUserInput = {
   roleNames: RoleName[];
   groupIds: string[];
   tenantId?: TenantId;
+  instanceAccessMode?: UserInstanceAccessMode;
+  instanceIds?: string[];
 };
 
 export type UpdateUserInput = {
@@ -75,12 +85,16 @@ export type UpdateUserInput = {
   roleNames: RoleName[];
   groupIds: string[];
   tenantId?: TenantId;
+  instanceAccessMode?: UserInstanceAccessMode;
+  instanceIds?: string[];
 };
 
 export type CreateGroupInput = {
   name: string;
   description?: string | null;
   tenantId?: TenantId;
+  instanceAccessMode?: GroupInstanceAccessMode;
+  instanceIds?: string[];
 };
 
 export type UpdateGroupInput = CreateGroupInput;

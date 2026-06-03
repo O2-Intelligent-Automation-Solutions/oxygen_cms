@@ -68,7 +68,7 @@ describe('auth and RBAC API', () => {
     expect(user.statusCode).toBe(201);
     expect(user.json().user).toMatchObject({ email: 'operator@example.com', displayName: 'Operator User' });
     expect(user.json().roles).toEqual(['Operator']);
-    expect(user.json().groups).toEqual([{ id: group.json().group.id, name: 'Customer Group A', tenantId: null }]);
+    expect(user.json().groups).toEqual([{ id: group.json().group.id, name: 'Customer Group A', tenantId: null, instanceAccessMode: 'none', instanceIds: [] }]);
 
     await app.close();
   });
@@ -117,7 +117,7 @@ describe('auth and RBAC API', () => {
     expect(updated.statusCode).toBe(200);
     expect(updated.json().user).toMatchObject({ email: 'operator@example.com', displayName: 'Updated Operator' });
     expect(updated.json().roles).toEqual(['Viewer']);
-    expect(updated.json().groups).toEqual([{ id: group.json().group.id, name: 'Customer Group A', tenantId: null }]);
+    expect(updated.json().groups).toEqual([{ id: group.json().group.id, name: 'Customer Group A', tenantId: null, instanceAccessMode: 'none', instanceIds: [] }]);
 
     const users = await app.inject({ method: 'GET', url: '/api/users', headers: { authorization: `Bearer ${token}` } });
     expect(users.json().users).toHaveLength(2);
@@ -239,7 +239,7 @@ describe('auth and RBAC API', () => {
     });
     expect(user.statusCode).toBe(201);
     expect(user.json().user).toMatchObject({ tenantId });
-    expect(user.json().groups).toEqual([{ id: group.json().group.id, name: 'Partner A Operators', tenantId }]);
+    expect(user.json().groups).toEqual([{ id: group.json().group.id, name: 'Partner A Operators', tenantId, instanceAccessMode: 'none', instanceIds: [] }]);
 
     const secondTenant = await app.inject({
       method: 'POST',

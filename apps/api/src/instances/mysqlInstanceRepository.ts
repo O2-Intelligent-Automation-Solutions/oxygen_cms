@@ -49,7 +49,6 @@ type InstanceRow = RowDataPacket & {
   api_base_url: string;
   username: string;
   password_secret: string;
-  group_id: string;
   polling_interval_seconds: number;
   is_enabled: number | boolean;
   availability_status: InstanceStatus | null;
@@ -89,7 +88,6 @@ function mapInstance(row: InstanceRow): OxyGenInstance {
     launchUrl: row.launch_url,
     apiBaseUrl: row.api_base_url,
     username: row.username,
-    groupId: row.group_id,
     pollingIntervalSeconds: Number(row.polling_interval_seconds),
     isEnabled: Boolean(row.is_enabled),
     status: row.availability_status ?? 'unknown',
@@ -173,11 +171,6 @@ export function createMysqlInstanceRepository(pool: Pool): InstanceRepository {
     return row ? mapInstance(row) : null;
   }
 
-  async function assertGroupExists(groupId: string) {
-    const row = await one<RowDataPacket>('SELECT id FROM user_groups WHERE id = ? LIMIT 1', [groupId]);
-    if (!row) throw new Error(`Unknown group: ${groupId}`);
-  }
-
   async function assertTenantExists(tenantId: string | null | undefined) {
     if (!tenantId) return;
     const row = await one<RowDataPacket>('SELECT id FROM tenants WHERE id = ? LIMIT 1', [tenantId]);
@@ -191,15 +184,14 @@ export function createMysqlInstanceRepository(pool: Pool): InstanceRepository {
 
   return {
     async createInstance(input: CreateInstanceInput) {
-      await assertGroupExists(input.groupId);
       await assertTenantExists(input.tenantId);
       const normalized = normalizeOxyGenEndpoint(input);
       const id = randomUUID();
       try {
         await pool.execute(
           `INSERT INTO oxygen_instances
-           (id, name, description, tenant_id, protocol, host, port, hostname, base_url, launch_url, api_base_url, username, password_secret, group_id, polling_interval_seconds, is_enabled, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unknown')`,
+           (id, name, description, tenant_id, protocol, host, port, hostname, base_url, launch_url, api_base_url, username, password_secret, polling_interval_seconds, is_enabled, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unknown')`,
           [
             id,
             input.name.trim(),
@@ -214,7 +206,6 @@ export function createMysqlInstanceRepository(pool: Pool): InstanceRepository {
             normalized.apiBaseUrl,
             input.username.trim(),
             input.password,
-            input.groupId,
             input.pollingIntervalSeconds ?? 300,
             input.isEnabled ?? true
           ]
@@ -231,7 +222,6 @@ export function createMysqlInstanceRepository(pool: Pool): InstanceRepository {
     async updateInstance(instanceId: string, input: UpdateInstanceInput) {
       const existing = await findInstanceById(instanceId);
       if (!existing) throw new Error('Instance not found.');
-      await assertGroupExists(input.groupId);
       await assertTenantExists(input.tenantId);
       const normalized = normalizeOxyGenEndpoint(input);
       const passwordSql = input.password ? ', password_secret = ?' : '';
@@ -247,7 +237,6 @@ export function createMysqlInstanceRepository(pool: Pool): InstanceRepository {
         normalized.launchUrl,
         normalized.apiBaseUrl,
         input.username.trim(),
-        input.groupId,
         input.pollingIntervalSeconds ?? existing.pollingIntervalSeconds,
         input.isEnabled ?? existing.isEnabled
       ];
@@ -257,7 +246,7 @@ export function createMysqlInstanceRepository(pool: Pool): InstanceRepository {
       try {
         await pool.execute(
           `UPDATE oxygen_instances
-           SET name = ?, description = ?, tenant_id = ?, protocol = ?, host = ?, port = ?, hostname = ?, base_url = ?, launch_url = ?, api_base_url = ?, username = ?, group_id = ?, polling_interval_seconds = ?, is_enabled = ?${passwordSql}
+           SET name = ?, description = ?, tenant_id = ?, protocol = ?, host = ?, port = ?, hostname = ?, base_url = ?, launch_url = ?, api_base_url = ?, username = ?, polling_interval_seconds = ?, is_enabled = ?${passwordSql}
            WHERE id = ?`,
           params as never[]
         );
@@ -278,10 +267,10 @@ export function createMysqlInstanceRepository(pool: Pool): InstanceRepository {
       if (scope?.includeAll) {
         return (await many<InstanceRow>(`${instanceSelectSql} ORDER BY i.name ASC`)).map(mapInstance);
       }
-      const groupIds = scope?.groupIds ?? [];
-      if (groupIds.length === 0) return [];
-      const placeholders = groupIds.map(() => '?').join(', ');
-      return (await many<InstanceRow>(`${instanceSelectSql} WHERE i.group_id IN (${placeholders}) ORDER BY i.name ASC`, groupIds)).map(mapInstance);
+      const instanceIds = scope?.instanceIds ?? [];
+      if (instanceIds.length === 0) return [];
+      const placeholders = instanceIds.map(() => '?').join(', ');
+      return (await many<InstanceRow>(`${instanceSelectSql} WHERE i.id IN (${placeholders}) ORDER BY i.name ASC`, instanceIds)).map(mapInstance);
     },
 
     getInstance: findInstanceById,

@@ -99,7 +99,7 @@ export function createInMemoryAuthRepository(): AuthRepository {
     const profileGroups = Array.from(userGroups.get(user.id) ?? [])
       .map((groupId) => groups.get(groupId))
       .filter((group): group is CmsGroup => Boolean(group))
-      .map((group) => ({ id: group.id, name: group.name, tenantId: group.tenantId }));
+      .map((group) => ({ id: group.id, name: group.name, tenantId: group.tenantId, instanceAccessMode: group.instanceAccessMode, instanceIds: group.instanceIds }));
 
     return {
       user: toPublicUser(user),
@@ -125,6 +125,8 @@ export function createInMemoryAuthRepository(): AuthRepository {
       passwordHash: password.passwordHash,
       passwordSalt: password.passwordSalt,
       tenantId,
+      instanceAccessMode: input.instanceAccessMode ?? 'inherit',
+      instanceIds: input.instanceIds ?? [],
       isActive: true,
       createdAt: timestamp,
       updatedAt: timestamp
@@ -162,6 +164,8 @@ export function createInMemoryAuthRepository(): AuthRepository {
       displayName: input.displayName.trim(),
       passwordHash,
       passwordSalt,
+      instanceAccessMode: input.instanceAccessMode ?? existing.instanceAccessMode,
+      instanceIds: input.instanceIds ?? existing.instanceIds,
       updatedAt: nowIso()
     };
     users.set(user.id, user);
@@ -176,7 +180,7 @@ export function createInMemoryAuthRepository(): AuthRepository {
     },
     async bootstrapAdmin(input) {
       if (users.size > 0) throw new Error('Admin bootstrap has already been completed.');
-      return createUser({ ...input, roleNames: ['SystemAdmin'], groupIds: [], tenantId: null });
+      return createUser({ ...input, roleNames: ['SystemAdmin'], groupIds: [], tenantId: null, instanceAccessMode: 'all', instanceIds: [] });
     },
     async authenticate(email, password) {
       const user = findUserByEmail(email);
@@ -257,7 +261,7 @@ export function createInMemoryAuthRepository(): AuthRepository {
       const tenantId = normalizeTenantId(input.tenantId);
       assertTenantExists(tenantId);
       const timestamp = nowIso();
-      const group: CmsGroup = { id: randomUUID(), name: input.name.trim(), description: input.description?.trim() || null, tenantId, createdAt: timestamp, updatedAt: timestamp };
+      const group: CmsGroup = { id: randomUUID(), name: input.name.trim(), description: input.description?.trim() || null, tenantId, instanceAccessMode: input.instanceAccessMode ?? 'none', instanceIds: input.instanceIds ?? [], createdAt: timestamp, updatedAt: timestamp };
       groups.set(group.id, group);
       return group;
     },
@@ -267,7 +271,7 @@ export function createInMemoryAuthRepository(): AuthRepository {
       const tenantId = normalizeTenantId(input.tenantId);
       assertTenantUnchanged(existing, tenantId);
       assertTenantExists(tenantId);
-      const group: CmsGroup = { ...existing, name: input.name.trim(), description: input.description?.trim() || null, updatedAt: nowIso() };
+      const group: CmsGroup = { ...existing, name: input.name.trim(), description: input.description?.trim() || null, instanceAccessMode: input.instanceAccessMode ?? existing.instanceAccessMode, instanceIds: input.instanceIds ?? existing.instanceIds, updatedAt: nowIso() };
       groups.set(group.id, group);
       return group;
     },

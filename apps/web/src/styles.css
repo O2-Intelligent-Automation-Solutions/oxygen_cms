@@ -647,6 +647,35 @@ button.secondary {
   background: rgba(3, 12, 22, 0.36);
 }
 
+.instance-grid-toolbar {
+  position: relative;
+  flex-wrap: wrap;
+}
+
+.column-selector-wrap {
+  position: relative;
+}
+
+.column-selector-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  min-width: 190px;
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid rgba(125, 160, 188, 0.28);
+  border-radius: 10px;
+  background: rgba(3, 12, 22, 0.96);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.32);
+}
+
+.column-selector-popover .checkbox-label {
+  margin: 0;
+  font-size: 0.78rem;
+}
+
 .btn-create {
   display: inline-flex;
   align-items: center;

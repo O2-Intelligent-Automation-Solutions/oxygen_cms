@@ -12,8 +12,22 @@ function errorReply(reply: FastifyReply, error: unknown, fallback: string, notFo
 }
 
 function instanceScope(profile: AuthProfile) {
-  if (profile.roles.includes('SystemAdmin')) return { includeAll: true };
-  return { groupIds: profile.groups.map((group) => group.id) };
+  if (profile.roles.includes('SystemAdmin') || profile.user.instanceAccessMode === 'all') return { includeAll: true };
+  if (profile.user.instanceAccessMode === 'none') return { instanceIds: [] };
+
+  const instanceIds = new Set<string>();
+  if (profile.user.instanceAccessMode === 'specific') {
+    for (const instanceId of profile.user.instanceIds) instanceIds.add(instanceId);
+  }
+
+  for (const group of profile.groups) {
+    if (group.instanceAccessMode === 'all') return { includeAll: true };
+    if (group.instanceAccessMode === 'specific') {
+      for (const instanceId of group.instanceIds) instanceIds.add(instanceId);
+    }
+  }
+
+  return { instanceIds: Array.from(instanceIds) };
 }
 
 export async function registerInstanceRoutes(app: FastifyInstance, authRepository: AuthRepository, instanceRepository: InstanceRepository) {
