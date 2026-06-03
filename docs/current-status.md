@@ -40,6 +40,10 @@ POST /api/setup/database/apply-schema
 - Step-by-step database wizard UI.
 - Docker Compose flags for managed MySQL mode.
 - Real MySQL provisioning and schema execution remain code-backed; live self-contained provisioning requires Docker/MySQL to be available in the runtime environment.
+- Disposable development database scripts:
+  - `npm run dev:db:reset` — destroy/recreate the MySQL container and clear local setup state.
+  - `npm run dev:managed` — run API/Web in self-contained managed MySQL mode.
+  - `npm run dev:managed:smoke` — exercise managed provision + schema endpoints.
 
 ## Validation Gate
 

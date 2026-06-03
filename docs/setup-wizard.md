@@ -25,6 +25,23 @@ After database settings are saved, the wizard proceeds to schema application, fi
 
 The browser wizard does not install MySQL directly. The deployment package starts MySQL and supplies generated secrets to the API. The wizard then provisions the CMS database, runtime user, and schema using those managed settings.
 
+### Disposable dev database workflow
+
+Use the repo scripts when testing schema/setup changes on the development server:
+
+```bash
+npm run dev:db:reset
+npm run dev:managed
+```
+
+In another terminal, run the managed setup smoke test:
+
+```bash
+npm run dev:managed:smoke
+```
+
+`dev:db:reset` destroys the Docker MySQL volume, removes `apps/api/data/settings.json`, recreates the MySQL container, and waits for it to become healthy. `dev:managed` starts the API and Web dev servers with managed MySQL environment variables. `dev:managed:smoke` calls the managed provisioning and schema endpoints that the browser wizard uses.
+
 Docker Compose advertises this mode with:
 
 ```text
