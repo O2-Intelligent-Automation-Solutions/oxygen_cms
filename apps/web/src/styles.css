@@ -656,24 +656,95 @@ button.secondary {
   position: relative;
 }
 
+.btn-grid-tool.k-button {
+  min-height: 34px;
+  padding: 7px 12px;
+  border: 1px solid rgba(32, 214, 210, 0.45) !important;
+  border-radius: 8px;
+  background: rgba(32, 214, 210, 0.10) !important;
+  color: var(--brand-primary) !important;
+  font-family: var(--brand-font-body);
+  font-size: 0.78rem;
+  font-weight: 700;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03), 0 6px 14px rgba(0, 0, 0, 0.14);
+}
+
+.btn-grid-tool.k-button:hover,
+.btn-grid-tool.k-button:focus {
+  border-color: rgba(32, 214, 210, 0.78) !important;
+  background: rgba(32, 214, 210, 0.18) !important;
+  color: #b9ffff !important;
+}
+
 .column-selector-popover {
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
   z-index: 20;
-  min-width: 190px;
+  min-width: 220px;
   display: grid;
-  gap: 6px;
-  padding: 10px;
-  border: 1px solid rgba(125, 160, 188, 0.28);
+  gap: 8px;
+  max-height: min(480px, 70vh);
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid rgba(32, 214, 210, 0.34);
   border-radius: 10px;
-  background: rgba(3, 12, 22, 0.96);
-  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.32);
+  background: rgba(3, 12, 22, 0.97);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.32), 0 0 24px rgba(32, 214, 210, 0.08);
 }
 
+.column-checkbox-label,
 .column-selector-popover .checkbox-label {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  align-items: center;
+  column-gap: 10px;
   margin: 0;
+  color: var(--brand-text);
   font-size: 0.78rem;
+  line-height: 1.2;
+}
+
+.column-checkbox-label input,
+.column-selector-popover input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--brand-primary);
+}
+
+.instance-grid-wrap {
+  min-height: 0;
+}
+
+.grid-header-context-menu {
+  position: fixed;
+  z-index: 1000;
+  display: grid;
+  min-width: 205px;
+  padding: 6px;
+  border: 1px solid rgba(32, 214, 210, 0.34);
+  border-radius: 10px;
+  background: rgba(3, 12, 22, 0.98);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.42), 0 0 22px rgba(32, 214, 210, 0.08);
+}
+
+.grid-header-context-menu button {
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--brand-text);
+  font-family: var(--brand-font-body);
+  font-size: 0.78rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.grid-header-context-menu button:hover {
+  background: rgba(32, 214, 210, 0.13);
+  color: #b9ffff;
 }
 
 .btn-create {
@@ -847,11 +918,55 @@ button.secondary {
 .cms-kendo-grid .k-command-cell {
   width: 52px;
   text-align: center;
+  white-space: nowrap;
 }
 
 .cms-kendo-grid .k-command-cell .btn-icon-info,
 .cms-kendo-grid .k-command-cell .btn-icon-danger {
-  margin: 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 2px;
+  color: #d4e4f3 !important;
+}
+
+.cms-kendo-grid .k-command-cell .btn-icon-info:hover {
+  color: var(--brand-primary) !important;
+  background: rgba(32, 214, 210, 0.10) !important;
+}
+
+.cms-kendo-grid .k-command-cell .btn-icon-danger:hover {
+  color: #fecaca !important;
+  background: rgba(239, 68, 68, 0.12) !important;
+}
+
+.cms-kendo-grid .k-grouping-header {
+  min-height: 40px;
+  padding: 8px 10px !important;
+  border-color: rgba(32, 214, 210, 0.20) !important;
+  background: rgba(3, 12, 22, 0.50) !important;
+  color: var(--brand-muted-2) !important;
+  font-family: var(--brand-font-body);
+  font-size: 0.78rem;
+}
+
+.cms-kendo-grid .k-grouping-header .k-group-indicator,
+.cms-kendo-grid .k-grouping-header .k-chip,
+.cms-kendo-grid .k-grouping-header .k-button,
+.cms-kendo-grid .k-grouping-header .k-indicator-container {
+  border: 1px solid rgba(32, 214, 210, 0.38) !important;
+  border-radius: 999px !important;
+  background: rgba(32, 214, 210, 0.12) !important;
+  color: var(--brand-text) !important;
+  font-family: var(--brand-font-body);
+  font-size: 0.78rem;
+  box-shadow: 0 0 16px rgba(32, 214, 210, 0.08);
+}
+
+.cms-kendo-grid .k-grouping-row .k-table-td {
+  background: rgba(12, 32, 52, 0.64) !important;
+  color: var(--brand-text) !important;
+  font-weight: 700;
 }
 
 .cms-kendo-grid .k-grid-norecords,

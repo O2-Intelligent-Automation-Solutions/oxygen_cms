@@ -1,5 +1,5 @@
 import {
-  Activity, ChevronDown, ChevronLeft, ChevronRight, Database, Eye, EyeOff, LayoutDashboard,
+  Activity, ChevronDown, ChevronLeft, ChevronRight, Database, ExternalLink, Eye, EyeOff, LayoutDashboard,
   LogOut, Pencil, Plus, RotateCw, Server, Settings, ShieldCheck, Trash2, UserCircle, UserPlus
 } from 'lucide-react';
 import { Grid, GridColumn, type GridCustomCellProps, type GridDataStateChangeEvent } from '@progress/kendo-react-grid';
@@ -37,9 +37,10 @@ type GroupGridRow = { id: string; name: string; description: string; tenant: str
 type RoleGridRow = { id: string; name: string; description: string; tenant: string; system: string; raw: Role };
 type TenantGridRow = { id: string; name: string; description: string; raw: Tenant };
 type UserGridRow = { id: string; displayName: string; email: string; role: string; groups: string; tenant: string; instanceAccess: string; raw: UserProfile };
-type InstanceGridRow = { id: string; name: string; tenant: string; host: string; status: string; ssl: string; license: string; processing: string; enabled: string; raw: OxyGenInstance };
-type InstanceColumnKey = 'name' | 'tenant' | 'host' | 'status' | 'ssl' | 'license' | 'processing' | 'enabled';
+type InstanceGridRow = { id: string; name: string; tenant: string; host: string; status: string; ssl: string; license: string; processing: string; enabled: string; description: string; protocol: string; port: string; hostname: string; baseUrl: string; apiBaseUrl: string; username: string; pollingInterval: string; sslExpiresAt: string; lastCheckedAt: string; uptime24h: string; emmQueue: string; sms: string; hangfire: string; licenseKey: string; lastError: string; raw: OxyGenInstance };
+type InstanceColumnKey = keyof Omit<InstanceGridRow, 'id' | 'raw'>;
 
+const defaultVisibleInstanceColumns = new Set<InstanceColumnKey>(['name', 'tenant', 'host', 'status', 'ssl', 'license', 'processing', 'enabled']);
 const instanceColumnDefs: { key: InstanceColumnKey; title: string; width?: string }[] = [
   { key: 'name', title: 'Name' },
   { key: 'tenant', title: 'Tenant' },
@@ -48,7 +49,23 @@ const instanceColumnDefs: { key: InstanceColumnKey; title: string; width?: strin
   { key: 'ssl', title: 'SSL', width: '110px' },
   { key: 'license', title: 'License', width: '130px' },
   { key: 'processing', title: 'Processing', width: '140px' },
-  { key: 'enabled', title: 'Enabled', width: '120px' }
+  { key: 'enabled', title: 'Enabled', width: '120px' },
+  { key: 'description', title: 'Description' },
+  { key: 'protocol', title: 'Protocol', width: '120px' },
+  { key: 'port', title: 'Port', width: '100px' },
+  { key: 'hostname', title: 'Hostname' },
+  { key: 'baseUrl', title: 'Base URL' },
+  { key: 'apiBaseUrl', title: 'API Base URL' },
+  { key: 'username', title: 'Username', width: '130px' },
+  { key: 'pollingInterval', title: 'Polling Interval', width: '160px' },
+  { key: 'sslExpiresAt', title: 'SSL Expires', width: '160px' },
+  { key: 'lastCheckedAt', title: 'Last Checked', width: '170px' },
+  { key: 'uptime24h', title: 'Uptime 24h', width: '130px' },
+  { key: 'emmQueue', title: 'EMM Queue', width: '130px' },
+  { key: 'sms', title: 'SMS', width: '110px' },
+  { key: 'hangfire', title: 'Hangfire', width: '130px' },
+  { key: 'licenseKey', title: 'License Key', width: '160px' },
+  { key: 'lastError', title: 'Last Error' }
 ];
 
 const capabilities = [
@@ -124,9 +141,10 @@ export function App() {
   const [roleGridState, setRoleGridState] = useState<State>({ sort: [{ field: 'name', dir: 'asc' }] });
   const [tenantGridState, setTenantGridState] = useState<State>({ sort: [{ field: 'name', dir: 'asc' }] });
   const [instanceGridState, setInstanceGridState] = useState<State>({ sort: [{ field: 'name', dir: 'asc' }] });
-  const [instanceFiltersVisible, setInstanceFiltersVisible] = useState(true);
+  const [instanceFiltersVisible, setInstanceFiltersVisible] = useState(false);
   const [instanceColumnSelectorOpen, setInstanceColumnSelectorOpen] = useState(false);
-  const [visibleInstanceColumns, setVisibleInstanceColumns] = useState<Record<InstanceColumnKey, boolean>>(() => Object.fromEntries(instanceColumnDefs.map((column) => [column.key, true])) as Record<InstanceColumnKey, boolean>);
+  const [instanceHeaderMenu, setInstanceHeaderMenu] = useState<{ x: number; y: number; column: InstanceColumnKey } | null>(null);
+  const [visibleInstanceColumns, setVisibleInstanceColumns] = useState<Record<InstanceColumnKey, boolean>>(() => Object.fromEntries(instanceColumnDefs.map((column) => [column.key, defaultVisibleInstanceColumns.has(column.key)])) as Record<InstanceColumnKey, boolean>);
 
   const isSystemAdmin = useMemo(() => profile?.roles.includes('SystemAdmin') ?? false, [profile]);
   const tenantName = (tenantId: TenantId) => tenantId ? tenants.find((tenant) => tenant.id === tenantId)?.name || 'Unknown tenant' : 'Global';
@@ -135,6 +153,20 @@ export function App() {
   const accessLabel = (mode: string, instanceIds: string[]) => mode === 'all' ? 'All instances' : mode === 'none' ? 'No instances' : mode === 'inherit' ? 'Inherited from groups' : `${instanceIds.length} specific instance${instanceIds.length === 1 ? '' : 's'}`;
   const launchUrlForInstance = (instance: OxyGenInstance) => `${instance.protocol}://${instance.host}:${instance.port ?? (instance.protocol === 'http' ? 80 : 443)}/optws/oxygen.aspx`;
   const InstanceAccessCheckboxes = ({ selected }: { selected: string[] }) => <div className="checkbox-group">{instances.length === 0 ? <span>No instances enrolled yet.</span> : instances.map((instance) => <label key={instance.id} className="checkbox-label"><input name="instanceIds" type="checkbox" value={instance.id} defaultChecked={selected.includes(instance.id)} /> {instance.name}</label>)}</div>;
+
+  const instanceColumnTitle = (column: InstanceColumnKey) => instanceColumnDefs.find((definition) => definition.key === column)?.title || column;
+  const setInstanceColumnVisible = (column: InstanceColumnKey, visible: boolean) => setVisibleInstanceColumns((current) => ({ ...current, [column]: visible }));
+  const sortInstanceColumn = (column: InstanceColumnKey, dir: 'asc' | 'desc') => setInstanceGridState((current) => ({ ...current, sort: [{ field: column, dir }] }));
+  const removeInstanceSort = () => setInstanceGridState((current) => ({ ...current, sort: [] }));
+  const groupInstanceColumn = (column: InstanceColumnKey) => setInstanceGridState((current) => ({ ...current, group: [{ field: column }] }));
+  function handleInstanceGridContextMenu(event: React.MouseEvent<HTMLElement>) {
+    const header = (event.target as HTMLElement).closest('th');
+    const title = header?.querySelector('.k-column-title')?.textContent?.trim();
+    const column = instanceColumnDefs.find((definition) => definition.title === title)?.key;
+    if (!column) return;
+    event.preventDefault();
+    setInstanceHeaderMenu({ x: event.clientX, y: event.clientY, column });
+  }
 
   async function loadSetupStatus(active = true) {
     try {
@@ -362,7 +394,7 @@ export function App() {
   const groupRows = useMemo<GroupGridRow[]>(() => groups.map((group) => ({ id: group.id, name: group.name, description: group.description || '', tenant: tenantName(group.tenantId), instanceAccess: accessLabel(group.instanceAccessMode, group.instanceIds), raw: group })), [groups, tenants, instances]);
   const roleRows = useMemo<RoleGridRow[]>(() => roles.map((role) => ({ id: role.id, name: role.name, description: role.description || '', tenant: tenantName(role.tenantId), system: role.isSystem ? 'Yes' : 'No', raw: role })), [roles, tenants]);
   const tenantRows = useMemo<TenantGridRow[]>(() => tenants.map((tenant) => ({ id: tenant.id, name: tenant.name, description: tenant.description || '', raw: tenant })), [tenants]);
-  const instanceRows = useMemo<InstanceGridRow[]>(() => instances.map((instance) => ({ id: instance.id, name: instance.name, tenant: tenantName(instance.tenantId), host: instance.host, status: instance.status, ssl: instance.sslValid === null ? 'Unknown' : instance.sslValid ? 'Valid' : 'Invalid', license: instance.licenseStatus, processing: instance.processingStatus, enabled: instance.isEnabled ? 'Yes' : 'No', raw: instance })), [instances, tenants]);
+  const instanceRows = useMemo<InstanceGridRow[]>(() => instances.map((instance) => ({ id: instance.id, name: instance.name, tenant: tenantName(instance.tenantId), host: instance.host, status: instance.status, ssl: instance.sslValid === null ? 'Unknown' : instance.sslValid ? 'Valid' : 'Invalid', license: instance.licenseStatus, processing: instance.processingStatus, enabled: instance.isEnabled ? 'Yes' : 'No', description: instance.description || '', protocol: instance.protocol.toUpperCase(), port: String(instance.port ?? ''), hostname: instance.hostname, baseUrl: instance.baseUrl, apiBaseUrl: instance.apiBaseUrl, username: instance.username, pollingInterval: `${instance.pollingIntervalSeconds}s`, sslExpiresAt: instance.sslExpiresAt || '', lastCheckedAt: instance.lastCheckedAt || '', uptime24h: instance.uptimePercent24h === null ? '' : `${instance.uptimePercent24h}%`, emmQueue: instance.emmQueueStatus, sms: instance.smsStatus, hangfire: instance.hangfireStatus, licenseKey: instance.licenseKey || '', lastError: instance.lastError || '', raw: instance })), [instances, tenants]);
   const processedUsers = useMemo(() => process(userRows, userGridState), [userRows, userGridState]);
   const processedGroups = useMemo(() => process(groupRows, groupGridState), [groupRows, groupGridState]);
   const processedRoles = useMemo(() => process(roleRows, roleGridState), [roleRows, roleGridState]);
@@ -383,7 +415,7 @@ export function App() {
     return <td {...tdProps} className="k-command-cell"><Button className="btn-icon-info" onClick={() => openEditRoleModal(row.raw)} title="Edit" type="button" fillMode="flat"><Pencil /></Button><Button className="btn-icon-danger" onClick={() => deleteItem('role', row.raw.id, `role ${row.raw.name}`)} title="Delete" type="button" fillMode="flat"><Trash2 /></Button></td>;
   }
   const TenantActionCell = cell<TenantGridRow>((raw) => openEditTenantModal(raw as Tenant), (raw) => deleteItem('tenant', (raw as Tenant).id, `tenant ${(raw as Tenant).name}`));
-  function InstanceActionCell({ dataItem, tdProps }: GridCustomCellProps) { const row = dataItem as InstanceGridRow; return <td {...tdProps} className="k-command-cell"><Button className="btn-icon-info" onClick={() => openEditInstanceModal(row.raw)} title="Edit" type="button" fillMode="flat"><Pencil /></Button><Button className="btn-icon-info" onClick={() => testInstanceConnectivity(row.raw)} title="Test connectivity" type="button" fillMode="flat"><RotateCw /></Button><Button className="btn-icon-info" onClick={() => window.open(launchUrlForInstance(row.raw), '_blank', 'noopener,noreferrer')} title="Launch OxyGen" type="button" fillMode="flat">Launch</Button><Button className="btn-icon-danger" onClick={() => deleteItem('instance', row.raw.id, `instance ${row.raw.name}`)} title="Delete" type="button" fillMode="flat"><Trash2 /></Button></td>; }
+  function InstanceActionCell({ dataItem, tdProps }: GridCustomCellProps) { const row = dataItem as InstanceGridRow; return <td {...tdProps} className="k-command-cell"><Button className="btn-icon-info" onClick={() => openEditInstanceModal(row.raw)} title="Edit" type="button" fillMode="flat"><Pencil /></Button><Button className="btn-icon-info" onClick={() => testInstanceConnectivity(row.raw)} title="Test connectivity" type="button" fillMode="flat"><RotateCw /></Button><Button className="btn-icon-info" onClick={() => window.open(launchUrlForInstance(row.raw), '_blank', 'noopener,noreferrer')} title="Launch OxyGen" type="button" fillMode="flat"><ExternalLink /></Button><Button className="btn-icon-danger" onClick={() => deleteItem('instance', row.raw.id, `instance ${row.raw.name}`)} title="Delete" type="button" fillMode="flat"><Trash2 /></Button></td>; }
 
   const sectionMeta = (() => {
     switch (activeSection) {
@@ -484,7 +516,7 @@ export function App() {
         <section className={`admin-content ${gridSection ? 'grid-section' : ''}`}><div className="page-header"><p className="eyebrow small">{sectionMeta.eyebrow}</p><h2>{sectionMeta.heading}</h2></div>
           {activeSection === 'dashboard' && <div className="dashboard-metrics"><div className="metric"><strong>{groups.length}</strong><span>User Groups</span></div><div className="metric"><strong>{users.length}</strong><span>Users</span></div><div className="metric"><strong>{roles.length}</strong><span>Roles</span></div><div className="metric"><strong>{tenants.length}</strong><span>Tenants / Partners</span></div></div>}
           {activeSection === 'organizations' && isSystemAdmin && <article className="panel data-panel kendo-data-panel"><div className="dp-head"><Button className="btn-create" onClick={openCreateTenantModal} type="button" themeColor="primary"><Plus /> Create "Tenant"</Button></div><Grid className="cms-kendo-grid" data={processedTenants} sortable filterable resizable {...tenantGridState} onDataStateChange={(e: GridDataStateChangeEvent) => setTenantGridState(e.dataState)}><GridColumn title="Actions" width="104px" filterable={false} sortable={false} cells={{ data: TenantActionCell }} /><GridColumn field="name" title="Name" filter="text" /><GridColumn field="description" title="Description" filter="text" /></Grid></article>}
-          {activeSection === 'instances' && <article className="panel data-panel kendo-data-panel"><div className="dp-head instance-grid-toolbar">{isSystemAdmin && <Button className="btn-create" onClick={openCreateInstanceModal} type="button" themeColor="primary"><Plus /> Enroll Instance</Button>}<div className="column-selector-wrap"><Button type="button" fillMode="outline" onClick={() => setInstanceColumnSelectorOpen((value) => !value)}>Select Columns</Button>{instanceColumnSelectorOpen && <div className="column-selector-popover">{instanceColumnDefs.map((column) => <label key={column.key} className="checkbox-label"><input type="checkbox" checked={visibleInstanceColumns[column.key]} onChange={(event) => setVisibleInstanceColumns((current) => ({ ...current, [column.key]: event.target.checked }))} /> {column.title}</label>)}</div>}</div><Button type="button" fillMode="outline" onClick={() => setInstanceFiltersVisible((value) => !value)}>{instanceFiltersVisible ? 'Hide Filters' : 'Show Filters'}</Button></div><Grid className="cms-kendo-grid" data={processedInstances} sortable filterable={instanceFiltersVisible} groupable resizable {...instanceGridState} onDataStateChange={(e: GridDataStateChangeEvent) => setInstanceGridState(e.dataState)}><GridColumn title="Actions" width="210px" filterable={false} sortable={false} groupable={false} cells={{ data: InstanceActionCell }} />{instanceColumnDefs.filter((column) => visibleInstanceColumns[column.key]).map((column) => <GridColumn key={column.key} field={column.key} title={column.title} filter="text" width={column.width} />)}</Grid></article>}
+          {activeSection === 'instances' && <article className="panel data-panel kendo-data-panel"><div className="dp-head instance-grid-toolbar">{isSystemAdmin && <Button className="btn-create" onClick={openCreateInstanceModal} type="button" themeColor="primary"><Plus /> Enroll Instance</Button>}<div className="column-selector-wrap"><Button className="btn-grid-tool" type="button" fillMode="flat" onClick={() => setInstanceColumnSelectorOpen((value) => !value)}>Show Columns</Button>{instanceColumnSelectorOpen && <div className="column-selector-popover">{instanceColumnDefs.map((column) => <label key={column.key} className="checkbox-label column-checkbox-label"><input type="checkbox" checked={visibleInstanceColumns[column.key]} onChange={(event) => setInstanceColumnVisible(column.key, event.target.checked)} /><span>{column.title}</span></label>)}</div>}</div><Button className="btn-grid-tool" type="button" fillMode="flat" onClick={() => setInstanceFiltersVisible((value) => !value)}>{instanceFiltersVisible ? 'Hide Filters' : 'Show Filters'}</Button></div><div className="instance-grid-wrap" onContextMenu={handleInstanceGridContextMenu} onClick={() => setInstanceHeaderMenu(null)}><Grid className="cms-kendo-grid" data={processedInstances} sortable filterable={instanceFiltersVisible} groupable resizable {...instanceGridState} onDataStateChange={(e: GridDataStateChangeEvent) => setInstanceGridState(e.dataState)}><GridColumn title="Actions" width="136px" filterable={false} sortable={false} groupable={false} cells={{ data: InstanceActionCell }} />{instanceColumnDefs.filter((column) => visibleInstanceColumns[column.key]).map((column) => <GridColumn key={column.key} field={column.key} title={column.title} filter="text" width={column.width} />)}</Grid></div>{instanceHeaderMenu && <div className="grid-header-context-menu" style={{ left: instanceHeaderMenu.x, top: instanceHeaderMenu.y }} onClick={(event) => event.stopPropagation()}><button type="button" onClick={() => { setInstanceColumnVisible(instanceHeaderMenu.column, false); setInstanceHeaderMenu(null); }}>Hide Column</button><button type="button" onClick={() => { setInstanceColumnSelectorOpen(true); setInstanceHeaderMenu(null); }}>Show Columns</button><button type="button" onClick={() => { sortInstanceColumn(instanceHeaderMenu.column, 'asc'); setInstanceHeaderMenu(null); }}>Sort Ascending</button><button type="button" onClick={() => { sortInstanceColumn(instanceHeaderMenu.column, 'desc'); setInstanceHeaderMenu(null); }}>Sort Descending</button><button type="button" onClick={() => { removeInstanceSort(); setInstanceHeaderMenu(null); }}>Remove Sort</button><button type="button" onClick={() => { groupInstanceColumn(instanceHeaderMenu.column); setInstanceHeaderMenu(null); }}>Group By Columns</button></div>}</article>}
           {activeSection === 'user-groups' && isSystemAdmin && <article className="panel data-panel kendo-data-panel"><div className="dp-head"><Button className="btn-create" onClick={openCreateGroupModal} type="button" themeColor="primary"><Plus /> Create "Group"</Button></div><Grid className="cms-kendo-grid" data={processedGroups} sortable filterable resizable {...groupGridState} onDataStateChange={(e: GridDataStateChangeEvent) => setGroupGridState(e.dataState)}><GridColumn title="Actions" width="104px" filterable={false} sortable={false} cells={{ data: GroupActionCell }} /><GridColumn field="name" title="Name" filter="text" /><GridColumn field="tenant" title="Tenant" filter="text" /><GridColumn field="description" title="Description" filter="text" /><GridColumn field="instanceAccess" title="Instance Access" filter="text" /></Grid></article>}
           {activeSection === 'users' && isSystemAdmin && <article className="panel data-panel kendo-data-panel"><div className="dp-head"><Button className="btn-create" onClick={openCreateUserModal} type="button" themeColor="primary"><Plus /> Create "User"</Button></div><Grid className="cms-kendo-grid" data={processedUsers} sortable filterable resizable {...userGridState} onDataStateChange={(e: GridDataStateChangeEvent) => setUserGridState(e.dataState)}><GridColumn title="Actions" width="104px" filterable={false} sortable={false} cells={{ data: UserActionCell }} /><GridColumn field="displayName" title="Name" filter="text" /><GridColumn field="email" title="Email" filter="text" /><GridColumn field="role" title="Role" filter="text" /><GridColumn field="tenant" title="Tenant" filter="text" /><GridColumn field="groups" title="Groups" filter="text" /><GridColumn field="instanceAccess" title="Instance Access" filter="text" /></Grid></article>}
           {activeSection === 'roles' && isSystemAdmin && <article className="panel data-panel kendo-data-panel"><div className="dp-head"><Button className="btn-create" onClick={openCreateRoleModal} type="button" themeColor="primary"><Plus /> Create "Role"</Button></div><Grid className="cms-kendo-grid" data={processedRoles} sortable filterable resizable {...roleGridState} onDataStateChange={(e: GridDataStateChangeEvent) => setRoleGridState(e.dataState)}><GridColumn title="Actions" width="104px" filterable={false} sortable={false} cells={{ data: RoleActionCell }} /><GridColumn field="name" title="Name" filter="text" /><GridColumn field="tenant" title="Tenant" filter="text" /><GridColumn field="system" title="System" filter="text" width="110px" /><GridColumn field="description" title="Description" filter="text" /></Grid></article>}
