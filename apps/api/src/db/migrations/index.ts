@@ -236,6 +236,21 @@ ALTER TABLE oxygen_instances
   DROP COLUMN group_id;
 `;
 
+const gridPreferencesSchemaSql = `CREATE TABLE IF NOT EXISTS grid_preferences (
+  user_id CHAR(36) NOT NULL,
+  grid_key VARCHAR(128) NOT NULL,
+  columns_json JSON NOT NULL,
+  sort_json JSON NOT NULL,
+  group_json JSON NOT NULL,
+  filter_json JSON NULL,
+  filters_visible TINYINT(1) NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (user_id, grid_key),
+  KEY idx_grid_preferences_grid_key (grid_key),
+  CONSTRAINT fk_grid_preferences_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);`;
+
 export const schemaMigrations: SchemaMigration[] = [
   {
     version: '0.01',
@@ -260,5 +275,11 @@ export const schemaMigrations: SchemaMigration[] = [
     name: 'user and group instance access model',
     checksum: '39be26bad2158ac9d39dd4b8c48a9ea13d404f3fa1d346469897d2803cb5017b',
     upSql: instanceAccessModelSql
+  },
+  {
+    version: '0.05',
+    name: 'grid preferences schema',
+    checksum: '7d6575f92431394ac17c17f34d67bc7e34b7fee3e737a5b103da44fe8e89aa8a',
+    upSql: gridPreferencesSchemaSql
   }
 ];

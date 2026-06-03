@@ -681,7 +681,7 @@ button.secondary {
   top: calc(100% + 8px);
   right: 0;
   z-index: 20;
-  min-width: 220px;
+  min-width: 240px;
   display: grid;
   gap: 8px;
   max-height: min(480px, 70vh);
@@ -691,18 +691,56 @@ button.secondary {
   border-radius: 10px;
   background: rgba(3, 12, 22, 0.97);
   box-shadow: 0 14px 32px rgba(0, 0, 0, 0.32), 0 0 24px rgba(32, 214, 210, 0.08);
+  scrollbar-color: rgba(32, 214, 210, 0.72) rgba(10, 28, 42, 0.95);
+  scrollbar-width: thin;
+}
+
+.column-selector-popover::-webkit-scrollbar {
+  width: 10px;
+}
+
+.column-selector-popover::-webkit-scrollbar-track {
+  background: rgba(10, 28, 42, 0.95);
+  border-radius: 999px;
+}
+
+.column-selector-popover::-webkit-scrollbar-thumb {
+  border: 2px solid rgba(10, 28, 42, 0.95);
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(32, 214, 210, 0.86), rgba(0, 116, 158, 0.82));
 }
 
 .column-checkbox-label,
 .column-selector-popover .checkbox-label {
   display: grid;
-  grid-template-columns: 16px 1fr;
+  grid-template-columns: 18px 16px 1fr;
   align-items: center;
-  column-gap: 10px;
+  column-gap: 9px;
   margin: 0;
+  padding: 5px 4px;
+  border-radius: 8px;
   color: var(--brand-text);
   font-size: 0.78rem;
   line-height: 1.2;
+  cursor: grab;
+}
+
+.column-checkbox-label:hover,
+.column-selector-popover .checkbox-label:hover {
+  background: rgba(32, 214, 210, 0.08);
+}
+
+.column-drag-handle {
+  width: 15px;
+  height: 15px;
+  color: rgba(151, 184, 204, 0.78);
+  cursor: grab;
+}
+
+.column-checkbox-label:active,
+.column-selector-popover .checkbox-label:active,
+.column-drag-handle:active {
+  cursor: grabbing;
 }
 
 .column-checkbox-label input,

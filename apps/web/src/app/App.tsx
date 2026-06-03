@@ -2,11 +2,11 @@ import {
   Activity, ChevronDown, ChevronLeft, ChevronRight, Database, ExternalLink, Eye, EyeOff, LayoutDashboard,
   LogOut, Pencil, Plus, RotateCw, Server, Settings, ShieldCheck, Trash2, UserCircle, UserPlus
 } from 'lucide-react';
-import { Grid, GridColumn, type GridCustomCellProps, type GridDataStateChangeEvent } from '@progress/kendo-react-grid';
+import { type GridCustomCellProps } from '@progress/kendo-react-grid';
 import { Button } from '@progress/kendo-react-buttons';
 import { Dialog, DialogActionsBar } from '@progress/kendo-react-dialogs';
-import { process, type State } from '@progress/kendo-data-query';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { ManagedGrid, type ManagedGridColumn } from './ManagedGrid';
 import o2Logo from '../brand/assets/o2-ias-logo-dark.png';
 import oxygenLogo from '../brand/assets/oxygen-logo-inline-dark.png';
 import oxygenFullLogo from '../brand/assets/oxygen-logo-full-dark.png';
@@ -38,34 +38,55 @@ type RoleGridRow = { id: string; name: string; description: string; tenant: stri
 type TenantGridRow = { id: string; name: string; description: string; raw: Tenant };
 type UserGridRow = { id: string; displayName: string; email: string; role: string; groups: string; tenant: string; instanceAccess: string; raw: UserProfile };
 type InstanceGridRow = { id: string; name: string; tenant: string; host: string; status: string; ssl: string; license: string; processing: string; enabled: string; description: string; protocol: string; port: string; hostname: string; baseUrl: string; apiBaseUrl: string; username: string; pollingInterval: string; sslExpiresAt: string; lastCheckedAt: string; uptime24h: string; emmQueue: string; sms: string; hangfire: string; licenseKey: string; lastError: string; raw: OxyGenInstance };
-type InstanceColumnKey = keyof Omit<InstanceGridRow, 'id' | 'raw'>;
-
-const defaultVisibleInstanceColumns = new Set<InstanceColumnKey>(['name', 'tenant', 'host', 'status', 'ssl', 'license', 'processing', 'enabled']);
-const instanceColumnDefs: { key: InstanceColumnKey; title: string; width?: string }[] = [
+const tenantColumnDefs: ManagedGridColumn<TenantGridRow>[] = [
+  { key: 'name', title: 'Name' },
+  { key: 'description', title: 'Description' }
+];
+const groupColumnDefs: ManagedGridColumn<GroupGridRow>[] = [
+  { key: 'name', title: 'Name' },
+  { key: 'tenant', title: 'Tenant' },
+  { key: 'description', title: 'Description' },
+  { key: 'instanceAccess', title: 'Instance Access' }
+];
+const roleColumnDefs: ManagedGridColumn<RoleGridRow>[] = [
+  { key: 'name', title: 'Name' },
+  { key: 'tenant', title: 'Tenant' },
+  { key: 'system', title: 'System', width: 110 },
+  { key: 'description', title: 'Description' }
+];
+const userColumnDefs: ManagedGridColumn<UserGridRow>[] = [
+  { key: 'displayName', title: 'Name' },
+  { key: 'email', title: 'Email' },
+  { key: 'role', title: 'Role' },
+  { key: 'tenant', title: 'Tenant' },
+  { key: 'groups', title: 'Groups' },
+  { key: 'instanceAccess', title: 'Instance Access' }
+];
+const instanceColumnDefs: ManagedGridColumn<InstanceGridRow>[] = [
   { key: 'name', title: 'Name' },
   { key: 'tenant', title: 'Tenant' },
   { key: 'host', title: 'Host' },
-  { key: 'status', title: 'Up/Down', width: '130px' },
-  { key: 'ssl', title: 'SSL', width: '110px' },
-  { key: 'license', title: 'License', width: '130px' },
-  { key: 'processing', title: 'Processing', width: '140px' },
-  { key: 'enabled', title: 'Enabled', width: '120px' },
-  { key: 'description', title: 'Description' },
-  { key: 'protocol', title: 'Protocol', width: '120px' },
-  { key: 'port', title: 'Port', width: '100px' },
-  { key: 'hostname', title: 'Hostname' },
-  { key: 'baseUrl', title: 'Base URL' },
-  { key: 'apiBaseUrl', title: 'API Base URL' },
-  { key: 'username', title: 'Username', width: '130px' },
-  { key: 'pollingInterval', title: 'Polling Interval', width: '160px' },
-  { key: 'sslExpiresAt', title: 'SSL Expires', width: '160px' },
-  { key: 'lastCheckedAt', title: 'Last Checked', width: '170px' },
-  { key: 'uptime24h', title: 'Uptime 24h', width: '130px' },
-  { key: 'emmQueue', title: 'EMM Queue', width: '130px' },
-  { key: 'sms', title: 'SMS', width: '110px' },
-  { key: 'hangfire', title: 'Hangfire', width: '130px' },
-  { key: 'licenseKey', title: 'License Key', width: '160px' },
-  { key: 'lastError', title: 'Last Error' }
+  { key: 'status', title: 'Up/Down', width: 130 },
+  { key: 'ssl', title: 'SSL', width: 110 },
+  { key: 'license', title: 'License', width: 130 },
+  { key: 'processing', title: 'Processing', width: 140 },
+  { key: 'enabled', title: 'Enabled', width: 120 },
+  { key: 'description', title: 'Description', defaultVisible: false },
+  { key: 'protocol', title: 'Protocol', width: 120, defaultVisible: false },
+  { key: 'port', title: 'Port', width: 100, defaultVisible: false },
+  { key: 'hostname', title: 'Hostname', defaultVisible: false },
+  { key: 'baseUrl', title: 'Base URL', defaultVisible: false },
+  { key: 'apiBaseUrl', title: 'API Base URL', defaultVisible: false },
+  { key: 'username', title: 'Username', width: 130, defaultVisible: false },
+  { key: 'pollingInterval', title: 'Polling Interval', width: 160, defaultVisible: false },
+  { key: 'sslExpiresAt', title: 'SSL Expires', width: 160, defaultVisible: false },
+  { key: 'lastCheckedAt', title: 'Last Checked', width: 170, defaultVisible: false },
+  { key: 'uptime24h', title: 'Uptime 24h', width: 130, defaultVisible: false },
+  { key: 'emmQueue', title: 'EMM Queue', width: 130, defaultVisible: false },
+  { key: 'sms', title: 'SMS', width: 110, defaultVisible: false },
+  { key: 'hangfire', title: 'Hangfire', width: 130, defaultVisible: false },
+  { key: 'licenseKey', title: 'License Key', width: 160, defaultVisible: false },
+  { key: 'lastError', title: 'Last Error', defaultVisible: false }
 ];
 
 const capabilities = [
@@ -136,15 +157,6 @@ export function App() {
   const [openAccordions, setOpenAccordions] = useState<Set<string>>(new Set(['security']));
   const [modal, setModal] = useState<ModalState>(null);
   const [isDrawerExpanded, setIsDrawerExpanded] = useState(false);
-  const [userGridState, setUserGridState] = useState<State>({ sort: [{ field: 'displayName', dir: 'asc' }] });
-  const [groupGridState, setGroupGridState] = useState<State>({ sort: [{ field: 'name', dir: 'asc' }] });
-  const [roleGridState, setRoleGridState] = useState<State>({ sort: [{ field: 'name', dir: 'asc' }] });
-  const [tenantGridState, setTenantGridState] = useState<State>({ sort: [{ field: 'name', dir: 'asc' }] });
-  const [instanceGridState, setInstanceGridState] = useState<State>({ sort: [{ field: 'name', dir: 'asc' }] });
-  const [instanceFiltersVisible, setInstanceFiltersVisible] = useState(false);
-  const [instanceColumnSelectorOpen, setInstanceColumnSelectorOpen] = useState(false);
-  const [instanceHeaderMenu, setInstanceHeaderMenu] = useState<{ x: number; y: number; column: InstanceColumnKey } | null>(null);
-  const [visibleInstanceColumns, setVisibleInstanceColumns] = useState<Record<InstanceColumnKey, boolean>>(() => Object.fromEntries(instanceColumnDefs.map((column) => [column.key, defaultVisibleInstanceColumns.has(column.key)])) as Record<InstanceColumnKey, boolean>);
 
   const isSystemAdmin = useMemo(() => profile?.roles.includes('SystemAdmin') ?? false, [profile]);
   const tenantName = (tenantId: TenantId) => tenantId ? tenants.find((tenant) => tenant.id === tenantId)?.name || 'Unknown tenant' : 'Global';
@@ -153,20 +165,6 @@ export function App() {
   const accessLabel = (mode: string, instanceIds: string[]) => mode === 'all' ? 'All instances' : mode === 'none' ? 'No instances' : mode === 'inherit' ? 'Inherited from groups' : `${instanceIds.length} specific instance${instanceIds.length === 1 ? '' : 's'}`;
   const launchUrlForInstance = (instance: OxyGenInstance) => `${instance.protocol}://${instance.host}:${instance.port ?? (instance.protocol === 'http' ? 80 : 443)}/optws/oxygen.aspx`;
   const InstanceAccessCheckboxes = ({ selected }: { selected: string[] }) => <div className="checkbox-group">{instances.length === 0 ? <span>No instances enrolled yet.</span> : instances.map((instance) => <label key={instance.id} className="checkbox-label"><input name="instanceIds" type="checkbox" value={instance.id} defaultChecked={selected.includes(instance.id)} /> {instance.name}</label>)}</div>;
-
-  const instanceColumnTitle = (column: InstanceColumnKey) => instanceColumnDefs.find((definition) => definition.key === column)?.title || column;
-  const setInstanceColumnVisible = (column: InstanceColumnKey, visible: boolean) => setVisibleInstanceColumns((current) => ({ ...current, [column]: visible }));
-  const sortInstanceColumn = (column: InstanceColumnKey, dir: 'asc' | 'desc') => setInstanceGridState((current) => ({ ...current, sort: [{ field: column, dir }] }));
-  const removeInstanceSort = () => setInstanceGridState((current) => ({ ...current, sort: [] }));
-  const groupInstanceColumn = (column: InstanceColumnKey) => setInstanceGridState((current) => ({ ...current, group: [{ field: column }] }));
-  function handleInstanceGridContextMenu(event: React.MouseEvent<HTMLElement>) {
-    const header = (event.target as HTMLElement).closest('th');
-    const title = header?.querySelector('.k-column-title')?.textContent?.trim();
-    const column = instanceColumnDefs.find((definition) => definition.title === title)?.key;
-    if (!column) return;
-    event.preventDefault();
-    setInstanceHeaderMenu({ x: event.clientX, y: event.clientY, column });
-  }
 
   async function loadSetupStatus(active = true) {
     try {
@@ -395,11 +393,6 @@ export function App() {
   const roleRows = useMemo<RoleGridRow[]>(() => roles.map((role) => ({ id: role.id, name: role.name, description: role.description || '', tenant: tenantName(role.tenantId), system: role.isSystem ? 'Yes' : 'No', raw: role })), [roles, tenants]);
   const tenantRows = useMemo<TenantGridRow[]>(() => tenants.map((tenant) => ({ id: tenant.id, name: tenant.name, description: tenant.description || '', raw: tenant })), [tenants]);
   const instanceRows = useMemo<InstanceGridRow[]>(() => instances.map((instance) => ({ id: instance.id, name: instance.name, tenant: tenantName(instance.tenantId), host: instance.host, status: instance.status, ssl: instance.sslValid === null ? 'Unknown' : instance.sslValid ? 'Valid' : 'Invalid', license: instance.licenseStatus, processing: instance.processingStatus, enabled: instance.isEnabled ? 'Yes' : 'No', description: instance.description || '', protocol: instance.protocol.toUpperCase(), port: String(instance.port ?? ''), hostname: instance.hostname, baseUrl: instance.baseUrl, apiBaseUrl: instance.apiBaseUrl, username: instance.username, pollingInterval: `${instance.pollingIntervalSeconds}s`, sslExpiresAt: instance.sslExpiresAt || '', lastCheckedAt: instance.lastCheckedAt || '', uptime24h: instance.uptimePercent24h === null ? '' : `${instance.uptimePercent24h}%`, emmQueue: instance.emmQueueStatus, sms: instance.smsStatus, hangfire: instance.hangfireStatus, licenseKey: instance.licenseKey || '', lastError: instance.lastError || '', raw: instance })), [instances, tenants]);
-  const processedUsers = useMemo(() => process(userRows, userGridState), [userRows, userGridState]);
-  const processedGroups = useMemo(() => process(groupRows, groupGridState), [groupRows, groupGridState]);
-  const processedRoles = useMemo(() => process(roleRows, roleGridState), [roleRows, roleGridState]);
-  const processedTenants = useMemo(() => process(tenantRows, tenantGridState), [tenantRows, tenantGridState]);
-  const processedInstances = useMemo(() => process(instanceRows, instanceGridState), [instanceRows, instanceGridState]);
 
   const cell = <T extends { raw: ModalEntity }>(edit: (raw: T['raw']) => void, remove?: (raw: T['raw']) => void) => ({ dataItem, tdProps }: GridCustomCellProps) => {
     const row = dataItem as T;
@@ -515,11 +508,11 @@ export function App() {
       {profile && (<div className={`admin-layout ${isDrawerExpanded ? 'drawer-expanded' : 'drawer-collapsed'}`}><aside className={`admin-sidebar ${isDrawerExpanded ? 'expanded' : 'collapsed'}`}><button className="sidebar-toggle" type="button" onClick={() => setIsDrawerExpanded((v) => !v)} aria-label={isDrawerExpanded ? 'Collapse navigation' : 'Expand navigation'}>{isDrawerExpanded ? <ChevronLeft /> : <ChevronRight />}</button><div className="sidebar-user"><UserCircle /><div><span className="su-name">{profile.user.displayName}</span><span className="su-role">{profile.roles[0]}</span></div></div><nav className="sidebar-nav"><button className={`nav-link${activeSection === 'dashboard' ? ' active' : ''}`} onClick={() => nav('dashboard')}><LayoutDashboard /><span>Dashboard</span></button><div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => toggleAccordion('organizations')}><Server /><span>Organizations</span>{openAccordions.has('organizations') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('organizations') && (<div className="nav-accordion-children"><button className={`nav-link child${activeSection === 'organizations' ? ' active' : ''}`} onClick={() => nav('organizations')}><span>Tenants / Partners</span></button><button className={`nav-link child${activeSection === 'instances' ? ' active' : ''}`} onClick={() => { nav('instances'); loadInstances(); }}><span>Instances</span></button></div>)}</div><div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => toggleAccordion('security')}><ShieldCheck /><span>Security</span>{openAccordions.has('security') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('security') && (<div className="nav-accordion-children"><button className={`nav-link child${activeSection === 'users' ? ' active' : ''}`} onClick={() => nav('users')}><span>Users</span></button><button className={`nav-link child${activeSection === 'user-groups' ? ' active' : ''}`} onClick={() => nav('user-groups')}><span>User Groups</span></button><button className={`nav-link child${activeSection === 'roles' ? ' active' : ''}`} onClick={() => nav('roles')}><span>Roles</span></button></div>)}</div><div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => toggleAccordion('settings')}><Settings /><span>Settings</span>{openAccordions.has('settings') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('settings') && (<div className="nav-accordion-children"><button className={`nav-link child${activeSection === 'settings-general' ? ' active' : ''}`} onClick={() => nav('settings-general', false, 'General Settings')}><span>General</span></button><button className={`nav-link child${activeSection === 'settings-advanced' ? ' active' : ''}`} onClick={() => nav('settings-advanced', false, 'Advanced Settings')}><span>Advanced</span></button></div>)}</div></nav><button className="sidebar-logout" onClick={handleLogout}><LogOut /><span>Sign out</span></button></aside>
         <section className={`admin-content ${gridSection ? 'grid-section' : ''}`}><div className="page-header"><p className="eyebrow small">{sectionMeta.eyebrow}</p><h2>{sectionMeta.heading}</h2></div>
           {activeSection === 'dashboard' && <div className="dashboard-metrics"><div className="metric"><strong>{groups.length}</strong><span>User Groups</span></div><div className="metric"><strong>{users.length}</strong><span>Users</span></div><div className="metric"><strong>{roles.length}</strong><span>Roles</span></div><div className="metric"><strong>{tenants.length}</strong><span>Tenants / Partners</span></div></div>}
-          {activeSection === 'organizations' && isSystemAdmin && <article className="panel data-panel kendo-data-panel"><div className="dp-head"><Button className="btn-create" onClick={openCreateTenantModal} type="button" themeColor="primary"><Plus /> Create "Tenant"</Button></div><Grid className="cms-kendo-grid" data={processedTenants} sortable filterable resizable {...tenantGridState} onDataStateChange={(e: GridDataStateChangeEvent) => setTenantGridState(e.dataState)}><GridColumn title="Actions" width="104px" filterable={false} sortable={false} cells={{ data: TenantActionCell }} /><GridColumn field="name" title="Name" filter="text" /><GridColumn field="description" title="Description" filter="text" /></Grid></article>}
-          {activeSection === 'instances' && <article className="panel data-panel kendo-data-panel"><div className="dp-head instance-grid-toolbar">{isSystemAdmin && <Button className="btn-create" onClick={openCreateInstanceModal} type="button" themeColor="primary"><Plus /> Enroll Instance</Button>}<div className="column-selector-wrap"><Button className="btn-grid-tool" type="button" fillMode="flat" onClick={() => setInstanceColumnSelectorOpen((value) => !value)}>Show Columns</Button>{instanceColumnSelectorOpen && <div className="column-selector-popover">{instanceColumnDefs.map((column) => <label key={column.key} className="checkbox-label column-checkbox-label"><input type="checkbox" checked={visibleInstanceColumns[column.key]} onChange={(event) => setInstanceColumnVisible(column.key, event.target.checked)} /><span>{column.title}</span></label>)}</div>}</div><Button className="btn-grid-tool" type="button" fillMode="flat" onClick={() => setInstanceFiltersVisible((value) => !value)}>{instanceFiltersVisible ? 'Hide Filters' : 'Show Filters'}</Button></div><div className="instance-grid-wrap" onContextMenu={handleInstanceGridContextMenu} onClick={() => setInstanceHeaderMenu(null)}><Grid className="cms-kendo-grid" data={processedInstances} sortable filterable={instanceFiltersVisible} groupable resizable {...instanceGridState} onDataStateChange={(e: GridDataStateChangeEvent) => setInstanceGridState(e.dataState)}><GridColumn title="Actions" width="136px" filterable={false} sortable={false} groupable={false} cells={{ data: InstanceActionCell }} />{instanceColumnDefs.filter((column) => visibleInstanceColumns[column.key]).map((column) => <GridColumn key={column.key} field={column.key} title={column.title} filter="text" width={column.width} />)}</Grid></div>{instanceHeaderMenu && <div className="grid-header-context-menu" style={{ left: instanceHeaderMenu.x, top: instanceHeaderMenu.y }} onClick={(event) => event.stopPropagation()}><button type="button" onClick={() => { setInstanceColumnVisible(instanceHeaderMenu.column, false); setInstanceHeaderMenu(null); }}>Hide Column</button><button type="button" onClick={() => { setInstanceColumnSelectorOpen(true); setInstanceHeaderMenu(null); }}>Show Columns</button><button type="button" onClick={() => { sortInstanceColumn(instanceHeaderMenu.column, 'asc'); setInstanceHeaderMenu(null); }}>Sort Ascending</button><button type="button" onClick={() => { sortInstanceColumn(instanceHeaderMenu.column, 'desc'); setInstanceHeaderMenu(null); }}>Sort Descending</button><button type="button" onClick={() => { removeInstanceSort(); setInstanceHeaderMenu(null); }}>Remove Sort</button><button type="button" onClick={() => { groupInstanceColumn(instanceHeaderMenu.column); setInstanceHeaderMenu(null); }}>Group By Columns</button></div>}</article>}
-          {activeSection === 'user-groups' && isSystemAdmin && <article className="panel data-panel kendo-data-panel"><div className="dp-head"><Button className="btn-create" onClick={openCreateGroupModal} type="button" themeColor="primary"><Plus /> Create "Group"</Button></div><Grid className="cms-kendo-grid" data={processedGroups} sortable filterable resizable {...groupGridState} onDataStateChange={(e: GridDataStateChangeEvent) => setGroupGridState(e.dataState)}><GridColumn title="Actions" width="104px" filterable={false} sortable={false} cells={{ data: GroupActionCell }} /><GridColumn field="name" title="Name" filter="text" /><GridColumn field="tenant" title="Tenant" filter="text" /><GridColumn field="description" title="Description" filter="text" /><GridColumn field="instanceAccess" title="Instance Access" filter="text" /></Grid></article>}
-          {activeSection === 'users' && isSystemAdmin && <article className="panel data-panel kendo-data-panel"><div className="dp-head"><Button className="btn-create" onClick={openCreateUserModal} type="button" themeColor="primary"><Plus /> Create "User"</Button></div><Grid className="cms-kendo-grid" data={processedUsers} sortable filterable resizable {...userGridState} onDataStateChange={(e: GridDataStateChangeEvent) => setUserGridState(e.dataState)}><GridColumn title="Actions" width="104px" filterable={false} sortable={false} cells={{ data: UserActionCell }} /><GridColumn field="displayName" title="Name" filter="text" /><GridColumn field="email" title="Email" filter="text" /><GridColumn field="role" title="Role" filter="text" /><GridColumn field="tenant" title="Tenant" filter="text" /><GridColumn field="groups" title="Groups" filter="text" /><GridColumn field="instanceAccess" title="Instance Access" filter="text" /></Grid></article>}
-          {activeSection === 'roles' && isSystemAdmin && <article className="panel data-panel kendo-data-panel"><div className="dp-head"><Button className="btn-create" onClick={openCreateRoleModal} type="button" themeColor="primary"><Plus /> Create "Role"</Button></div><Grid className="cms-kendo-grid" data={processedRoles} sortable filterable resizable {...roleGridState} onDataStateChange={(e: GridDataStateChangeEvent) => setRoleGridState(e.dataState)}><GridColumn title="Actions" width="104px" filterable={false} sortable={false} cells={{ data: RoleActionCell }} /><GridColumn field="name" title="Name" filter="text" /><GridColumn field="tenant" title="Tenant" filter="text" /><GridColumn field="system" title="System" filter="text" width="110px" /><GridColumn field="description" title="Description" filter="text" /></Grid></article>}
+          {activeSection === 'organizations' && isSystemAdmin && <ManagedGrid gridKey="tenants" token={token!} rows={tenantRows} columns={tenantColumnDefs} actionCell={TenantActionCell} toolbar={<Button className="btn-create" onClick={openCreateTenantModal} type="button" themeColor="primary"><Plus /> Create &quot;Tenant&quot;</Button>} />}
+          {activeSection === 'instances' && <ManagedGrid gridKey="instances" token={token!} rows={instanceRows} columns={instanceColumnDefs} actionCell={InstanceActionCell} actionWidth={144} toolbar={isSystemAdmin ? <Button className="btn-create" onClick={openCreateInstanceModal} type="button" themeColor="primary"><Plus /> Enroll Instance</Button> : null} />}
+          {activeSection === 'user-groups' && isSystemAdmin && <ManagedGrid gridKey="user-groups" token={token!} rows={groupRows} columns={groupColumnDefs} actionCell={GroupActionCell} toolbar={<Button className="btn-create" onClick={openCreateGroupModal} type="button" themeColor="primary"><Plus /> Create &quot;Group&quot;</Button>} />}
+          {activeSection === 'users' && isSystemAdmin && <ManagedGrid gridKey="users" token={token!} rows={userRows} columns={userColumnDefs} actionCell={UserActionCell} toolbar={<Button className="btn-create" onClick={openCreateUserModal} type="button" themeColor="primary"><Plus /> Create &quot;User&quot;</Button>} />}
+          {activeSection === 'roles' && isSystemAdmin && <ManagedGrid gridKey="roles" token={token!} rows={roleRows} columns={roleColumnDefs} actionCell={RoleActionCell} toolbar={<Button className="btn-create" onClick={openCreateRoleModal} type="button" themeColor="primary"><Plus /> Create &quot;Role&quot;</Button>} />}
           {activeSection === 'settings-general' && <article className="panel"><p className="panel-copy">General settings: Not Implemented.</p></article>}{activeSection === 'settings-advanced' && <article className="panel"><p className="panel-copy">Advanced settings: Not Implemented.</p></article>}
         </section></div>)}
 
