@@ -7,6 +7,9 @@ import { createSetupAwareAuthRepository } from './auth/mysqlAuthRepository.js';
 import { registerAuthRoutes } from './auth/registerAuthRoutes.js';
 import type { AuthRepository } from './auth/types.js';
 import { loadConfig } from './config/loadConfig.js';
+import { createInMemoryInstanceRepository } from './instances/inMemoryInstanceRepository.js';
+import { registerInstanceRoutes } from './instances/registerInstanceRoutes.js';
+import type { InstanceRepository } from './instances/types.js';
 import { registerSetupRoutes } from './setup/registerSetupRoutes.js';
 import { createMysqlDatabaseProvisioner, type DatabaseProvisioner } from './setup/databaseProvisioner.js';
 import { createDefaultDeploymentConfig, type DeploymentConfig } from './setup/deploymentConfig.js';
@@ -19,6 +22,7 @@ type BuildAppOptions = FastifyServerOptions & {
   setupSettingsStore?: SetupSettingsStore;
   databaseProvisioner?: DatabaseProvisioner;
   deploymentConfig?: DeploymentConfig;
+  instanceRepository?: InstanceRepository;
 };
 
 const defaultSettingsPath = basename(process.cwd()) === 'api'
@@ -29,6 +33,7 @@ const defaultSetupSettingsStore = createFileSetupSettingsStore(defaultSettingsPa
 const defaultSetupStatusProvider = createFileSetupStatusProvider(defaultSetupSettingsStore);
 const defaultDatabaseProvisioner = createMysqlDatabaseProvisioner();
 const defaultDeploymentConfig = createDefaultDeploymentConfig();
+const defaultInstanceRepository = createInMemoryInstanceRepository();
 
 export async function buildApp(options: BuildAppOptions = {}) {
   const {
@@ -36,6 +41,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     setupStatusProvider = defaultSetupStatusProvider,
     databaseProvisioner = defaultDatabaseProvisioner,
     deploymentConfig = defaultDeploymentConfig,
+    instanceRepository = defaultInstanceRepository,
     ...fastifyOptions
   } = options;
   const authRepository = options.authRepository ?? createSetupAwareAuthRepository(setupSettingsStore, defaultFallbackAuthRepository);
@@ -57,6 +63,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
 
   await registerSetupRoutes(app, authRepository, setupStatusProvider, setupSettingsStore, databaseProvisioner, deploymentConfig);
   await registerAuthRoutes(app, authRepository);
+  await registerInstanceRoutes(app, authRepository, instanceRepository);
 
   return app;
 }

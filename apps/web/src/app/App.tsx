@@ -19,6 +19,7 @@ type Group = { id: string; name: string; description: string | null; tenantId: T
 type Role = { id: string; name: string; description: string | null; tenantId: TenantId; isSystem: boolean };
 type Tenant = { id: string; name: string; description: string | null };
 type UserProfile = AuthProfile;
+type OxyGenInstance = { id: string; name: string; hostname: string; baseUrl: string; launchUrl: string; username: string; groupId: string; pollingIntervalSeconds: number; isEnabled: boolean; status: string; lastCheckedAt: string | null; lastError: string | null };
 type BootstrapStatus = { requiresBootstrap: boolean };
 type SetupNextStep = 'database' | 'schema' | 'admin' | 'complete';
 type SetupStatus = { database: { configured: boolean; connected: boolean; schemaCurrent: boolean; defaultDatabaseName: string; targetSchemaVersion: string }; admin: { exists: boolean }; nextStep: SetupNextStep; requiresSetup: boolean };
@@ -27,13 +28,14 @@ type DeploymentStatus = { mode: 'self-contained' | 'custom'; managedMysql: boole
 type DatabaseMode = 'managed-mysql' | 'local-mysql' | 'existing-mysql';
 type DbWizardStep = 'mode' | 'connection' | 'credentials' | 'review';
 type NavSection = 'dashboard' | 'organizations' | 'instances' | 'users' | 'user-groups' | 'roles' | 'settings-general' | 'settings-advanced';
-type ModalKind = 'user' | 'group' | 'role' | 'tenant';
-type ModalEntity = UserProfile | Group | Role | Tenant;
+type ModalKind = 'user' | 'group' | 'role' | 'tenant' | 'instance';
+type ModalEntity = UserProfile | Group | Role | Tenant | OxyGenInstance;
 type ModalState = { kind: ModalKind; data?: ModalEntity } | null;
 type GroupGridRow = { id: string; name: string; description: string; tenant: string; raw: Group };
 type RoleGridRow = { id: string; name: string; description: string; tenant: string; system: string; raw: Role };
 type TenantGridRow = { id: string; name: string; description: string; raw: Tenant };
 type UserGridRow = { id: string; displayName: string; email: string; role: string; groups: string; tenant: string; raw: UserProfile };
+type InstanceGridRow = { id: string; name: string; hostname: string; group: string; status: string; interval: number; enabled: string; launchUrl: string; raw: OxyGenInstance };
 
 const capabilities = [
   { icon: Server, label: 'Instance monitoring', detail: 'Track OxyGen availability, SSL, auth, and API health.' },
@@ -93,6 +95,7 @@ export function App() {
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [instances, setInstances] = useState<OxyGenInstance[]>([]);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [selectedRole, setSelectedRole] = useState<RoleName>('Operator');
@@ -106,6 +109,7 @@ export function App() {
   const [groupGridState, setGroupGridState] = useState<State>({ sort: [{ field: 'name', dir: 'asc' }] });
   const [roleGridState, setRoleGridState] = useState<State>({ sort: [{ field: 'name', dir: 'asc' }] });
   const [tenantGridState, setTenantGridState] = useState<State>({ sort: [{ field: 'name', dir: 'asc' }] });
+  const [instanceGridState, setInstanceGridState] = useState<State>({ sort: [{ field: 'name', dir: 'asc' }] });
 
   const isSystemAdmin = useMemo(() => profile?.roles.includes('SystemAdmin') ?? false, [profile]);
   const tenantName = (tenantId: TenantId) => tenantId ? tenants.find((tenant) => tenant.id === tenantId)?.name || 'Unknown tenant' : 'Global';
@@ -149,6 +153,12 @@ export function App() {
     return () => { active = false; };
   }, []);
 
+  async function loadInstances(t = token) {
+    if (!t) return;
+    const res = await api<{ instances: OxyGenInstance[] }>('/api/instances', { token: t });
+    setInstances(res.instances);
+  }
+
   async function refreshAdminData(t = token) {
     if (!t) return;
     const [gr, ur, rr, tr] = await Promise.all([
@@ -161,6 +171,7 @@ export function App() {
     setUsers(ur.users);
     setRoles(rr.roles);
     setTenants(tr.tenants);
+    await loadInstances(t);
     if (!selectedGroupId && gr.groups[0]) setSelectedGroupId(gr.groups[0].id);
     if (!selectedRole && rr.roles[0]) setSelectedRole(rr.roles[0].name);
   }
@@ -222,6 +233,7 @@ export function App() {
       setProfile({ user: login.user, roles: login.roles, groups: login.groups });
       setMessage(`Signed in as ${login.user.displayName}.`);
       if (login.roles.includes('SystemAdmin')) await refreshAdminData(login.token);
+      else await loadInstances(login.token);
     } catch (err) { setError(err instanceof Error ? err.message : 'Login failed.'); }
   }
 
@@ -277,14 +289,35 @@ export function App() {
     } catch (err) { setError(err instanceof Error ? err.message : editing ? 'User update failed.' : 'User creation failed.'); }
   }
 
+  async function handleSaveInstance(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault(); clearStatus();
+    const el = e.currentTarget; const f = new FormData(el);
+    const editing = modal?.kind === 'instance' ? modal.data as OxyGenInstance | undefined : undefined;
+    const password = String(f.get('password') || '');
+    const payload: Record<string, unknown> = { name: f.get('name'), hostname: f.get('hostname'), username: f.get('username'), groupId: selectedGroupId, pollingIntervalSeconds: Number(f.get('pollingIntervalSeconds') || 300), isEnabled: f.get('isEnabled') === 'on' };
+    if (!editing || password) payload.password = password;
+    try {
+      if (editing) { const res = await api<{ instance: OxyGenInstance }>(`/api/instances/${editing.id}`, { method: 'PATCH', token, body: JSON.stringify(payload) }); setMessage(`Updated instance ${res.instance.name}.`); }
+      else { const res = await api<{ instance: OxyGenInstance }>('/api/instances', { method: 'POST', token, body: JSON.stringify(payload) }); setMessage(`Created instance ${res.instance.name}.`); }
+      el.reset(); setModal(null); await loadInstances();
+    } catch (err) { setError(err instanceof Error ? err.message : editing ? 'Instance update failed.' : 'Instance creation failed.'); }
+  }
+
+  async function testInstanceConnectivity(instance: OxyGenInstance) {
+    clearStatus();
+    try { const res = await api<{ ok: boolean; status: string; message: string }>(`/api/instances/${instance.id}/test-connectivity`, { method: 'POST', token }); setMessage(`${instance.name}: ${res.message}`); }
+    catch (err) { setError(err instanceof Error ? err.message : 'Connectivity test failed.'); }
+  }
+
   async function deleteItem(kind: ModalKind, id: string, label: string) {
     clearStatus();
     if (!window.confirm(`Delete ${label}?`)) return;
-    const path = kind === 'user' ? `/api/users/${id}` : kind === 'group' ? `/api/groups/${id}` : kind === 'role' ? `/api/roles/${id}` : `/api/tenants/${id}`;
+    const path = kind === 'user' ? `/api/users/${id}` : kind === 'group' ? `/api/groups/${id}` : kind === 'role' ? `/api/roles/${id}` : kind === 'instance' ? `/api/instances/${id}` : `/api/tenants/${id}`;
     try {
       await api<unknown>(path, { method: 'DELETE', token });
       setMessage(`Deleted ${label}.`);
-      await refreshAdminData();
+      if (kind === 'instance') await loadInstances();
+      else await refreshAdminData();
     } catch (err) { setError(err instanceof Error ? err.message : `Delete failed for ${label}.`); }
   }
 
@@ -296,18 +329,22 @@ export function App() {
   function openEditRoleModal(role: Role) { setSelectedTenantId(role.tenantId || ''); setModal({ kind: 'role', data: role }); }
   function openCreateTenantModal() { setModal({ kind: 'tenant' }); }
   function openEditTenantModal(tenant: Tenant) { setModal({ kind: 'tenant', data: tenant }); }
+  function openCreateInstanceModal() { setSelectedGroupId(groups[0]?.id || ''); setModal({ kind: 'instance' }); }
+  function openEditInstanceModal(instance: OxyGenInstance) { setSelectedGroupId(instance.groupId); setModal({ kind: 'instance', data: instance }); }
 
-  function handleLogout() { setToken(''); setProfile(null); setGroups([]); setUsers([]); setRoles([]); setTenants([]); setActiveSection('dashboard'); setMessage('Signed out.'); }
+  function handleLogout() { setToken(''); setProfile(null); setGroups([]); setUsers([]); setRoles([]); setTenants([]); setInstances([]); setActiveSection('dashboard'); setMessage('Signed out.'); }
   function toggleAccordion(key: string) { setOpenAccordions((prev) => { const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next; }); }
 
   const userRows = useMemo<UserGridRow[]>(() => users.map((entry) => ({ id: entry.user.id, displayName: entry.user.displayName, email: entry.user.email, role: entry.roles.join(', '), groups: entry.groups.map((group) => group.name).join(', '), tenant: tenantName(entry.user.tenantId), raw: entry })), [users, tenants]);
   const groupRows = useMemo<GroupGridRow[]>(() => groups.map((group) => ({ id: group.id, name: group.name, description: group.description || '', tenant: tenantName(group.tenantId), raw: group })), [groups, tenants]);
   const roleRows = useMemo<RoleGridRow[]>(() => roles.map((role) => ({ id: role.id, name: role.name, description: role.description || '', tenant: tenantName(role.tenantId), system: role.isSystem ? 'Yes' : 'No', raw: role })), [roles, tenants]);
   const tenantRows = useMemo<TenantGridRow[]>(() => tenants.map((tenant) => ({ id: tenant.id, name: tenant.name, description: tenant.description || '', raw: tenant })), [tenants]);
+  const instanceRows = useMemo<InstanceGridRow[]>(() => instances.map((instance) => ({ id: instance.id, name: instance.name, hostname: instance.hostname, group: groups.find((group) => group.id === instance.groupId)?.name || 'Unknown group', status: instance.status, interval: instance.pollingIntervalSeconds, enabled: instance.isEnabled ? 'Yes' : 'No', launchUrl: instance.launchUrl, raw: instance })), [instances, groups]);
   const processedUsers = useMemo(() => process(userRows, userGridState), [userRows, userGridState]);
   const processedGroups = useMemo(() => process(groupRows, groupGridState), [groupRows, groupGridState]);
   const processedRoles = useMemo(() => process(roleRows, roleGridState), [roleRows, roleGridState]);
   const processedTenants = useMemo(() => process(tenantRows, tenantGridState), [tenantRows, tenantGridState]);
+  const processedInstances = useMemo(() => process(instanceRows, instanceGridState), [instanceRows, instanceGridState]);
 
   const cell = <T extends { raw: ModalEntity }>(edit: (raw: T['raw']) => void, remove?: (raw: T['raw']) => void) => ({ dataItem, tdProps }: GridCustomCellProps) => {
     const row = dataItem as T;
@@ -323,6 +360,7 @@ export function App() {
     return <td {...tdProps} className="k-command-cell"><Button className="btn-icon-info" onClick={() => openEditRoleModal(row.raw)} title="Edit" type="button" fillMode="flat"><Pencil /></Button><Button className="btn-icon-danger" onClick={() => deleteItem('role', row.raw.id, `role ${row.raw.name}`)} title="Delete" type="button" fillMode="flat"><Trash2 /></Button></td>;
   }
   const TenantActionCell = cell<TenantGridRow>((raw) => openEditTenantModal(raw as Tenant), (raw) => deleteItem('tenant', (raw as Tenant).id, `tenant ${(raw as Tenant).name}`));
+  function InstanceActionCell({ dataItem, tdProps }: GridCustomCellProps) { const row = dataItem as InstanceGridRow; return <td {...tdProps} className="k-command-cell"><Button className="btn-icon-info" onClick={() => openEditInstanceModal(row.raw)} title="Edit" type="button" fillMode="flat"><Pencil /></Button><Button className="btn-icon-info" onClick={() => testInstanceConnectivity(row.raw)} title="Test connectivity" type="button" fillMode="flat"><RotateCw /></Button><Button className="btn-icon-danger" onClick={() => deleteItem('instance', row.raw.id, `instance ${row.raw.name}`)} title="Delete" type="button" fillMode="flat"><Trash2 /></Button></td>; }
 
   const sectionMeta = (() => {
     switch (activeSection) {
@@ -337,7 +375,7 @@ export function App() {
     }
   })();
 
-  const gridSection = activeSection === 'users' || activeSection === 'user-groups' || activeSection === 'roles' || activeSection === 'organizations';
+  const gridSection = activeSection === 'users' || activeSection === 'user-groups' || activeSection === 'roles' || activeSection === 'organizations' || activeSection === 'instances';
 
   function TenantSelect({ disabled = false }: { disabled?: boolean }) {
     return <label>Tenant / Partner<select value={selectedTenantId} disabled={disabled} onChange={(e) => setSelectedTenantId(e.target.value)}><option value="">Global</option>{tenants.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}</select>{disabled && <small>Tenant assignment is locked after creation.</small>}</label>;
@@ -419,22 +457,23 @@ export function App() {
         </>
       )}
 
-      {profile && (<div className={`admin-layout ${isDrawerExpanded ? 'drawer-expanded' : 'drawer-collapsed'}`}><aside className={`admin-sidebar ${isDrawerExpanded ? 'expanded' : 'collapsed'}`}><button className="sidebar-toggle" type="button" onClick={() => setIsDrawerExpanded((v) => !v)} aria-label={isDrawerExpanded ? 'Collapse navigation' : 'Expand navigation'}>{isDrawerExpanded ? <ChevronLeft /> : <ChevronRight />}</button><div className="sidebar-user"><UserCircle /><div><span className="su-name">{profile.user.displayName}</span><span className="su-role">{profile.roles[0]}</span></div></div><nav className="sidebar-nav"><button className={`nav-link${activeSection === 'dashboard' ? ' active' : ''}`} onClick={() => nav('dashboard')}><LayoutDashboard /><span>Dashboard</span></button><div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => toggleAccordion('organizations')}><Server /><span>Organizations</span>{openAccordions.has('organizations') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('organizations') && (<div className="nav-accordion-children"><button className={`nav-link child${activeSection === 'organizations' ? ' active' : ''}`} onClick={() => nav('organizations')}><span>Tenants / Partners</span></button><button className={`nav-link child${activeSection === 'instances' ? ' active' : ''}`} onClick={() => nav('instances', false, 'Instances')}><span>Instances</span></button></div>)}</div><div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => toggleAccordion('security')}><ShieldCheck /><span>Security</span>{openAccordions.has('security') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('security') && (<div className="nav-accordion-children"><button className={`nav-link child${activeSection === 'users' ? ' active' : ''}`} onClick={() => nav('users')}><span>Users</span></button><button className={`nav-link child${activeSection === 'user-groups' ? ' active' : ''}`} onClick={() => nav('user-groups')}><span>User Groups</span></button><button className={`nav-link child${activeSection === 'roles' ? ' active' : ''}`} onClick={() => nav('roles')}><span>Roles</span></button></div>)}</div><div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => toggleAccordion('settings')}><Settings /><span>Settings</span>{openAccordions.has('settings') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('settings') && (<div className="nav-accordion-children"><button className={`nav-link child${activeSection === 'settings-general' ? ' active' : ''}`} onClick={() => nav('settings-general', false, 'General Settings')}><span>General</span></button><button className={`nav-link child${activeSection === 'settings-advanced' ? ' active' : ''}`} onClick={() => nav('settings-advanced', false, 'Advanced Settings')}><span>Advanced</span></button></div>)}</div></nav><button className="sidebar-logout" onClick={handleLogout}><LogOut /><span>Sign out</span></button></aside>
+      {profile && (<div className={`admin-layout ${isDrawerExpanded ? 'drawer-expanded' : 'drawer-collapsed'}`}><aside className={`admin-sidebar ${isDrawerExpanded ? 'expanded' : 'collapsed'}`}><button className="sidebar-toggle" type="button" onClick={() => setIsDrawerExpanded((v) => !v)} aria-label={isDrawerExpanded ? 'Collapse navigation' : 'Expand navigation'}>{isDrawerExpanded ? <ChevronLeft /> : <ChevronRight />}</button><div className="sidebar-user"><UserCircle /><div><span className="su-name">{profile.user.displayName}</span><span className="su-role">{profile.roles[0]}</span></div></div><nav className="sidebar-nav"><button className={`nav-link${activeSection === 'dashboard' ? ' active' : ''}`} onClick={() => nav('dashboard')}><LayoutDashboard /><span>Dashboard</span></button><div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => toggleAccordion('organizations')}><Server /><span>Organizations</span>{openAccordions.has('organizations') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('organizations') && (<div className="nav-accordion-children"><button className={`nav-link child${activeSection === 'organizations' ? ' active' : ''}`} onClick={() => nav('organizations')}><span>Tenants / Partners</span></button><button className={`nav-link child${activeSection === 'instances' ? ' active' : ''}`} onClick={() => { nav('instances'); loadInstances(); }}><span>Instances</span></button></div>)}</div><div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => toggleAccordion('security')}><ShieldCheck /><span>Security</span>{openAccordions.has('security') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('security') && (<div className="nav-accordion-children"><button className={`nav-link child${activeSection === 'users' ? ' active' : ''}`} onClick={() => nav('users')}><span>Users</span></button><button className={`nav-link child${activeSection === 'user-groups' ? ' active' : ''}`} onClick={() => nav('user-groups')}><span>User Groups</span></button><button className={`nav-link child${activeSection === 'roles' ? ' active' : ''}`} onClick={() => nav('roles')}><span>Roles</span></button></div>)}</div><div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => toggleAccordion('settings')}><Settings /><span>Settings</span>{openAccordions.has('settings') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('settings') && (<div className="nav-accordion-children"><button className={`nav-link child${activeSection === 'settings-general' ? ' active' : ''}`} onClick={() => nav('settings-general', false, 'General Settings')}><span>General</span></button><button className={`nav-link child${activeSection === 'settings-advanced' ? ' active' : ''}`} onClick={() => nav('settings-advanced', false, 'Advanced Settings')}><span>Advanced</span></button></div>)}</div></nav><button className="sidebar-logout" onClick={handleLogout}><LogOut /><span>Sign out</span></button></aside>
         <section className={`admin-content ${gridSection ? 'grid-section' : ''}`}><div className="page-header"><p className="eyebrow small">{sectionMeta.eyebrow}</p><h2>{sectionMeta.heading}</h2></div>
           {activeSection === 'dashboard' && <div className="dashboard-metrics"><div className="metric"><strong>{groups.length}</strong><span>User Groups</span></div><div className="metric"><strong>{users.length}</strong><span>Users</span></div><div className="metric"><strong>{roles.length}</strong><span>Roles</span></div><div className="metric"><strong>{tenants.length}</strong><span>Tenants / Partners</span></div></div>}
           {activeSection === 'organizations' && isSystemAdmin && <article className="panel data-panel kendo-data-panel"><div className="dp-head"><Button className="btn-create" onClick={openCreateTenantModal} type="button" themeColor="primary"><Plus /> Create "Tenant"</Button></div><Grid className="cms-kendo-grid" data={processedTenants} sortable filterable resizable {...tenantGridState} onDataStateChange={(e: GridDataStateChangeEvent) => setTenantGridState(e.dataState)}><GridColumn title="Actions" width="104px" filterable={false} sortable={false} cells={{ data: TenantActionCell }} /><GridColumn field="name" title="Name" filter="text" /><GridColumn field="description" title="Description" filter="text" /></Grid></article>}
-          {activeSection === 'instances' && <article className="panel"><p className="panel-copy">Instance enrollment and status monitoring: Not Implemented.</p></article>}
+          {activeSection === 'instances' && <article className="panel data-panel kendo-data-panel"><div className="dp-head">{isSystemAdmin && <Button className="btn-create" onClick={openCreateInstanceModal} type="button" themeColor="primary"><Plus /> Enroll Instance</Button>}</div><Grid className="cms-kendo-grid" data={processedInstances} sortable filterable resizable {...instanceGridState} onDataStateChange={(e: GridDataStateChangeEvent) => setInstanceGridState(e.dataState)}><GridColumn title="Actions" width="144px" filterable={false} sortable={false} cells={{ data: InstanceActionCell }} /><GridColumn field="name" title="Name" filter="text" /><GridColumn field="hostname" title="Host" filter="text" /><GridColumn field="group" title="Group" filter="text" /><GridColumn field="status" title="Status" filter="text" width="130px" /><GridColumn field="interval" title="Poll Sec" filter="numeric" width="130px" /><GridColumn field="enabled" title="Enabled" filter="text" width="120px" /><GridColumn field="launchUrl" title="Launch URL" filter="text" /></Grid></article>}
           {activeSection === 'user-groups' && isSystemAdmin && <article className="panel data-panel kendo-data-panel"><div className="dp-head"><Button className="btn-create" onClick={openCreateGroupModal} type="button" themeColor="primary"><Plus /> Create "Group"</Button></div><Grid className="cms-kendo-grid" data={processedGroups} sortable filterable resizable {...groupGridState} onDataStateChange={(e: GridDataStateChangeEvent) => setGroupGridState(e.dataState)}><GridColumn title="Actions" width="104px" filterable={false} sortable={false} cells={{ data: GroupActionCell }} /><GridColumn field="name" title="Name" filter="text" /><GridColumn field="tenant" title="Tenant" filter="text" /><GridColumn field="description" title="Description" filter="text" /></Grid></article>}
           {activeSection === 'users' && isSystemAdmin && <article className="panel data-panel kendo-data-panel"><div className="dp-head"><Button className="btn-create" onClick={openCreateUserModal} type="button" themeColor="primary"><Plus /> Create "User"</Button></div><Grid className="cms-kendo-grid" data={processedUsers} sortable filterable resizable {...userGridState} onDataStateChange={(e: GridDataStateChangeEvent) => setUserGridState(e.dataState)}><GridColumn title="Actions" width="104px" filterable={false} sortable={false} cells={{ data: UserActionCell }} /><GridColumn field="displayName" title="Name" filter="text" /><GridColumn field="email" title="Email" filter="text" /><GridColumn field="role" title="Role" filter="text" /><GridColumn field="tenant" title="Tenant" filter="text" /><GridColumn field="groups" title="Groups" filter="text" /></Grid></article>}
           {activeSection === 'roles' && isSystemAdmin && <article className="panel data-panel kendo-data-panel"><div className="dp-head"><Button className="btn-create" onClick={openCreateRoleModal} type="button" themeColor="primary"><Plus /> Create "Role"</Button></div><Grid className="cms-kendo-grid" data={processedRoles} sortable filterable resizable {...roleGridState} onDataStateChange={(e: GridDataStateChangeEvent) => setRoleGridState(e.dataState)}><GridColumn title="Actions" width="104px" filterable={false} sortable={false} cells={{ data: RoleActionCell }} /><GridColumn field="name" title="Name" filter="text" /><GridColumn field="tenant" title="Tenant" filter="text" /><GridColumn field="system" title="System" filter="text" width="110px" /><GridColumn field="description" title="Description" filter="text" /></Grid></article>}
           {activeSection === 'settings-general' && <article className="panel"><p className="panel-copy">General settings: Not Implemented.</p></article>}{activeSection === 'settings-advanced' && <article className="panel"><p className="panel-copy">Advanced settings: Not Implemented.</p></article>}
         </section></div>)}
 
-      {modal && <Dialog className="cms-dialog" title={`${modal.data ? 'Edit' : 'Create'} ${modal.kind === 'user' ? 'User' : modal.kind === 'group' ? 'Group' : modal.kind === 'role' ? 'Role' : 'Tenant'}`} onClose={() => setModal(null)} width={520}>
+      {modal && <Dialog className="cms-dialog" title={`${modal.data ? 'Edit' : 'Create'} ${modal.kind === 'user' ? 'User' : modal.kind === 'group' ? 'Group' : modal.kind === 'role' ? 'Role' : modal.kind === 'instance' ? 'Instance' : 'Tenant'}`} onClose={() => setModal(null)} width={520}>
         {modal.kind === 'user' && <form className="modal-form" onSubmit={handleSaveUser}><label>Email<input name="email" type="email" placeholder="operator@example.com" defaultValue={(modal.data as UserProfile)?.user.email || ''} required /></label><label>Display name<input name="displayName" placeholder="Operator" defaultValue={(modal.data as UserProfile)?.user.displayName || ''} required /></label><label>Password<input name="password" type="password" minLength={12} placeholder={modal.data ? 'Leave blank to keep current password' : '12+ characters'} required={!modal.data} /></label><TenantSelect disabled={Boolean(modal.data)} /><label>Role<select value={selectedRole} onChange={(e) => setSelectedRole(e.target.value)}>{availableRoles.map((r) => <option key={r.id} value={r.name}>{r.name}{r.tenantId ? ` (${tenantName(r.tenantId)})` : ''}</option>)}</select></label><label>Group<select value={selectedGroupId} onChange={(e) => setSelectedGroupId(e.target.value)}><option value="">None</option>{groups.map((g) => <option key={g.id} value={g.id}>{g.name}{g.tenantId ? ` (${tenantName(g.tenantId)})` : ''}</option>)}</select></label><DialogActionsBar><Button type="button" fillMode="flat" onClick={() => setModal(null)}>Cancel</Button><Button type="submit" themeColor="primary">{modal.data ? 'Save' : 'Create'}</Button></DialogActionsBar></form>}
         {modal.kind === 'group' && <form className="modal-form" onSubmit={handleSaveGroup}><label>Name<input name="name" placeholder="Customer Group A" defaultValue={(modal.data as Group)?.name || ''} required /></label><label>Description<input name="description" placeholder="Optional" defaultValue={(modal.data as Group)?.description || ''} /></label><TenantSelect disabled={Boolean(modal.data)} /><DialogActionsBar><Button type="button" fillMode="flat" onClick={() => setModal(null)}>Cancel</Button><Button type="submit" themeColor="primary">{modal.data ? 'Save' : 'Create'}</Button></DialogActionsBar></form>}
         {modal.kind === 'role' && <form className="modal-form" onSubmit={handleSaveRole}><label>Name<input name="name" placeholder="WorkflowReviewer" defaultValue={(modal.data as Role)?.name || ''} required /></label><label>Description<input name="description" placeholder="Optional" defaultValue={(modal.data as Role)?.description || ''} /></label><TenantSelect disabled={Boolean(modal.data)} /><DialogActionsBar><Button type="button" fillMode="flat" onClick={() => setModal(null)}>Cancel</Button><Button type="submit" themeColor="primary">{modal.data ? 'Save' : 'Create'}</Button></DialogActionsBar></form>}
         {modal.kind === 'tenant' && <form className="modal-form" onSubmit={handleSaveTenant}><label>Name<input name="name" placeholder="Partner A" defaultValue={(modal.data as Tenant)?.name || ''} required /></label><label>Description<input name="description" placeholder="Optional" defaultValue={(modal.data as Tenant)?.description || ''} /></label><DialogActionsBar><Button type="button" fillMode="flat" onClick={() => setModal(null)}>Cancel</Button><Button type="submit" themeColor="primary">{modal.data ? 'Save' : 'Create'}</Button></DialogActionsBar></form>}
+        {modal.kind === 'instance' && <form className="modal-form" onSubmit={handleSaveInstance}><label>Name<input name="name" placeholder="Acme Production" defaultValue={(modal.data as OxyGenInstance)?.name || ''} required /></label><label>Host / URL<input name="hostname" placeholder="customer.example.com" defaultValue={(modal.data as OxyGenInstance)?.baseUrl || ''} required /></label><label>Username<input name="username" placeholder="admin" defaultValue={(modal.data as OxyGenInstance)?.username || ''} required /></label><label>Password<input name="password" type="password" placeholder={modal.data ? 'Leave blank to keep current password' : 'Remote OxyGen password'} required={!modal.data} /></label><label>Group<select value={selectedGroupId} onChange={(e) => setSelectedGroupId(e.target.value)} required>{groups.map((g) => <option key={g.id} value={g.id}>{g.name}{g.tenantId ? ` (${tenantName(g.tenantId)})` : ''}</option>)}</select></label><label>Polling interval seconds<input name="pollingIntervalSeconds" type="number" min={60} max={86400} defaultValue={(modal.data as OxyGenInstance)?.pollingIntervalSeconds || 300} required /></label><label className="checkbox-label"><input name="isEnabled" type="checkbox" defaultChecked={(modal.data as OxyGenInstance)?.isEnabled ?? true} /> Enabled for polling</label><DialogActionsBar><Button type="button" fillMode="flat" onClick={() => setModal(null)}>Cancel</Button><Button type="submit" themeColor="primary">{modal.data ? 'Save' : 'Create'}</Button></DialogActionsBar></form>}
       </Dialog>}
       {(message || error) && <p className={error ? 'status error' : 'status'}>{error || message}</p>}
     </main>

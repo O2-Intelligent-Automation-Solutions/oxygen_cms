@@ -49,6 +49,12 @@ POST /api/setup/database/apply-schema
   - Uses the configured runtime application DB credentials after schema is current.
   - Persists bootstrap admin, sessions, tenants, roles, groups, and users in MySQL.
   - Integration test: `npm run test:mysql-auth`.
+- Instance enrollment scaffold:
+  - Adds authenticated `/api/instances` CRUD endpoints.
+  - SystemAdmin users can create, update, delete, and run the current connectivity-test scaffold.
+  - Non-admin users only see instances assigned to their CMS user groups.
+  - The browser Instances page now has an enrollment grid and create/edit modal.
+  - Current instance repository is in-memory for browser review; MySQL persistence and live OxyGen connectivity are the next implementation slices.
 
 ## Validation Gate
 
