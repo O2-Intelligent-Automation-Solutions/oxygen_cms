@@ -22,7 +22,10 @@ type UserProfile = AuthProfile;
 type BootstrapStatus = { requiresBootstrap: boolean };
 type SetupNextStep = 'database' | 'schema' | 'admin' | 'complete';
 type SetupStatus = { database: { configured: boolean; connected: boolean; schemaCurrent: boolean; defaultDatabaseName: string; targetSchemaVersion: string }; admin: { exists: boolean }; nextStep: SetupNextStep; requiresSetup: boolean };
-type DatabaseSetupResponse = { ok: boolean; mode?: string; database: string; message?: string; nextStep?: SetupNextStep; targetSchemaVersion?: string; appliedVersions?: string[] };
+type DatabaseSetupResponse = { ok: boolean; mode?: string; database: string; message?: string; nextStep?: SetupNextStep; targetSchemaVersion?: string; appliedVersions?: string[]; createdDatabase?: boolean; createdUser?: boolean };
+type DeploymentStatus = { mode: 'self-contained' | 'custom'; managedMysql: boolean; mysql?: { host: string; port: number; database: string; applicationUser: string } };
+type DatabaseMode = 'managed-mysql' | 'local-mysql' | 'existing-mysql';
+type DbWizardStep = 'mode' | 'connection' | 'credentials' | 'review';
 type NavSection = 'dashboard' | 'organizations' | 'instances' | 'users' | 'user-groups' | 'roles' | 'settings-general' | 'settings-advanced';
 type ModalKind = 'user' | 'group' | 'role' | 'tenant';
 type ModalEntity = UserProfile | Group | Role | Tenant;
@@ -67,9 +70,24 @@ export function App() {
   const [token, setToken] = useState('');
   const [requiresBootstrap, setRequiresBootstrap] = useState<boolean | null>(null);
   const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null);
-  const [databaseMode, setDatabaseMode] = useState<'local-mysql' | 'existing-mysql'>('local-mysql');
-  const [appDbPassword, setAppDbPassword] = useState(() => generateSecurePassword());
-  const [showAppDbPassword, setShowAppDbPassword] = useState(false);
+  const [deploymentStatus, setDeploymentStatus] = useState<DeploymentStatus | null>(null);
+  const [databaseMode, setDatabaseMode] = useState<DatabaseMode>('managed-mysql');
+  const [dbWizardStep, setDbWizardStep] = useState<DbWizardStep>('mode');
+  const [dbHost, setDbHost] = useState('localhost');
+  const [dbPort, setDbPort] = useState(3306);
+  const [dbName, setDbName] = useState('O2IAS_CMS');
+  const [localAdminUser, setLocalAdminUser] = useState('root');
+  const [connectAdminUser, setConnectAdminUser] = useState('');
+  const [localAppUser, setLocalAppUser] = useState('oxygen_cms');
+  const [connectAppUser, setConnectAppUser] = useState('');
+  const [createAppDbPassword, setCreateAppDbPassword] = useState(() => generateSecurePassword());
+  const [showCreateAppDbPassword, setShowCreateAppDbPassword] = useState(false);
+  const [createPrivilegedDbPassword, setCreatePrivilegedDbPassword] = useState('');
+  const [showCreatePrivilegedDbPassword, setShowCreatePrivilegedDbPassword] = useState(false);
+  const [connectPrivilegedDbPassword, setConnectPrivilegedDbPassword] = useState('');
+  const [showConnectPrivilegedDbPassword, setShowConnectPrivilegedDbPassword] = useState(false);
+  const [connectAppDbPassword, setConnectAppDbPassword] = useState('');
+  const [showConnectAppDbPassword, setShowConnectAppDbPassword] = useState(false);
   const [profile, setProfile] = useState<AuthProfile | null>(null);
   const [groups, setGroups] = useState<Group[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
@@ -98,15 +116,36 @@ export function App() {
       const s = await api<SetupStatus>('/api/setup/status');
       if (!active) return;
       setSetupStatus(s);
+      setDbName((current) => current || s.database.defaultDatabaseName);
       setRequiresBootstrap(s.requiresSetup && s.nextStep !== 'complete');
     } catch (err) {
       if (active) setError(err instanceof Error ? err.message : 'Unable to load setup status.');
     }
   }
 
+  async function loadDeploymentStatus(active = true) {
+    try {
+      const deployment = await api<DeploymentStatus>('/api/setup/deployment');
+      if (!active) return;
+      setDeploymentStatus(deployment);
+      if (deployment.managedMysql && deployment.mysql) {
+        setDatabaseMode('managed-mysql');
+        setDbHost(deployment.mysql.host);
+        setDbPort(deployment.mysql.port);
+        setDbName(deployment.mysql.database);
+        setLocalAppUser(deployment.mysql.applicationUser);
+      } else {
+        setDatabaseMode('existing-mysql');
+      }
+    } catch {
+      if (active) setDeploymentStatus({ mode: 'custom', managedMysql: false });
+    }
+  }
+
   useEffect(() => {
     let active = true;
     loadSetupStatus(active);
+    loadDeploymentStatus(active);
     return () => { active = false; };
   }, []);
 
@@ -133,24 +172,24 @@ export function App() {
     if (!implemented) showNotImplemented(label || section);
   }
 
-  async function handleDatabaseSetup(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault(); clearStatus();
-    const el = e.currentTarget;
-    const f = new FormData(el);
+  async function handleDatabaseSetup(e?: FormEvent<HTMLFormElement>) {
+    e?.preventDefault(); clearStatus();
+    const isManaged = databaseMode === 'managed-mysql';
     const payload = {
-      mode: databaseMode,
-      host: f.get('host') || 'localhost',
-      port: Number(f.get('port') || 3306),
-      database: f.get('database') || 'O2IAS_CMS',
-      adminUser: f.get('adminUser') || undefined,
-      adminPassword: f.get('adminPassword') || undefined,
-      appUser: f.get('appUser') || 'oxygen_cms',
-      appPassword: f.get('appPassword')
+      mode: databaseMode === 'existing-mysql' ? 'existing-mysql' : 'local-mysql',
+      host: databaseMode === 'existing-mysql' ? dbHost : 'localhost',
+      port: dbPort,
+      database: dbName || 'O2IAS_CMS',
+      adminUser: databaseMode === 'existing-mysql' ? connectAdminUser : localAdminUser,
+      adminPassword: databaseMode === 'existing-mysql' ? connectPrivilegedDbPassword : createPrivilegedDbPassword,
+      appUser: databaseMode === 'existing-mysql' ? connectAppUser : localAppUser,
+      appPassword: databaseMode === 'existing-mysql' ? connectAppDbPassword : createAppDbPassword
     };
     try {
-      const test = await api<DatabaseSetupResponse>('/api/setup/database/test-connection', { method: 'POST', body: JSON.stringify(payload) });
-      const provision = await api<DatabaseSetupResponse>('/api/setup/database/provision', { method: 'POST', body: JSON.stringify(payload) });
-      setMessage(`${test.message || 'Database settings validated.'} Saved ${provision.database}; proceed to schema update.`);
+      const provision = isManaged
+        ? await api<DatabaseSetupResponse>('/api/setup/database/provision-managed', { method: 'POST' })
+        : await api<DatabaseSetupResponse>('/api/setup/database/provision', { method: 'POST', body: JSON.stringify(payload) });
+      setMessage(`${isManaged ? 'Self-contained MySQL deployment settings loaded.' : 'Database settings validated.'} Saved ${provision.database}; database ${provision.createdDatabase ? 'created/verified' : 'verified'}, user ${provision.createdUser ? 'created/updated' : 'verified'}; proceed to schema update.`);
       await loadSetupStatus();
     } catch (err) { setError(err instanceof Error ? err.message : 'Database setup failed.'); }
   }
@@ -312,7 +351,68 @@ export function App() {
           <section className="hero"><h1 className="hero-title"><span>Centralized management for</span><span>OxyGen BPM deployments.</span></h1><p className="summary">A lightweight management server for monitoring OxyGen health, licensing, global settings, and workflow status across partner and customer environments.</p></section>
           <section className="cards">{capabilities.map(({ icon: Icon, label, detail }) => (<article className="card" key={label}><Icon /><h2>{label}</h2><p>{detail}</p></article>))}</section>
           {setupStatus === null && <p className="status">Checking setup status…</p>}
-          {setupStatus?.nextStep === 'database' && (<section className="auth-grid single"><article className="panel setup-panel"><div className="panel-brand-mark-wrap"><img className="panel-brand-mark" src={oxygenFullLogo} alt="OxyGen" /></div><div className="panel-heading"><Database /><div><p className="eyebrow small">Initial CMS setup</p><h2>Configure database</h2></div></div><p className="panel-copy">Configure or create the CMS database before creating the first administrator. Default database name is <strong>O2IAS_CMS</strong>.</p><form onSubmit={handleDatabaseSetup}><label>Database setup mode<select value={databaseMode} onChange={(e) => setDatabaseMode(e.target.value as 'local-mysql' | 'existing-mysql')}><option value="local-mysql">Create local MySQL instance (default)</option><option value="existing-mysql">Connect to existing local/remote MySQL server</option></select></label>{databaseMode === 'existing-mysql' && (<><label>SQL server host<input name="host" placeholder="localhost or db.example.com" defaultValue="localhost" required /></label><label>SQL server port<input name="port" type="number" defaultValue="3306" required /></label><label>SQL admin user<input name="adminUser" placeholder="root" /></label><label>SQL admin password<input name="adminPassword" type="password" /></label></>)}<label>Database name<input name="database" defaultValue={setupStatus.database.defaultDatabaseName} required /></label><label>Application DB user<input name="appUser" defaultValue="oxygen_cms" required /></label><label>Application DB password<div className="password-action-row"><span className="password-input-wrap"><input name="appPassword" type={showAppDbPassword ? 'text' : 'password'} minLength={12} value={appDbPassword} onChange={(e) => setAppDbPassword(e.target.value)} required /><button className="password-visibility-toggle" type="button" onClick={() => setShowAppDbPassword((visible) => !visible)} aria-label={showAppDbPassword ? 'Hide generated application database password' : 'Show generated application database password'}>{showAppDbPassword ? <EyeOff /> : <Eye />}</button></span><button className="secondary compact-button password-generate-button" type="button" onClick={() => { setAppDbPassword(generateSecurePassword()); setShowAppDbPassword(true); }}><RotateCw /> Generate Password</button></div><small>Generated automatically. Show it to record it, or replace it with your own 12+ character password.</small></label><button type="submit">Test and save database settings</button></form></article></section>)}
+          {setupStatus?.nextStep === 'database' && (
+            <section className="auth-grid single">
+              <article className="panel setup-panel">
+                <div className="panel-brand-mark-wrap"><img className="panel-brand-mark" src={oxygenFullLogo} alt="OxyGen" /></div>
+                <div className="panel-heading"><Database /><div><p className="eyebrow small">Initial CMS setup</p><h2>Configure database</h2></div></div>
+                <p className="panel-copy">Step through the database setup one decision at a time. Self-contained deployments use generated secrets from the deployment package; custom deployments collect the MySQL connection details here.</p>
+                <div className="wizard-progress">
+                  <button className={dbWizardStep === 'mode' ? 'active' : ''} type="button" onClick={() => setDbWizardStep('mode')}>1. Deployment</button>
+                  <button className={dbWizardStep === 'connection' ? 'active' : ''} type="button" disabled={databaseMode === 'managed-mysql'} onClick={() => setDbWizardStep('connection')}>2. Connection</button>
+                  <button className={dbWizardStep === 'credentials' ? 'active' : ''} type="button" disabled={databaseMode === 'managed-mysql'} onClick={() => setDbWizardStep('credentials')}>3. Credentials</button>
+                  <button className={dbWizardStep === 'review' ? 'active' : ''} type="button" onClick={() => setDbWizardStep('review')}>4. Review</button>
+                </div>
+                {dbWizardStep === 'mode' && (
+                  <div className="wizard-step">
+                    <p className="panel-copy small-copy">Choose how CMS should reach MySQL. The self-contained option is enabled only when this deployment was started with managed MySQL secrets.</p>
+                    {deploymentStatus?.managedMysql && deploymentStatus.mysql && <button className={`choice-card ${databaseMode === 'managed-mysql' ? 'selected' : ''}`} type="button" onClick={() => { setDatabaseMode('managed-mysql'); setDbHost(deploymentStatus.mysql!.host); setDbPort(deploymentStatus.mysql!.port); setDbName(deploymentStatus.mysql!.database); setLocalAppUser(deploymentStatus.mysql!.applicationUser); clearStatus(); }}><strong>Self-contained local MySQL</strong><span>Use the managed MySQL service included with this deployment. No password entry required.</span></button>}
+                    <button className={`choice-card ${databaseMode === 'local-mysql' ? 'selected' : ''}`} type="button" onClick={() => { setDatabaseMode('local-mysql'); setDbHost('localhost'); clearStatus(); }}><strong>Create/configure database on local MySQL server</strong><span>Use a MySQL server already running on this host or mapped locally.</span></button>
+                    <button className={`choice-card ${databaseMode === 'existing-mysql' ? 'selected' : ''}`} type="button" onClick={() => { setDatabaseMode('existing-mysql'); clearStatus(); }}><strong>Connect to existing MySQL server</strong><span>Use a remote or custom MySQL server and supply existing credentials.</span></button>
+                    <button type="button" onClick={() => setDbWizardStep(databaseMode === 'managed-mysql' ? 'review' : 'connection')}>Continue</button>
+                  </div>
+                )}
+                {dbWizardStep === 'connection' && (
+                  <div className="wizard-step">
+                    {databaseMode === 'local-mysql' ? <p className="panel-copy small-copy">Local mode keeps the host fixed to <strong>localhost</strong>. Set the MySQL listening port and CMS database name.</p> : <p className="panel-copy small-copy">Existing-server mode connects to a MySQL server you manage. Enter host, port, and target CMS database.</p>}
+                    {databaseMode === 'existing-mysql' && <label>SQL server host<input value={dbHost} onChange={(e) => setDbHost(e.target.value)} placeholder="db.example.com" required /></label>}
+                    <label>SQL server port<input type="number" value={dbPort} onChange={(e) => setDbPort(Number(e.target.value || 3306))} required /></label>
+                    <label>Database name<input value={dbName} onChange={(e) => setDbName(e.target.value)} required /></label>
+                    <div className="wizard-actions"><button type="button" className="secondary" onClick={() => setDbWizardStep('mode')}>Back</button><button type="button" onClick={() => setDbWizardStep('credentials')}>Continue</button></div>
+                  </div>
+                )}
+                {dbWizardStep === 'credentials' && (
+                  <div className="wizard-step">
+                    {databaseMode === 'local-mysql' ? (
+                      <>
+                        <p className="panel-copy small-copy">Use an existing privileged MySQL user to create/update the CMS database and application user. Only the application DB password is generated in this workflow.</p>
+                        <label>Privileged MySQL user<input value={localAdminUser} onChange={(e) => setLocalAdminUser(e.target.value)} required /></label>
+                        <label>Privileged MySQL password<span className="password-input-wrap"><input type={showCreatePrivilegedDbPassword ? 'text' : 'password'} value={createPrivilegedDbPassword} onChange={(e) => setCreatePrivilegedDbPassword(e.target.value)} required /><button className="password-visibility-toggle" type="button" onClick={() => setShowCreatePrivilegedDbPassword((visible) => !visible)}>{showCreatePrivilegedDbPassword ? <EyeOff /> : <Eye />}</button></span><small>Enter the existing privileged user's password. CMS does not generate this credential.</small></label>
+                        <label>Application DB user<input value={localAppUser} onChange={(e) => setLocalAppUser(e.target.value)} required /></label>
+                        <label>Application DB password<div className="password-action-row"><span className="password-input-wrap"><input type={showCreateAppDbPassword ? 'text' : 'password'} minLength={12} value={createAppDbPassword} onChange={(e) => setCreateAppDbPassword(e.target.value)} required /><button className="password-visibility-toggle" type="button" onClick={() => setShowCreateAppDbPassword((visible) => !visible)}>{showCreateAppDbPassword ? <EyeOff /> : <Eye />}</button></span><button className="compact-button" type="button" onClick={() => { setCreateAppDbPassword(generateSecurePassword()); setShowCreateAppDbPassword(true); }}><RotateCw /> Generate Password</button></div></label>
+                      </>
+                    ) : (
+                      <>
+                        <p className="panel-copy small-copy">Supply existing server credentials. Passwords start blank and are not generated in this workflow.</p>
+                        <label>Privileged MySQL user<input value={connectAdminUser} onChange={(e) => setConnectAdminUser(e.target.value)} placeholder="Privileged schema user" required /></label>
+                        <label>Privileged MySQL password<span className="password-input-wrap"><input type={showConnectPrivilegedDbPassword ? 'text' : 'password'} value={connectPrivilegedDbPassword} onChange={(e) => setConnectPrivilegedDbPassword(e.target.value)} required /><button className="password-visibility-toggle" type="button" onClick={() => setShowConnectPrivilegedDbPassword((visible) => !visible)}>{showConnectPrivilegedDbPassword ? <EyeOff /> : <Eye />}</button></span></label>
+                        <label>Application DB user<input value={connectAppUser} onChange={(e) => setConnectAppUser(e.target.value)} placeholder="Existing application user" required /></label>
+                        <label>Application DB password<span className="password-input-wrap"><input type={showConnectAppDbPassword ? 'text' : 'password'} minLength={12} value={connectAppDbPassword} onChange={(e) => setConnectAppDbPassword(e.target.value)} required /><button className="password-visibility-toggle" type="button" onClick={() => setShowConnectAppDbPassword((visible) => !visible)}>{showConnectAppDbPassword ? <EyeOff /> : <Eye />}</button></span></label>
+                      </>
+                    )}
+                    <div className="wizard-actions"><button type="button" className="secondary" onClick={() => setDbWizardStep('connection')}>Back</button><button type="button" onClick={() => setDbWizardStep('review')}>Continue</button></div>
+                  </div>
+                )}
+                {dbWizardStep === 'review' && (
+                  <div className="wizard-step">
+                    <p className="panel-copy small-copy">Review the setup summary before CMS saves database settings and advances to schema version <strong>{setupStatus.database.targetSchemaVersion}</strong>.</p>
+                    <div className="review-list"><span>Mode</span><strong>{databaseMode === 'managed-mysql' ? 'Self-contained local MySQL' : databaseMode === 'local-mysql' ? 'Local MySQL server' : 'Existing MySQL server'}</strong><span>Host</span><strong>{databaseMode === 'local-mysql' ? 'localhost' : dbHost}</strong><span>Port</span><strong>{dbPort}</strong><span>Database</span><strong>{dbName}</strong><span>Runtime user</span><strong>{databaseMode === 'existing-mysql' ? connectAppUser : localAppUser}</strong></div>
+                    <div className="wizard-actions"><button type="button" className="secondary" onClick={() => setDbWizardStep(databaseMode === 'managed-mysql' ? 'mode' : 'credentials')}>Back</button><button type="button" onClick={() => handleDatabaseSetup()}>{databaseMode === 'managed-mysql' ? 'Provision self-contained database' : 'Test and save database settings'}</button></div>
+                  </div>
+                )}
+              </article>
+            </section>
+          )}
           {setupStatus?.nextStep === 'schema' && (<section className="auth-grid single"><article className="panel setup-panel"><div className="panel-heading"><Database /><div><p className="eyebrow small">Initial CMS setup</p><h2>Update database schema</h2></div></div><p className="panel-copy">Database settings are saved. The wizard is ready to apply CMS schema version <strong>{setupStatus.database.targetSchemaVersion}</strong>. Pre-production CMS schemas use 0.xx version numbers.</p><button type="button" onClick={handleApplySchema}>Apply schema version {setupStatus.database.targetSchemaVersion}</button></article></section>)}
           {setupStatus?.nextStep === 'admin' && (<section className="auth-grid single"><article className="panel setup-panel"><div className="panel-brand-mark-wrap"><img className="panel-brand-mark" src={oxygenFullLogo} alt="OxyGen" /></div><div className="panel-heading"><ShieldCheck /><div><p className="eyebrow small">Initial CMS setup</p><h2>Create the first administrator</h2></div></div><p className="panel-copy">Database setup is complete. Create the first local administrator to finish setup.</p><form onSubmit={handleBootstrap}><label>Email<input name="email" type="email" placeholder="admin@example.com" required /></label><label>Display name<input name="displayName" placeholder="System Admin" required /></label><label>Password<input name="password" type="password" minLength={12} placeholder="12+ characters" required /></label><button type="submit">Create administrator</button></form></article></section>)}
           {setupStatus?.nextStep === 'complete' && (<section className="auth-grid single"><article className="panel"><div className="panel-heading"><UserPlus /><div><p className="eyebrow small">Secure access</p><h2>Sign in</h2></div></div><form onSubmit={handleLogin}><label>Email<input name="email" type="email" placeholder="admin@example.com" required /></label><label>Password<input name="password" type="password" required /></label><button type="submit">Sign in</button></form></article></section>)}

@@ -65,11 +65,15 @@ Future implementation will allow the user to:
 
 The database name must remain editable.
 
-### Mode B — Create a new local MySQL instance, default path
+### Deployment Boundary
+
+The browser wizard should not directly install or launch MySQL as an operating-system service. It can provision the CMS database, users, grants, and schema on a MySQL server that is already reachable from the API. Local MySQL deployment should be supplied by Docker Compose, a product installer, or another host-level supervisor before setup begins.
+
+### Mode B — Create/configure a database on a local MySQL server, default path
 
 This is the default first-run option.
 
-CMS should provision a local MySQL instance for repeatable development/deployment, initially via Docker Compose.
+CMS should create/configure its database and application user on a local MySQL server that is already running. Deploying the MySQL service itself should be handled by Docker Compose, an installer, or a host/service manager before the browser wizard runs.
 
 The user is prompted for the application database user:
 
@@ -198,7 +202,7 @@ requires setup if database is not configured OR schema is not current OR no admi
 Current setup UI includes:
 
 - Database mode selection:
-  - Create local MySQL instance
+  - Create/configure database on local MySQL server
   - Connect to existing local/remote MySQL server
 - Database name field, default `O2IAS_CMS`
 - App DB user/password fields

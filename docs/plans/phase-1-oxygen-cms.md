@@ -470,7 +470,7 @@ Acceptance criteria:
 
 - User cannot create the first admin until CMS is connected to a valid database and schema is current.
 - User can connect to existing MySQL and select/create `O2IAS_CMS` or an overridden database name.
-- User can provision a local MySQL instance for repeatable development testing.
+- User can create/configure the CMS database on a reachable local MySQL server for repeatable development testing. Deploying the MySQL service itself is handled by Docker Compose or an installer.
 - Restarting the API preserves users, groups, roles, tenants, and sessions.
 - Schema versions are recorded and pending migrations are applied in order.
 - Existing auth/RBAC/tenant UI behavior remains unchanged after persistence is wired.

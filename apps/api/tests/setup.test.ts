@@ -6,8 +6,24 @@ import { buildApp } from '../src/app.js';
 import { createInMemoryAuthRepository } from '../src/auth/inMemoryAuthRepository.js';
 import { createFileSetupSettingsStore } from '../src/setup/fileSetupSettingsStore.js';
 import { createFileSetupStatusProvider } from '../src/setup/setupStatus.js';
+import type { DatabaseProvisioner } from '../src/setup/databaseProvisioner.js';
 
 const tempDirs: string[] = [];
+
+const fakeDatabaseProvisioner: DatabaseProvisioner = {
+  async testConnection(settings) {
+    return { ok: true, message: `Connected to ${settings.database}` };
+  },
+  async listDatabases() {
+    return ['O2IAS_CMS'];
+  },
+  async provision(input) {
+    return { settings: input.settings, createdDatabase: false, createdUser: false };
+  },
+  async applySchema() {
+    return { targetSchemaVersion: '0.01', appliedVersions: ['0.01'] };
+  }
+};
 
 afterEach(async () => {
   await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true })));
@@ -23,7 +39,8 @@ describe('first-run database setup API', () => {
       logger: false,
       authRepository: createInMemoryAuthRepository(),
       setupSettingsStore,
-      setupStatusProvider: createFileSetupStatusProvider(setupSettingsStore)
+      setupStatusProvider: createFileSetupStatusProvider(setupSettingsStore),
+      databaseProvisioner: fakeDatabaseProvisioner
     });
 
     const status = await app.inject({ method: 'GET', url: '/api/setup/status' });
@@ -55,7 +72,8 @@ describe('first-run database setup API', () => {
       logger: false,
       authRepository: createInMemoryAuthRepository(),
       setupSettingsStore,
-      setupStatusProvider: createFileSetupStatusProvider(setupSettingsStore)
+      setupStatusProvider: createFileSetupStatusProvider(setupSettingsStore),
+      databaseProvisioner: fakeDatabaseProvisioner
     });
 
     const test = await app.inject({

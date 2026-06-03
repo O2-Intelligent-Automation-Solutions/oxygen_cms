@@ -34,6 +34,9 @@ services:
       MYSQL_DATABASE: ${MYSQL_DATABASE:-O2IAS_CMS}
       MYSQL_USER: ${MYSQL_USER:-oxygen_cms}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-oxygen_cms_dev_password}
+      MYSQL_PRIVILEGED_USER: root
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-oxygen_cms_root_dev_password}
+      CMS_MANAGED_MYSQL: "true"
     ports:
       - "3000:3000"
     volumes:

@@ -1,175 +1,43 @@
 # First-Run Setup Wizard
 
-## Purpose
+The setup wizard now separates deployment selection from database credentials so users are not presented with every database field at once.
 
-The OxyGen CMS first-run wizard ensures the application has durable database configuration and a current schema before the first local administrator account is created.
+## Database Setup Sequence
 
-The required order is:
+1. **Deployment**
+   - Self-contained local MySQL, when the deployment advertises `CMS_MANAGED_MYSQL=true`.
+   - Create/configure database on a local MySQL server.
+   - Connect to an existing local/remote MySQL server.
+2. **Connection**
+   - Local mode collects port and database name.
+   - Existing mode collects host, port, and database name.
+   - Self-contained mode skips this step and uses deployment-provided values.
+3. **Credentials**
+   - Local mode collects privileged user/password and generated application DB user/password.
+   - Existing mode collects privileged schema credentials and application runtime credentials; no passwords are defaulted or generated.
+   - Self-contained mode skips this step and uses generated deployment secrets that are not exposed in the browser.
+4. **Review**
+   - Shows mode, host, port, database, and runtime user before provisioning.
 
-```text
-Database setup → Apply schema → Create first administrator → Sign in
-```
+After database settings are saved, the wizard proceeds to schema application, first administrator creation, and sign-in.
 
-## Step 1 — Configure Database
+## Self-Contained Deployment Model
 
-The wizard starts at database configuration when `/api/setup/status` returns:
+The browser wizard does not install MySQL directly. The deployment package starts MySQL and supplies generated secrets to the API. The wizard then provisions the CMS database, runtime user, and schema using those managed settings.
 
-```json
-{
-  "nextStep": "database"
-}
-```
-
-### Modes
-
-#### Create local MySQL instance
-
-Default mode for local development and simple standalone deployment.
-
-Fields:
-
-- Database name, default `O2IAS_CMS`
-- Application DB user, default `oxygen_cms`
-- Application DB password
-
-The password field:
-
-- Auto-generates a secure password.
-- Allows manual override.
-- Includes an eye icon to show/hide the value.
-- Includes an inline `Generate Password` button to the right of the input.
-
-#### Connect to existing MySQL server
-
-For local or remote MySQL infrastructure.
-
-Fields:
-
-- Hostname/IP
-- Port, default `3306`
-- Database name, default `O2IAS_CMS`
-- Application DB user
-- Application DB password
-
-Future implementation will add real DB probing, list existing databases, and create/select database options.
-
-## Step 2 — Apply Schema
-
-The wizard advances to schema when database settings are saved and `/api/setup/status` returns:
-
-```json
-{
-  "nextStep": "schema",
-  "database": {
-    "schemaCurrent": false,
-    "targetSchemaVersion": "0.01"
-  }
-}
-```
-
-The screen must clearly display:
+Docker Compose advertises this mode with:
 
 ```text
-CMS schema version 0.01
+CMS_MANAGED_MYSQL=true
+MYSQL_HOST=mysql
+MYSQL_PORT=3306
+MYSQL_DATABASE=O2IAS_CMS
+MYSQL_USER=oxygen_cms
+MYSQL_PASSWORD=<generated or compose default>
+MYSQL_PRIVILEGED_USER=root
+MYSQL_ROOT_PASSWORD=<generated or compose default>
 ```
 
-The apply button currently reads:
+## Custom Database Model
 
-```text
-Apply schema version 0.01
-```
-
-Versioning convention:
-
-- Pre-production schemas use `0.xx`.
-- Production schema releases can move to `1.x`.
-
-Current schema artifact:
-
-```text
-apps/api/src/db/migrations/001_security_tenant_schema.sql
-```
-
-## Step 3 — Create First Administrator
-
-The wizard advances to first admin when schema is current and no users exist:
-
-```json
-{
-  "nextStep": "admin"
-}
-```
-
-Fields:
-
-- Email
-- Display name
-- Password
-
-Admin creation remains backed by the current in-memory auth repository until the MySQL-backed repository is implemented.
-
-## Step 4 — Sign In
-
-After the first administrator exists, setup is complete and the user can sign in.
-
-Completed setup status:
-
-```json
-{
-  "nextStep": "complete",
-  "requiresSetup": false
-}
-```
-
-## API Endpoints
-
-```http
-GET  /api/setup/status
-POST /api/setup/database/test-connection
-POST /api/setup/database/list-databases
-POST /api/setup/database/provision
-POST /api/setup/database/apply-schema
-POST /api/auth/bootstrap
-POST /api/auth/login
-```
-
-## Local Review State
-
-The wizard state is currently persisted in:
-
-```text
-apps/api/data/settings.json
-```
-
-This file is ignored by git.
-
-To reset to the database step:
-
-```bash
-rm -f apps/api/data/settings.json
-```
-
-To force review of the schema step, create a local settings file with `schemaCurrent: false`:
-
-```json
-{
-  "database": {
-    "host": "localhost",
-    "port": 3306,
-    "database": "O2IAS_CMS",
-    "user": "oxygen_cms",
-    "password": "review-only-placeholder"
-  },
-  "schemaCurrent": false
-}
-```
-
-## Current Scaffold Limitation
-
-The wizard is browser-testable, but the database actions are scaffolded:
-
-- `test-connection` validates input but does not yet open a real MySQL socket.
-- `provision` saves local settings but does not yet create the database/user.
-- `apply-schema` marks schema current but does not yet execute SQL against MySQL.
-
-The next implementation pass must wire these endpoints to real MySQL provisioning and migration execution.
+For remote/custom MySQL, the user supplies both setup/schema privileged credentials and the application runtime credentials. Privileged credentials are used for setup/schema only; the application binds with the runtime user for day-to-day access.

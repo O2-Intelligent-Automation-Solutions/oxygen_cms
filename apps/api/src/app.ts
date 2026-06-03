@@ -7,6 +7,8 @@ import { registerAuthRoutes } from './auth/registerAuthRoutes.js';
 import type { AuthRepository } from './auth/types.js';
 import { loadConfig } from './config/loadConfig.js';
 import { registerSetupRoutes } from './setup/registerSetupRoutes.js';
+import { createMysqlDatabaseProvisioner, type DatabaseProvisioner } from './setup/databaseProvisioner.js';
+import { createDefaultDeploymentConfig, type DeploymentConfig } from './setup/deploymentConfig.js';
 import { createFileSetupSettingsStore, type SetupSettingsStore } from './setup/fileSetupSettingsStore.js';
 import { createFileSetupStatusProvider, type SetupStatusProvider } from './setup/setupStatus.js';
 
@@ -14,6 +16,8 @@ type BuildAppOptions = FastifyServerOptions & {
   authRepository?: AuthRepository;
   setupStatusProvider?: SetupStatusProvider;
   setupSettingsStore?: SetupSettingsStore;
+  databaseProvisioner?: DatabaseProvisioner;
+  deploymentConfig?: DeploymentConfig;
 };
 
 const defaultSettingsPath = basename(process.cwd()) === 'api'
@@ -22,9 +26,18 @@ const defaultSettingsPath = basename(process.cwd()) === 'api'
 const defaultAuthRepository = createInMemoryAuthRepository();
 const defaultSetupSettingsStore = createFileSetupSettingsStore(defaultSettingsPath);
 const defaultSetupStatusProvider = createFileSetupStatusProvider(defaultSetupSettingsStore);
+const defaultDatabaseProvisioner = createMysqlDatabaseProvisioner();
+const defaultDeploymentConfig = createDefaultDeploymentConfig();
 
 export async function buildApp(options: BuildAppOptions = {}) {
-  const { authRepository = defaultAuthRepository, setupSettingsStore = defaultSetupSettingsStore, setupStatusProvider = defaultSetupStatusProvider, ...fastifyOptions } = options;
+  const {
+    authRepository = defaultAuthRepository,
+    setupSettingsStore = defaultSetupSettingsStore,
+    setupStatusProvider = defaultSetupStatusProvider,
+    databaseProvisioner = defaultDatabaseProvisioner,
+    deploymentConfig = defaultDeploymentConfig,
+    ...fastifyOptions
+  } = options;
   const app = Fastify(fastifyOptions);
   const config = loadConfig();
 
@@ -41,7 +54,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     timestamp: new Date().toISOString()
   }));
 
-  await registerSetupRoutes(app, authRepository, setupStatusProvider, setupSettingsStore);
+  await registerSetupRoutes(app, authRepository, setupStatusProvider, setupSettingsStore, databaseProvisioner, deploymentConfig);
   await registerAuthRoutes(app, authRepository);
 
   return app;

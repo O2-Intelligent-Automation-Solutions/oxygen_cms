@@ -1050,3 +1050,95 @@ button.secondary {
   .brand-lockup { align-items: flex-start; flex-direction: column; gap: 10px; }
   .brand-product { border-left: 0; border-top: 1px solid var(--brand-line-strong); padding: 12px 0 0; }
 }
+
+
+.wizard-progress {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 20px 0;
+}
+
+.wizard-progress button {
+  border: 1px solid var(--brand-line);
+  border-radius: 999px;
+  padding: 8px 10px;
+  color: var(--brand-muted);
+  font-size: 0.78rem;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.035);
+  cursor: pointer;
+}
+
+.wizard-progress button.active {
+  border-color: rgba(32, 214, 210, 0.72);
+  color: var(--brand-text);
+  background: rgba(32, 214, 210, 0.12);
+  box-shadow: 0 0 18px rgba(32, 214, 210, 0.12);
+}
+
+.wizard-progress button:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
+  color: var(--brand-muted-2);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.wizard-step {
+  display: grid;
+  gap: 16px;
+}
+
+.choice-card {
+  width: 100%;
+  display: grid;
+  gap: 6px;
+  padding: 16px 18px;
+  border: 1px solid var(--brand-line);
+  border-radius: 16px;
+  color: var(--brand-text);
+  text-align: left;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.choice-card span {
+  color: var(--brand-muted);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.choice-card.selected {
+  border-color: rgba(32, 214, 210, 0.78);
+  background: rgba(32, 214, 210, 0.1);
+}
+
+.wizard-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.review-list {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.45fr) 1fr;
+  gap: 10px 16px;
+  padding: 16px;
+  border: 1px solid var(--brand-line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.review-list span {
+  color: var(--brand-muted);
+}
+
+.review-list strong {
+  color: var(--brand-text);
+  word-break: break-word;
+}
+
+button.secondary {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--brand-text);
+  border-color: var(--brand-line);
+}
