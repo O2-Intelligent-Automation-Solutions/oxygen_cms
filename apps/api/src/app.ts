@@ -3,6 +3,7 @@ import helmet from '@fastify/helmet';
 import Fastify, { type FastifyServerOptions } from 'fastify';
 import { basename, join } from 'node:path';
 import { createInMemoryAuthRepository } from './auth/inMemoryAuthRepository.js';
+import { createSetupAwareAuthRepository } from './auth/mysqlAuthRepository.js';
 import { registerAuthRoutes } from './auth/registerAuthRoutes.js';
 import type { AuthRepository } from './auth/types.js';
 import { loadConfig } from './config/loadConfig.js';
@@ -23,7 +24,7 @@ type BuildAppOptions = FastifyServerOptions & {
 const defaultSettingsPath = basename(process.cwd()) === 'api'
   ? join(process.cwd(), 'data/settings.json')
   : join(process.cwd(), 'apps/api/data/settings.json');
-const defaultAuthRepository = createInMemoryAuthRepository();
+const defaultFallbackAuthRepository = createInMemoryAuthRepository();
 const defaultSetupSettingsStore = createFileSetupSettingsStore(defaultSettingsPath);
 const defaultSetupStatusProvider = createFileSetupStatusProvider(defaultSetupSettingsStore);
 const defaultDatabaseProvisioner = createMysqlDatabaseProvisioner();
@@ -31,13 +32,13 @@ const defaultDeploymentConfig = createDefaultDeploymentConfig();
 
 export async function buildApp(options: BuildAppOptions = {}) {
   const {
-    authRepository = defaultAuthRepository,
     setupSettingsStore = defaultSetupSettingsStore,
     setupStatusProvider = defaultSetupStatusProvider,
     databaseProvisioner = defaultDatabaseProvisioner,
     deploymentConfig = defaultDeploymentConfig,
     ...fastifyOptions
   } = options;
+  const authRepository = options.authRepository ?? createSetupAwareAuthRepository(setupSettingsStore, defaultFallbackAuthRepository);
   const app = Fastify(fastifyOptions);
   const config = loadConfig();
 

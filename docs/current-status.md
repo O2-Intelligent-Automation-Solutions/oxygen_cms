@@ -19,7 +19,8 @@ The first-run setup UI now follows this order:
 3. **Create first administrator**
    - Admin creation is blocked until database settings are saved and schema is current.
 4. **Sign in**
-   - Existing in-memory auth/session behavior remains available for review until MySQL-backed auth is wired.
+   - After schema is current, auth/RBAC operations use the configured MySQL database through the setup-aware auth repository.
+   - Admin users, roles, groups, tenants, and sessions survive API/Web process restarts.
 
 ## Current API Contract
 
@@ -44,6 +45,10 @@ POST /api/setup/database/apply-schema
   - `npm run dev:db:reset` — destroy/recreate the MySQL container and clear local setup state.
   - `npm run dev:managed` — run API/Web in self-contained managed MySQL mode.
   - `npm run dev:managed:smoke` — exercise managed provision + schema endpoints.
+- MySQL-backed auth repository:
+  - Uses the configured runtime application DB credentials after schema is current.
+  - Persists bootstrap admin, sessions, tenants, roles, groups, and users in MySQL.
+  - Integration test: `npm run test:mysql-auth`.
 
 ## Validation Gate
 

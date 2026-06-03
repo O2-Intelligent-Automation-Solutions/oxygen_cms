@@ -57,6 +57,6 @@ Viewer
 
 `SystemAdmin` and `TenantAdmin` are protected global roles.
 
-## Next DDL Work
+## Implemented DDL Runtime
 
-The next implementation pass should add a real MySQL migration adapter that executes these scripts during the setup wizard's Apply Schema step and records version `0.01` in `cms_schema_versions`.
+The setup wizard's Apply Schema step executes the registered MySQL migrations and records version `0.01` in `cms_schema_versions`. Auth/RBAC runtime code now uses these tables after schema setup is complete.
