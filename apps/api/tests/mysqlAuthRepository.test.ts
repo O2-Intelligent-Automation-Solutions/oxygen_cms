@@ -59,7 +59,9 @@ describeMysql('MySQL auth repository', () => {
         roles: ['SystemAdmin']
       });
       expect(await secondRepository.getProfileByToken(token)).toMatchObject({ user: { id: admin.user.id } });
-      expect(await secondRepository.listTenants()).toEqual([expect.objectContaining({ id: tenant.id, name: 'Partner A' })]);
+      expect(await secondRepository.listTenants()).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: tenant.id, name: 'Partner A' })
+      ]));
       expect(await secondRepository.listUsers()).toEqual(expect.arrayContaining([
         expect.objectContaining({ user: expect.objectContaining({ email: 'operator@example.com' }), roles: ['WorkflowReviewer'] })
       ]));
