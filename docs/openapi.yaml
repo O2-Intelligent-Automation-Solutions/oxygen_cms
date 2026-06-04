@@ -853,7 +853,7 @@ components:
         port: { type: [integer, 'null'], minimum: 1, maximum: 65535 }
         hostname: { type: string, description: Legacy/full hostname input; host or hostname is required. }
         username: { type: string, default: admin }
-        password: { type: string, writeOnly: true }
+        password: { type: string, writeOnly: true, description: Remote OxyGen credential. Stored encrypted at rest using AES-256-GCM and never returned by API responses. Requires OXYGEN_CMS_ENCRYPTION_KEY when persisted to MySQL. }
         pollingIntervalSeconds: { type: integer, minimum: 60, maximum: 86400, default: 300 }
         isEnabled: { type: boolean, default: true }
     UpdateInstanceInput:
@@ -861,7 +861,7 @@ components:
         - $ref: '#/components/schemas/CreateInstanceInput'
         - type: object
           properties:
-            password: { type: string, writeOnly: true, description: Blank or omitted means unchanged. }
+            password: { type: string, writeOnly: true, description: Blank or omitted means unchanged. Non-blank replacement credentials are stored encrypted at rest and never returned by API responses. }
     Tenant:
       allOf:
         - $ref: '#/components/schemas/TenantInput'

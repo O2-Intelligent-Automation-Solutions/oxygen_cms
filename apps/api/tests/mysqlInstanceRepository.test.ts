@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest';
+import { randomBytes } from 'node:crypto';
 import { createPool } from 'mysql2/promise';
+import { createCredentialCipher } from '../src/instances/credentialEncryption.js';
 import { createMysqlInstanceRepository } from '../src/instances/mysqlInstanceRepository.js';
 
 const runMysqlIntegration = process.env.MYSQL_INTEGRATION_TESTS === 'true';
 const describeMysql = runMysqlIntegration ? describe : describe.skip;
+
+function testCredentialCipher() {
+  return createCredentialCipher(randomBytes(32).toString('base64'));
+}
 
 describeMysql('MySQL instance repository', () => {
   it('persists expanded instance CRUD fields and scoped lists across repository instances without instance group ownership', async () => {
@@ -25,7 +31,8 @@ describeMysql('MySQL instance repository', () => {
       await pool.query("DELETE FROM tenants WHERE id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'");
       await pool.query("INSERT INTO tenants (id, name, description) VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'Acme Tenant', NULL)");
 
-      const firstRepository = createMysqlInstanceRepository(pool);
+      const credentialCipher = testCredentialCipher();
+      const firstRepository = createMysqlInstanceRepository(pool, credentialCipher);
       const created = await firstRepository.createInstance({
         name: 'Acme Production',
         description: 'Primary Acme production OxyGen deployment',
@@ -68,6 +75,13 @@ describeMysql('MySQL instance repository', () => {
       });
       expect(created).not.toHaveProperty('groupId');
       expect(created).not.toHaveProperty('password');
+      expect(created).not.toHaveProperty('passwordSecret');
+
+      const [credentialRowsAfterCreate] = await pool.query('SELECT password_secret FROM oxygen_instances WHERE id = ?', [created.id]);
+      const passwordSecretAfterCreate = (credentialRowsAfterCreate as Array<{ password_secret: string }>)[0]?.password_secret;
+      expect(passwordSecretAfterCreate).toMatch(/^o2cms:v1:/);
+      expect(passwordSecretAfterCreate).not.toBe('RemotePassword!42');
+      expect(passwordSecretAfterCreate).not.toContain('RemotePassword!42');
 
       const [statusRows] = await pool.query('SELECT instance_id, availability_status, processing_status, emm_queue_status, sms_status, hangfire_status, license_status FROM oxygen_instance_status WHERE instance_id = ?', [created.id]);
       expect(statusRows).toMatchObject([{ instance_id: created.id, availability_status: 'unknown', processing_status: 'unknown', emm_queue_status: 'unknown', sms_status: 'unknown', hangfire_status: 'unknown', license_status: 'unknown' }]);
@@ -83,7 +97,7 @@ describeMysql('MySQL instance repository', () => {
         password: 'RemotePassword!42'
       });
 
-      const secondRepository = createMysqlInstanceRepository(pool);
+      const secondRepository = createMysqlInstanceRepository(pool, credentialCipher);
       expect((await secondRepository.listInstances({ instanceIds: [created.id] })).map((instance) => instance.name)).toEqual(['Acme Production']);
       expect((await secondRepository.listInstances({ includeAll: true })).map((instance) => instance.name)).toEqual(['Acme Production', 'Beta Hidden']);
       expect((await secondRepository.listInstances({ instanceIds: [hidden.id] })).map((instance) => instance.name)).toEqual(['Beta Hidden']);
@@ -115,6 +129,27 @@ describeMysql('MySQL instance repository', () => {
         pollingIntervalSeconds: 600,
         isEnabled: false
       });
+
+      const [credentialRowsAfterNoPasswordUpdate] = await pool.query('SELECT password_secret FROM oxygen_instances WHERE id = ?', [created.id]);
+      expect((credentialRowsAfterNoPasswordUpdate as Array<{ password_secret: string }>)[0]?.password_secret).toBe(passwordSecretAfterCreate);
+
+      await secondRepository.updateInstance(created.id, {
+        name: 'Acme Prod',
+        description: 'Updated production deployment',
+        tenantId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        protocol: 'https',
+        host: 'acme.example.com',
+        port: 443,
+        username: 'svc-admin',
+        password: 'ReplacementPassword!43',
+        pollingIntervalSeconds: 600,
+        isEnabled: false
+      });
+      const [credentialRowsAfterPasswordUpdate] = await pool.query('SELECT password_secret FROM oxygen_instances WHERE id = ?', [created.id]);
+      const passwordSecretAfterPasswordUpdate = (credentialRowsAfterPasswordUpdate as Array<{ password_secret: string }>)[0]?.password_secret;
+      expect(passwordSecretAfterPasswordUpdate).toMatch(/^o2cms:v1:/);
+      expect(passwordSecretAfterPasswordUpdate).not.toBe(passwordSecretAfterCreate);
+      expect(passwordSecretAfterPasswordUpdate).not.toContain('ReplacementPassword!43');
 
       await secondRepository.deleteInstance(created.id);
       expect(await secondRepository.getInstance(created.id)).toBeNull();

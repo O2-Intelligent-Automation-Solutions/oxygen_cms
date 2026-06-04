@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Pool, RowDataPacket } from 'mysql2/promise';
 import { createPool } from 'mysql2/promise';
 import type { DatabaseSettings, SetupSettingsStore } from '../setup/fileSetupSettingsStore.js';
+import { createCredentialCipherFromEnvironment, type CredentialCipher } from './credentialEncryption.js';
 import { normalizeOxyGenEndpoint } from './inMemoryInstanceRepository.js';
 import type { ConnectivityResult, CreateInstanceInput, InstanceProtocol, InstanceRepository, InstanceStatus, OxyGenInstance, UpdateInstanceInput } from './types.js';
 
@@ -155,7 +156,10 @@ function isDuplicateEntry(error: unknown) {
   return error instanceof Error && 'code' in error && error.code === 'ER_DUP_ENTRY';
 }
 
-export function createMysqlInstanceRepository(pool: Pool): InstanceRepository {
+export function createMysqlInstanceRepository(pool: Pool, credentialCipher?: CredentialCipher): InstanceRepository {
+  function encryptCredential(plaintext: string) {
+    return (credentialCipher ?? createCredentialCipherFromEnvironment()).encrypt(plaintext);
+  }
   async function one<T extends RowDataPacket>(sql: string, params: unknown[] = []): Promise<T | null> {
     const [rows] = await pool.execute<T[]>(sql, params as never[]);
     return rows[0] ?? null;
@@ -205,7 +209,7 @@ export function createMysqlInstanceRepository(pool: Pool): InstanceRepository {
             normalized.launchUrl,
             normalized.apiBaseUrl,
             input.username.trim(),
-            input.password,
+            encryptCredential(input.password),
             input.pollingIntervalSeconds ?? 300,
             input.isEnabled ?? true
           ]
@@ -240,7 +244,7 @@ export function createMysqlInstanceRepository(pool: Pool): InstanceRepository {
         input.pollingIntervalSeconds ?? existing.pollingIntervalSeconds,
         input.isEnabled ?? existing.isEnabled
       ];
-      if (input.password) params.push(input.password);
+      if (input.password) params.push(encryptCredential(input.password));
       params.push(instanceId);
 
       try {
