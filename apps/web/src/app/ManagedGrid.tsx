@@ -36,6 +36,7 @@ type ManagedGridProps<T extends { id: string }> = {
   toolbar?: ReactNode;
   actionCell?: (props: GridCustomCellProps) => ReactNode;
   actionWidth?: number | string;
+  mobileActions?: (row: T) => ReactNode;
 };
 
 async function gridPreferenceApi<T>(path: string, token: string, options: RequestInit = {}): Promise<T> {
@@ -68,7 +69,7 @@ function mergeColumns<T extends { id: string }>(columns: ManagedGridColumn<T>[],
     .map((column, index) => ({ ...column, order: index }));
 }
 
-export function ManagedGrid<T extends { id: string }>({ gridKey, token, rows, columns, toolbar, actionCell, actionWidth = 104 }: ManagedGridProps<T>) {
+export function ManagedGrid<T extends { id: string }>({ gridKey, token, rows, columns, toolbar, actionCell, actionWidth = 104, mobileActions }: ManagedGridProps<T>) {
   const [columnPrefs, setColumnPrefs] = useState<ColumnPreference[]>(() => defaultPreferences(columns));
   const [gridState, setGridState] = useState<State>({ sort: [] });
   const [filtersVisible, setFiltersVisible] = useState(false);
@@ -168,6 +169,15 @@ export function ManagedGrid<T extends { id: string }>({ gridKey, token, rows, co
   }
 
   const sortedColumn = headerMenu ? gridState.sort?.find((sort) => sort.field === headerMenu.column) : undefined;
+  const mobileRows = useMemo(() => {
+    const flatten = (items: unknown[]): T[] => items.flatMap((item) => {
+      if (item && typeof item === 'object' && 'items' in item && Array.isArray((item as { items?: unknown[] }).items)) {
+        return flatten((item as { items: unknown[] }).items);
+      }
+      return item && typeof item === 'object' && 'id' in item ? [item as T] : [];
+    });
+    return flatten(processedRows.data as unknown[]);
+  }, [processedRows.data]);
 
   return <article className="panel data-panel kendo-data-panel">
     <div className="dp-head instance-grid-toolbar">
@@ -218,6 +228,29 @@ export function ManagedGrid<T extends { id: string }>({ gridKey, token, rows, co
           />;
         })}
       </Grid>
+    </div>
+    <div className="managed-grid-mobile-cards">
+      {mobileRows.length === 0 && <div className="mobile-grid-empty">No records available.</div>}
+      {mobileRows.map((row) => {
+        const [primaryColumn, secondaryColumn] = visibleColumns;
+        const primaryValue = primaryColumn ? String(row[primaryColumn.key as keyof T] ?? '') : row.id;
+        const secondaryValue = secondaryColumn ? String(row[secondaryColumn.key as keyof T] ?? '') : '';
+        return <article className="mobile-grid-card" key={row.id}>
+          <div className="mobile-grid-card-head">
+            <div>
+              <strong>{primaryValue || row.id}</strong>
+              {secondaryValue && <span>{secondaryValue}</span>}
+            </div>
+            {mobileActions && <div className="mobile-grid-card-actions">{mobileActions(row)}</div>}
+          </div>
+          <dl className="mobile-grid-card-details">
+            {visibleColumns.slice(secondaryColumn ? 2 : 1).map((column) => <div key={column.key}>
+              <dt>{column.title}</dt>
+              <dd>{String(row[column.key as keyof T] ?? '') || '—'}</dd>
+            </div>)}
+          </dl>
+        </article>;
+      })}
     </div>
     {headerMenu && <div className="grid-header-context-menu" style={{ left: headerMenu.x, top: headerMenu.y }} onClick={(event) => event.stopPropagation()}>
       <button type="button" onClick={() => { setColumnVisible(headerMenu.column, false); setHeaderMenu(null); }}>Hide Column</button>
