@@ -1,0 +1,1045 @@
+openapi: 3.1.0
+info:
+  title: OxyGen CMS API
+  version: 0.7.0
+  summary: OxyGen Central Management Server API
+  description: |
+    API contract for OxyGen Central Management Server Phase 1.
+
+    Current CMS schema version: 0.07.
+
+    Phase 1 APIs cover first-run setup, local authentication/RBAC, tenant/user/group/role administration,
+    manual OxyGen instance enrollment, grid preferences, and application labels.
+servers:
+  - url: http://localhost:3000
+    description: Local API development server
+  - url: https://{host}
+    description: Deployed CMS server
+    variables:
+      host:
+        default: cms.example.com
+security:
+  - bearerAuth: []
+tags:
+  - name: Health
+  - name: Setup
+  - name: Auth
+  - name: Tenants
+  - name: Roles
+  - name: Groups
+  - name: Users
+  - name: Instances
+  - name: Grid Preferences
+  - name: Application Settings
+paths:
+  /api/health:
+    get:
+      tags: [Health]
+      summary: Health check
+      security: []
+      responses:
+        '200':
+          description: API is healthy.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+  /api/setup/status:
+    get:
+      tags: [Setup]
+      summary: Get first-run setup status
+      security: []
+      responses:
+        '200':
+          description: Current setup status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetupStatus'
+  /api/setup/deployment:
+    get:
+      tags: [Setup]
+      summary: Get public deployment setup configuration
+      security: []
+      responses:
+        '200':
+          description: Public deployment capabilities and defaults.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicDeploymentConfig'
+  /api/setup/database/provision-managed:
+    post:
+      tags: [Setup]
+      summary: Provision managed self-contained MySQL database
+      security: []
+      responses:
+        '200':
+          description: Managed database provisioned and saved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DatabaseProvisionResult'
+        '400': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/Error' }
+  /api/setup/database/test-connection:
+    post:
+      tags: [Setup]
+      summary: Test MySQL connection settings
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DatabaseSetupRequest'
+      responses:
+        '200':
+          description: Connection test result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DatabaseConnectionTestResult'
+        '400': { $ref: '#/components/responses/Error' }
+  /api/setup/database/list-databases:
+    post:
+      tags: [Setup]
+      summary: List databases visible to supplied MySQL credentials
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DatabaseSetupRequest'
+      responses:
+        '200':
+          description: Database list.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [databases, defaultDatabaseName]
+                properties:
+                  databases:
+                    type: array
+                    items: { type: string }
+                  defaultDatabaseName:
+                    type: string
+                    example: O2IAS_CMS
+        '400': { $ref: '#/components/responses/Error' }
+  /api/setup/database/provision:
+    post:
+      tags: [Setup]
+      summary: Provision or save custom MySQL database settings
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DatabaseSetupRequest'
+      responses:
+        '200':
+          description: Database provisioned/saved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DatabaseProvisionResult'
+        '400': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/Error' }
+  /api/setup/database/apply-schema:
+    post:
+      tags: [Setup]
+      summary: Apply pending CMS schema migrations
+      security: []
+      responses:
+        '200':
+          description: Schema applied.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, database, targetSchemaVersion, appliedVersions, nextStep]
+                properties:
+                  ok: { type: boolean, const: true }
+                  database: { type: string }
+                  targetSchemaVersion: { type: string, example: '0.07' }
+                  appliedVersions:
+                    type: array
+                    items: { type: string }
+                  nextStep: { type: string, enum: [admin] }
+        '400': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/Error' }
+  /api/auth/bootstrap-status:
+    get:
+      tags: [Auth]
+      summary: Determine whether first administrator bootstrap is required
+      security: []
+      responses:
+        '200':
+          description: Bootstrap status.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [requiresBootstrap]
+                properties:
+                  requiresBootstrap: { type: boolean }
+  /api/auth/bootstrap:
+    post:
+      tags: [Auth]
+      summary: Create first SystemAdmin user
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BootstrapRequest'
+      responses:
+        '201':
+          description: First administrator profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthProfile'
+        '409': { $ref: '#/components/responses/Error' }
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      summary: Sign in
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Bearer token and user profile.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - type: object
+                    required: [token]
+                    properties:
+                      token: { type: string }
+                  - $ref: '#/components/schemas/AuthProfile'
+        '401': { $ref: '#/components/responses/Error' }
+  /api/auth/logout:
+    post:
+      tags: [Auth]
+      summary: Sign out current session
+      responses:
+        '200':
+          description: Logout acknowledgement.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok: { type: boolean, const: true }
+  /api/auth/me:
+    get:
+      tags: [Auth]
+      summary: Get current authenticated profile
+      responses:
+        '200':
+          description: Current profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthProfile'
+        '401': { $ref: '#/components/responses/Error' }
+  /api/tenants:
+    get:
+      tags: [Tenants]
+      summary: List tenants
+      responses:
+        '200':
+          description: Tenant list.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tenants]
+                properties:
+                  tenants:
+                    type: array
+                    items: { $ref: '#/components/schemas/Tenant' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Tenants]
+      summary: Create tenant
+      requestBody: { $ref: '#/components/requestBodies/TenantInput' }
+      responses:
+        '201':
+          description: Created tenant.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tenant]
+                properties:
+                  tenant: { $ref: '#/components/schemas/Tenant' }
+        '400': { $ref: '#/components/responses/Error' }
+  /api/tenants/{tenantId}:
+    parameters:
+      - $ref: '#/components/parameters/tenantId'
+    patch:
+      tags: [Tenants]
+      summary: Update tenant
+      requestBody: { $ref: '#/components/requestBodies/TenantInput' }
+      responses:
+        '200':
+          description: Updated tenant.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tenant]
+                properties:
+                  tenant: { $ref: '#/components/schemas/Tenant' }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Tenants]
+      summary: Delete tenant
+      responses:
+        '204': { description: Tenant deleted. }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /api/roles:
+    get:
+      tags: [Roles]
+      summary: List roles
+      responses:
+        '200':
+          description: Role list.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [roles]
+                properties:
+                  roles:
+                    type: array
+                    items: { $ref: '#/components/schemas/Role' }
+    post:
+      tags: [Roles]
+      summary: Create role
+      requestBody: { $ref: '#/components/requestBodies/RoleInput' }
+      responses:
+        '201':
+          description: Created role.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [role]
+                properties:
+                  role: { $ref: '#/components/schemas/Role' }
+        '400': { $ref: '#/components/responses/Error' }
+  /api/roles/{roleId}:
+    parameters:
+      - $ref: '#/components/parameters/roleId'
+    patch:
+      tags: [Roles]
+      summary: Update role
+      requestBody: { $ref: '#/components/requestBodies/RoleInput' }
+      responses:
+        '200':
+          description: Updated role.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [role]
+                properties:
+                  role: { $ref: '#/components/schemas/Role' }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Roles]
+      summary: Delete role
+      responses:
+        '204': { description: Role deleted. }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /api/groups:
+    get:
+      tags: [Groups]
+      summary: List groups
+      responses:
+        '200':
+          description: Group list.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [groups]
+                properties:
+                  groups:
+                    type: array
+                    items: { $ref: '#/components/schemas/Group' }
+    post:
+      tags: [Groups]
+      summary: Create group
+      requestBody: { $ref: '#/components/requestBodies/GroupInput' }
+      responses:
+        '201':
+          description: Created group.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [group]
+                properties:
+                  group: { $ref: '#/components/schemas/Group' }
+        '400': { $ref: '#/components/responses/Error' }
+  /api/groups/{groupId}:
+    parameters:
+      - $ref: '#/components/parameters/groupId'
+    patch:
+      tags: [Groups]
+      summary: Update group
+      requestBody: { $ref: '#/components/requestBodies/GroupInput' }
+      responses:
+        '200':
+          description: Updated group.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [group]
+                properties:
+                  group: { $ref: '#/components/schemas/Group' }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Groups]
+      summary: Delete group
+      responses:
+        '204': { description: Group deleted. }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /api/users:
+    get:
+      tags: [Users]
+      summary: List users
+      responses:
+        '200':
+          description: User profile list.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [users]
+                properties:
+                  users:
+                    type: array
+                    items: { $ref: '#/components/schemas/AuthProfile' }
+    post:
+      tags: [Users]
+      summary: Create user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateUserInput' }
+      responses:
+        '201':
+          description: Created user profile.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthProfile' }
+        '400': { $ref: '#/components/responses/Error' }
+  /api/users/{userId}:
+    parameters:
+      - $ref: '#/components/parameters/userId'
+    patch:
+      tags: [Users]
+      summary: Update user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateUserInput' }
+      responses:
+        '200':
+          description: Updated user profile.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthProfile' }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Users]
+      summary: Delete user
+      responses:
+        '204': { description: User deleted. }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /api/instances:
+    get:
+      tags: [Instances]
+      summary: List accessible OxyGen instances
+      responses:
+        '200':
+          description: Instance list scoped to the signed-in user's access.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [instances]
+                properties:
+                  instances:
+                    type: array
+                    items: { $ref: '#/components/schemas/OxyGenInstance' }
+        '401': { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Instances]
+      summary: Enroll OxyGen instance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateInstanceInput' }
+      responses:
+        '201':
+          description: Created instance.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [instance]
+                properties:
+                  instance: { $ref: '#/components/schemas/OxyGenInstance' }
+        '400': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+  /api/instances/{instanceId}:
+    parameters:
+      - $ref: '#/components/parameters/instanceId'
+    patch:
+      tags: [Instances]
+      summary: Update enrolled OxyGen instance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateInstanceInput' }
+      responses:
+        '200':
+          description: Updated instance.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [instance]
+                properties:
+                  instance: { $ref: '#/components/schemas/OxyGenInstance' }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Instances]
+      summary: Delete enrolled OxyGen instance
+      responses:
+        '204': { description: Instance deleted. }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /api/instances/{instanceId}/test-connectivity:
+    parameters:
+      - $ref: '#/components/parameters/instanceId'
+    post:
+      tags: [Instances]
+      summary: Test instance connectivity
+      description: Current Phase 1 endpoint shape. Real DNS/HTTPS/SSL/auth checks are planned for the next connectivity milestone.
+      responses:
+        '200':
+          description: Connectivity result.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConnectivityResult' }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /api/grid-preferences/{gridKey}:
+    parameters:
+      - $ref: '#/components/parameters/gridKey'
+    get:
+      tags: [Grid Preferences]
+      summary: Get current user's preference for a managed grid
+      responses:
+        '200':
+          description: Grid preference or null.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [preference]
+                properties:
+                  preference:
+                    anyOf:
+                      - $ref: '#/components/schemas/GridPreference'
+                      - type: 'null'
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+    put:
+      tags: [Grid Preferences]
+      summary: Save current user's preference for a managed grid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GridPreferenceInput' }
+      responses:
+        '200':
+          description: Saved grid preference.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [preference]
+                properties:
+                  preference: { $ref: '#/components/schemas/GridPreference' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+  /api/app-settings/labels:
+    get:
+      tags: [Application Settings]
+      summary: Get configurable application display labels
+      responses:
+        '200':
+          description: Label settings.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [labels]
+                properties:
+                  labels: { $ref: '#/components/schemas/AppLabels' }
+        '401': { $ref: '#/components/responses/Error' }
+    put:
+      tags: [Application Settings]
+      summary: Save configurable application display labels
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AppLabels' }
+      responses:
+        '200':
+          description: Saved label settings.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [labels]
+                properties:
+                  labels: { $ref: '#/components/schemas/AppLabels' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque-session-token
+  parameters:
+    tenantId:
+      name: tenantId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    roleId:
+      name: roleId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    groupId:
+      name: groupId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    userId:
+      name: userId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    instanceId:
+      name: instanceId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    gridKey:
+      name: gridKey
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+        pattern: '^[a-zA-Z0-9_-]+$'
+  requestBodies:
+    TenantInput:
+      required: true
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/TenantInput' }
+    RoleInput:
+      required: true
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/RoleInput' }
+    GroupInput:
+      required: true
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/GroupInput' }
+  responses:
+    Error:
+      description: Error response.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+        details: {}
+    SetupStatus:
+      type: object
+      additionalProperties: true
+      description: Setup status payload returned by the setup status provider.
+      properties:
+        databaseConfigured: { type: boolean }
+        schemaCurrent: { type: boolean }
+        targetSchemaVersion: { type: string, example: '0.07' }
+        adminConfigured: { type: boolean }
+        ready: { type: boolean }
+    PublicDeploymentConfig:
+      type: object
+      additionalProperties: true
+      properties:
+        managedMysql: { type: boolean }
+        mysql:
+          type: object
+          additionalProperties: true
+    DatabaseSetupRequest:
+      type: object
+      required: [appPassword]
+      properties:
+        mode: { type: string, enum: [local-mysql, existing-mysql], default: local-mysql }
+        host: { type: string }
+        port: { type: integer, minimum: 1, default: 3306 }
+        database: { type: string, default: O2IAS_CMS }
+        adminUser: { type: string }
+        adminPassword: { type: string, writeOnly: true }
+        appUser: { type: string, default: oxygen_cms }
+        appPassword: { type: string, minLength: 12, writeOnly: true }
+    DatabaseProvisionResult:
+      type: object
+      required: [ok, mode, database, createdDatabase, createdUser, nextStep]
+      properties:
+        ok: { type: boolean, const: true }
+        mode: { type: string }
+        database: { type: string }
+        createdDatabase: { type: boolean }
+        createdUser: { type: boolean }
+        nextStep: { type: string, enum: [schema] }
+    DatabaseConnectionTestResult:
+      type: object
+      required: [ok, mode, database, message]
+      properties:
+        ok: { type: boolean }
+        mode: { type: string, enum: [local-mysql, existing-mysql] }
+        database: { type: string }
+        message: { type: string }
+        serverVersion: { type: [string, 'null'] }
+    BootstrapRequest:
+      type: object
+      required: [email, displayName, password]
+      properties:
+        email: { type: string, format: email }
+        displayName: { type: string, minLength: 1 }
+        password: { type: string, minLength: 12, writeOnly: true }
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 1, writeOnly: true }
+    TenantInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1 }
+        description: { type: [string, 'null'] }
+    RoleInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1 }
+        description: { type: [string, 'null'] }
+        tenantId: { type: [string, 'null'], format: uuid }
+    GroupInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1 }
+        description: { type: [string, 'null'] }
+        tenantId: { type: [string, 'null'], format: uuid }
+        instanceAccessMode: { $ref: '#/components/schemas/GroupInstanceAccessMode' }
+        instanceIds:
+          type: array
+          items: { type: string, format: uuid }
+          default: []
+    CreateUserInput:
+      type: object
+      required: [email, displayName, password, roleNames]
+      properties:
+        email: { type: string, format: email }
+        displayName: { type: string, minLength: 1 }
+        password: { type: string, minLength: 12, writeOnly: true }
+        roleNames:
+          type: array
+          minItems: 1
+          items: { type: string }
+        groupIds:
+          type: array
+          items: { type: string, format: uuid }
+          default: []
+        tenantId: { type: [string, 'null'], format: uuid }
+        instanceAccessMode: { $ref: '#/components/schemas/UserInstanceAccessMode' }
+        instanceIds:
+          type: array
+          items: { type: string, format: uuid }
+          default: []
+    UpdateUserInput:
+      allOf:
+        - $ref: '#/components/schemas/CreateUserInput'
+        - type: object
+          properties:
+            password: { type: string, minLength: 0, writeOnly: true, description: Blank or omitted means unchanged. }
+    CreateInstanceInput:
+      type: object
+      required: [name, username, password]
+      properties:
+        name: { type: string, minLength: 1 }
+        description: { type: [string, 'null'] }
+        tenantId: { type: [string, 'null'], format: uuid }
+        protocol: { $ref: '#/components/schemas/InstanceProtocol' }
+        host: { type: string, description: Hostname/domain without protocol, or normalized from hostname. }
+        port: { type: [integer, 'null'], minimum: 1, maximum: 65535 }
+        hostname: { type: string, description: Legacy/full hostname input; host or hostname is required. }
+        username: { type: string, default: admin }
+        password: { type: string, writeOnly: true }
+        pollingIntervalSeconds: { type: integer, minimum: 60, maximum: 86400, default: 300 }
+        isEnabled: { type: boolean, default: true }
+    UpdateInstanceInput:
+      allOf:
+        - $ref: '#/components/schemas/CreateInstanceInput'
+        - type: object
+          properties:
+            password: { type: string, writeOnly: true, description: Blank or omitted means unchanged. }
+    Tenant:
+      allOf:
+        - $ref: '#/components/schemas/TenantInput'
+        - $ref: '#/components/schemas/EntityTimestamps'
+        - type: object
+          required: [id, name, description, createdAt, updatedAt]
+          properties:
+            id: { type: string, format: uuid }
+            description: { type: [string, 'null'] }
+    Role:
+      allOf:
+        - $ref: '#/components/schemas/RoleInput'
+        - $ref: '#/components/schemas/EntityTimestamps'
+        - type: object
+          required: [id, name, description, tenantId, isSystem, createdAt, updatedAt]
+          properties:
+            id: { type: string, format: uuid }
+            tenantId: { type: [string, 'null'], format: uuid }
+            isSystem: { type: boolean }
+    Group:
+      allOf:
+        - $ref: '#/components/schemas/GroupInput'
+        - $ref: '#/components/schemas/EntityTimestamps'
+        - type: object
+          required: [id, name, description, tenantId, instanceAccessMode, instanceIds, createdAt, updatedAt]
+          properties:
+            id: { type: string, format: uuid }
+    PublicUser:
+      type: object
+      required: [id, email, displayName, tenantId, instanceAccessMode, instanceIds, isActive, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        displayName: { type: string }
+        tenantId: { type: [string, 'null'], format: uuid }
+        instanceAccessMode: { $ref: '#/components/schemas/UserInstanceAccessMode' }
+        instanceIds:
+          type: array
+          items: { type: string, format: uuid }
+        isActive: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    AuthProfile:
+      type: object
+      required: [user, roles, groups]
+      properties:
+        user: { $ref: '#/components/schemas/PublicUser' }
+        roles:
+          type: array
+          items: { type: string }
+        groups:
+          type: array
+          items:
+            type: object
+            required: [id, name, tenantId, instanceAccessMode, instanceIds]
+            properties:
+              id: { type: string, format: uuid }
+              name: { type: string }
+              tenantId: { type: [string, 'null'], format: uuid }
+              instanceAccessMode: { $ref: '#/components/schemas/GroupInstanceAccessMode' }
+              instanceIds:
+                type: array
+                items: { type: string, format: uuid }
+    OxyGenInstance:
+      type: object
+      required: [id, name, description, tenantId, protocol, host, port, hostname, baseUrl, launchUrl, apiBaseUrl, username, pollingIntervalSeconds, isEnabled, status, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: [string, 'null'] }
+        tenantId: { type: [string, 'null'], format: uuid }
+        protocol: { $ref: '#/components/schemas/InstanceProtocol' }
+        host: { type: string }
+        port: { type: [integer, 'null'] }
+        hostname: { type: string }
+        baseUrl: { type: string, format: uri }
+        launchUrl: { type: string, format: uri }
+        apiBaseUrl: { type: string, format: uri }
+        username: { type: string }
+        pollingIntervalSeconds: { type: integer }
+        isEnabled: { type: boolean }
+        status: { $ref: '#/components/schemas/InstanceStatus' }
+        sslValid: { type: [boolean, 'null'] }
+        sslExpiresAt: { type: [string, 'null'], format: date-time }
+        lastCheckedAt: { type: [string, 'null'], format: date-time }
+        lastSuccessAt: { type: [string, 'null'], format: date-time }
+        lastFailureAt: { type: [string, 'null'], format: date-time }
+        uptimePercent24h: { type: [number, 'null'] }
+        uptimePercent7d: { type: [number, 'null'] }
+        responseTimeMs: { type: [integer, 'null'] }
+        lastError: { type: [string, 'null'] }
+        processingStatus: { $ref: '#/components/schemas/ComponentStatus' }
+        emmQueueStatus: { $ref: '#/components/schemas/ComponentStatus' }
+        smsStatus: { $ref: '#/components/schemas/ComponentStatus' }
+        hangfireStatus: { $ref: '#/components/schemas/ComponentStatus' }
+        licenseKey: { type: [string, 'null'] }
+        licenseStatus: { $ref: '#/components/schemas/LicenseStatus' }
+        licenseJson: {}
+        settingsJson: {}
+        workflowSummaryJson: {}
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ConnectivityResult:
+      type: object
+      required: [ok, status, message, checkedAt]
+      properties:
+        ok: { type: boolean }
+        status: { type: string, enum: [not-tested, reachable, unreachable, auth-error, ssl-error] }
+        message: { type: string }
+        checkedAt: { type: string, format: date-time }
+    GridPreferenceInput:
+      type: object
+      required: [columns, sort, group, filter, filtersVisible]
+      properties:
+        columns:
+          type: array
+          items: { $ref: '#/components/schemas/GridColumnPreference' }
+        sort:
+          type: array
+          items: { $ref: '#/components/schemas/GridSortPreference' }
+        group:
+          type: array
+          items: { $ref: '#/components/schemas/GridGroupPreference' }
+        filter: {}
+        filtersVisible: { type: boolean }
+    GridPreference:
+      allOf:
+        - $ref: '#/components/schemas/GridPreferenceInput'
+        - type: object
+          required: [userId, gridKey, createdAt, updatedAt]
+          properties:
+            userId: { type: string, format: uuid }
+            gridKey: { type: string }
+            createdAt: { type: string, format: date-time }
+            updatedAt: { type: string, format: date-time }
+    GridColumnPreference:
+      type: object
+      required: [key, title, visible, order]
+      properties:
+        key: { type: string, maxLength: 128 }
+        title: { type: string, maxLength: 255 }
+        visible: { type: boolean }
+        order: { type: integer, minimum: 0 }
+        width:
+          oneOf:
+            - type: number
+            - type: string
+    GridSortPreference:
+      type: object
+      required: [field, dir]
+      properties:
+        field: { type: string, maxLength: 128 }
+        dir: { type: string, enum: [asc, desc] }
+    GridGroupPreference:
+      type: object
+      required: [field]
+      additionalProperties: true
+      properties:
+        field: { type: string, maxLength: 128 }
+    AppLabels:
+      type: object
+      required: [tenant]
+      properties:
+        tenant: { type: string, minLength: 1, maxLength: 64, example: Tenant }
+    EntityTimestamps:
+      type: object
+      required: [createdAt, updatedAt]
+      properties:
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    InstanceProtocol:
+      type: string
+      enum: [http, https]
+      default: https
+    InstanceStatus:
+      type: string
+      enum: [unknown, up, down, auth-error, ssl-error]
+    ComponentStatus:
+      type: string
+      enum: [unknown, ok, warning, error]
+    LicenseStatus:
+      type: string
+      enum: [unknown, valid, expired, warning, error]
+    GroupInstanceAccessMode:
+      type: string
+      enum: [none, all, specific]
+      default: none
+    UserInstanceAccessMode:
+      type: string
+      enum: [inherit, none, all, specific]
+      default: inherit

@@ -14,6 +14,13 @@ The GitHub Wiki is the documentation source of truth for this project.
 - [Database Architecture](https://github.com/O2-Intelligent-Automation-Solutions/oxygen_cms/wiki/Database-Architecture)
 - [Data Dictionary](https://github.com/O2-Intelligent-Automation-Solutions/oxygen_cms/wiki/Data-Dictionary)
 - [Schema DDL Scripts](https://github.com/O2-Intelligent-Automation-Solutions/oxygen_cms/wiki/Schema-DDL-Scripts)
+- [OpenAPI Spec](https://github.com/O2-Intelligent-Automation-Solutions/oxygen_cms/wiki/OpenAPI-Spec)
+
+Canonical OpenAPI file in this repository:
+
+```text
+docs/openapi.yaml
+```
 
 ## Development Validation
 
