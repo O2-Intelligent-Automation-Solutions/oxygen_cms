@@ -2,6 +2,10 @@ import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import Fastify, { type FastifyServerOptions } from 'fastify';
 import { basename, join } from 'node:path';
+import { createInMemoryAppSettingsRepository } from './appSettings/inMemoryAppSettingsRepository.js';
+import { createSetupAwareAppSettingsRepository } from './appSettings/mysqlAppSettingsRepository.js';
+import { registerAppSettingsRoutes } from './appSettings/registerAppSettingsRoutes.js';
+import type { AppSettingsRepository } from './appSettings/types.js';
 import { createInMemoryAuthRepository } from './auth/inMemoryAuthRepository.js';
 import { createSetupAwareAuthRepository } from './auth/mysqlAuthRepository.js';
 import { registerAuthRoutes } from './auth/registerAuthRoutes.js';
@@ -29,6 +33,7 @@ type BuildAppOptions = FastifyServerOptions & {
   deploymentConfig?: DeploymentConfig;
   instanceRepository?: InstanceRepository;
   gridPreferenceRepository?: GridPreferenceRepository;
+  appSettingsRepository?: AppSettingsRepository;
 };
 
 const defaultSettingsPath = basename(process.cwd()) === 'api'
@@ -41,6 +46,7 @@ const defaultDatabaseProvisioner = createMysqlDatabaseProvisioner();
 const defaultDeploymentConfig = createDefaultDeploymentConfig();
 const defaultInstanceRepository = createInMemoryInstanceRepository();
 const defaultGridPreferenceRepository = createInMemoryGridPreferenceRepository();
+const defaultAppSettingsRepository = createInMemoryAppSettingsRepository();
 
 export async function buildApp(options: BuildAppOptions = {}) {
   const {
@@ -50,11 +56,13 @@ export async function buildApp(options: BuildAppOptions = {}) {
     deploymentConfig = defaultDeploymentConfig,
     instanceRepository: providedInstanceRepository,
     gridPreferenceRepository: providedGridPreferenceRepository,
+    appSettingsRepository: providedAppSettingsRepository,
     ...fastifyOptions
   } = options;
   const authRepository = options.authRepository ?? createSetupAwareAuthRepository(setupSettingsStore, defaultFallbackAuthRepository);
   const instanceRepository = providedInstanceRepository ?? createSetupAwareInstanceRepository(setupSettingsStore, defaultInstanceRepository);
   const gridPreferenceRepository = providedGridPreferenceRepository ?? createSetupAwareGridPreferenceRepository(setupSettingsStore, defaultGridPreferenceRepository);
+  const appSettingsRepository = providedAppSettingsRepository ?? createSetupAwareAppSettingsRepository(setupSettingsStore, defaultAppSettingsRepository);
   const app = Fastify(fastifyOptions);
   const config = loadConfig();
 
@@ -75,6 +83,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await registerAuthRoutes(app, authRepository);
   await registerInstanceRoutes(app, authRepository, instanceRepository);
   await registerGridPreferenceRoutes(app, authRepository, gridPreferenceRepository);
+  await registerAppSettingsRoutes(app, authRepository, appSettingsRepository);
 
   return app;
 }

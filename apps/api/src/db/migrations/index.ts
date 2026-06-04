@@ -251,6 +251,15 @@ const gridPreferencesSchemaSql = `CREATE TABLE IF NOT EXISTS grid_preferences (
   CONSTRAINT fk_grid_preferences_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );`;
 
+const removePartnerRoleTerminologySql = `DELETE FROM roles WHERE name = 'PartnerAdmin' AND protected = 0;`;
+
+const appSettingsSchemaSql = `CREATE TABLE IF NOT EXISTS application_settings (
+  setting_key VARCHAR(128) NOT NULL PRIMARY KEY,
+  value_json JSON NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);`;
+
 export const schemaMigrations: SchemaMigration[] = [
   {
     version: '0.01',
@@ -281,5 +290,17 @@ export const schemaMigrations: SchemaMigration[] = [
     name: 'grid preferences schema',
     checksum: '7d6575f92431394ac17c17f34d67bc7e34b7fee3e737a5b103da44fe8e89aa8a',
     upSql: gridPreferencesSchemaSql
+  },
+  {
+    version: '0.06',
+    name: 'remove partner role terminology',
+    checksum: '84acd388199f9ef9cb2775ac29e270cc25d7dd921b9b594b7902ca1d0200ce2d',
+    upSql: removePartnerRoleTerminologySql
+  },
+  {
+    version: '0.07',
+    name: 'application settings schema',
+    checksum: '372a5e1d2eaf111c92b0076658f39563a7e8c92994bdae1fe0f0cc1da0b0cf83',
+    upSql: appSettingsSchemaSql
   }
 ];

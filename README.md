@@ -1,6 +1,6 @@
 # OxyGen Central Management Server (oxygen_cms)
 
-OxyGen Central Management Server (CMS) is an optional central monitoring and management server for multiple OxyGen BPM/IPaaS OPT Web Services deployments across a partner/customer base.
+OxyGen Central Management Server (CMS) is an optional central monitoring and management server for multiple OxyGen BPM/IPaaS OPT Web Services deployments across a tenant/customer base.
 
 Phase 1 is a lightweight standalone React/Node/MySQL web application focused on **read-only** central visibility, health monitoring, and management workflows for enrolled OxyGen deployments.
 

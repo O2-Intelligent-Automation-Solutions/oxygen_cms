@@ -1,5 +1,5 @@
 export const SYSTEM_ROLE_NAMES = ['SystemAdmin', 'TenantAdmin'] as const;
-export const DEFAULT_ROLE_NAMES = ['SystemAdmin', 'TenantAdmin', 'PartnerAdmin', 'Operator', 'Viewer'] as const;
+export const DEFAULT_ROLE_NAMES = ['SystemAdmin', 'TenantAdmin', 'Operator', 'Viewer'] as const;
 export type RoleName = string;
 
 export type TenantId = string | null;

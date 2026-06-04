@@ -201,7 +201,7 @@ describe('auth and RBAC API', () => {
       method: 'POST',
       url: '/api/tenants',
       headers: { authorization: `Bearer ${token}` },
-      payload: { name: 'Partner A', description: 'Primary partner' }
+      payload: { name: 'Tenant A', description: 'Primary tenant' }
     });
     expect(tenant.statusCode).toBe(201);
     const tenantId = tenant.json().tenant.id;
@@ -219,7 +219,7 @@ describe('auth and RBAC API', () => {
       method: 'POST',
       url: '/api/groups',
       headers: { authorization: `Bearer ${token}` },
-      payload: { name: 'Partner A Operators', description: 'Scoped group', tenantId }
+      payload: { name: 'Tenant A Operators', description: 'Scoped group', tenantId }
     });
     expect(group.statusCode).toBe(201);
     expect(group.json().group).toMatchObject({ tenantId });
@@ -239,13 +239,13 @@ describe('auth and RBAC API', () => {
     });
     expect(user.statusCode).toBe(201);
     expect(user.json().user).toMatchObject({ tenantId });
-    expect(user.json().groups).toEqual([{ id: group.json().group.id, name: 'Partner A Operators', tenantId, instanceAccessMode: 'none', instanceIds: [] }]);
+    expect(user.json().groups).toEqual([{ id: group.json().group.id, name: 'Tenant A Operators', tenantId, instanceAccessMode: 'none', instanceIds: [] }]);
 
     const secondTenant = await app.inject({
       method: 'POST',
       url: '/api/tenants',
       headers: { authorization: `Bearer ${token}` },
-      payload: { name: 'Partner B', description: null }
+      payload: { name: 'Tenant B', description: null }
     });
     const changedTenant = await app.inject({
       method: 'PATCH',

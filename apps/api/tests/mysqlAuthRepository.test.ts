@@ -17,15 +17,15 @@ describeMysql('MySQL auth repository', () => {
     });
 
     try {
-      await pool.query("DELETE FROM user_group_instance_access WHERE group_id IN (SELECT id FROM user_groups WHERE name = 'Partner A Operators')");
+      await pool.query("DELETE FROM user_group_instance_access WHERE group_id IN (SELECT id FROM user_groups WHERE name = 'Tenant A Operators')");
       await pool.query("DELETE FROM user_instance_access WHERE user_id IN (SELECT id FROM users WHERE email IN ('admin@example.com', 'operator@example.com'))");
       await pool.query("DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE email IN ('admin@example.com', 'operator@example.com'))");
       await pool.query("DELETE FROM user_group_assignments WHERE user_id IN (SELECT id FROM users WHERE email IN ('admin@example.com', 'operator@example.com'))");
       await pool.query("DELETE FROM user_role_assignments WHERE user_id IN (SELECT id FROM users WHERE email IN ('admin@example.com', 'operator@example.com'))");
       await pool.query("DELETE FROM users WHERE email IN ('admin@example.com', 'operator@example.com')");
-      await pool.query("DELETE FROM user_groups WHERE name = 'Partner A Operators'");
+      await pool.query("DELETE FROM user_groups WHERE name = 'Tenant A Operators'");
       await pool.query("DELETE FROM roles WHERE protected = 0 AND name = 'WorkflowReviewer'");
-      await pool.query("DELETE FROM tenants WHERE name = 'Partner A'");
+      await pool.query("DELETE FROM tenants WHERE name = 'Tenant A'");
 
       const firstRepository = createMysqlAuthRepository(pool);
       expect(await firstRepository.hasUsers()).toBe(false);
@@ -39,9 +39,9 @@ describeMysql('MySQL auth repository', () => {
       expect(admin.user.instanceAccessMode).toBe('all');
       expect(admin.roles).toEqual(['SystemAdmin']);
 
-      const tenant = await firstRepository.createTenant({ name: 'Partner A', description: 'Primary partner' });
+      const tenant = await firstRepository.createTenant({ name: 'Tenant A', description: 'Primary tenant' });
       const role = await firstRepository.createRole({ name: 'WorkflowReviewer', description: 'Review workflows', tenantId: tenant.id });
-      const group = await firstRepository.createGroup({ name: 'Partner A Operators', description: 'Scoped group', tenantId: tenant.id, instanceAccessMode: 'all' });
+      const group = await firstRepository.createGroup({ name: 'Tenant A Operators', description: 'Scoped group', tenantId: tenant.id, instanceAccessMode: 'all' });
       const user = await firstRepository.createUser({
         email: 'operator@example.com',
         displayName: 'Operator User',
@@ -64,7 +64,7 @@ describeMysql('MySQL auth repository', () => {
       });
       expect(await secondRepository.getProfileByToken(token)).toMatchObject({ user: { id: admin.user.id } });
       expect(await secondRepository.listTenants()).toEqual(expect.arrayContaining([
-        expect.objectContaining({ id: tenant.id, name: 'Partner A' })
+        expect.objectContaining({ id: tenant.id, name: 'Tenant A' })
       ]));
       expect(await secondRepository.listUsers()).toEqual(expect.arrayContaining([
         expect.objectContaining({ user: expect.objectContaining({ email: 'operator@example.com', instanceAccessMode: 'inherit', instanceIds: [] }), roles: ['WorkflowReviewer'] })

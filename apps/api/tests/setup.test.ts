@@ -21,7 +21,7 @@ const fakeDatabaseProvisioner: DatabaseProvisioner = {
     return { settings: input.settings, createdDatabase: false, createdUser: false };
   },
   async applySchema() {
-    return { targetSchemaVersion: '0.05', appliedVersions: ['0.03'] };
+    return { targetSchemaVersion: '0.07', appliedVersions: ['0.03'] };
   }
 };
 
@@ -52,7 +52,7 @@ describe('first-run database setup API', () => {
         connected: false,
         schemaCurrent: false,
         defaultDatabaseName: 'O2IAS_CMS',
-        targetSchemaVersion: '0.05'
+        targetSchemaVersion: '0.07'
       },
       admin: {
         exists: false
@@ -102,7 +102,7 @@ describe('first-run database setup API', () => {
 
     const adminStatus = await app.inject({ method: 'GET', url: '/api/setup/status' });
     const applySchemaBody = schema.json();
-    expect(applySchemaBody.targetSchemaVersion).toBe('0.05');
+    expect(applySchemaBody.targetSchemaVersion).toBe('0.07');
     expect(applySchemaBody.appliedVersions).toEqual(['0.03']);
 
     expect(adminStatus.json().nextStep).toBe('admin');
