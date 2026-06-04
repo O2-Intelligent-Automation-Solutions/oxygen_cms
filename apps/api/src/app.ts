@@ -17,6 +17,7 @@ import { createSetupAwareGridPreferenceRepository } from './gridPreferences/mysq
 import { registerGridPreferenceRoutes } from './gridPreferences/registerGridPreferenceRoutes.js';
 import type { GridPreferenceRepository } from './gridPreferences/types.js';
 import { createInMemoryInstanceRepository } from './instances/inMemoryInstanceRepository.js';
+import { createInstancePoller } from './instances/instancePoller.js';
 import { createSetupAwareInstanceRepository } from './instances/mysqlInstanceRepository.js';
 import { registerInstanceRoutes } from './instances/registerInstanceRoutes.js';
 import type { InstanceRepository } from './instances/types.js';
@@ -35,6 +36,8 @@ type BuildAppOptions = FastifyServerOptions & {
   instanceRepository?: InstanceRepository;
   gridPreferenceRepository?: GridPreferenceRepository;
   appSettingsRepository?: AppSettingsRepository;
+  enableBackgroundPolling?: boolean;
+  backgroundPollingTickMs?: number;
 };
 
 const defaultSettingsPath = basename(process.cwd()) === 'api'
@@ -58,6 +61,8 @@ export async function buildApp(options: BuildAppOptions = {}) {
     instanceRepository: providedInstanceRepository,
     gridPreferenceRepository: providedGridPreferenceRepository,
     appSettingsRepository: providedAppSettingsRepository,
+    enableBackgroundPolling,
+    backgroundPollingTickMs,
     ...fastifyOptions
   } = options;
   const authRepository = options.authRepository ?? createSetupAwareAuthRepository(setupSettingsStore, defaultFallbackAuthRepository);
@@ -86,6 +91,12 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await registerDashboardRoutes(app, authRepository, instanceRepository);
   await registerGridPreferenceRoutes(app, authRepository, gridPreferenceRepository);
   await registerAppSettingsRoutes(app, authRepository, appSettingsRepository);
+
+  if (enableBackgroundPolling ?? config.nodeEnv !== 'test') {
+    const instancePoller = createInstancePoller({ repository: instanceRepository, tickIntervalMs: backgroundPollingTickMs, logger: app.log });
+    instancePoller.start();
+    app.addHook('onClose', async () => { instancePoller.stop(); });
+  }
 
   return app;
 }

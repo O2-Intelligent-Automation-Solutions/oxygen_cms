@@ -53,6 +53,11 @@ function createFakeInstanceRepository(instances: OxyGenInstance[]): InstanceRepo
     async updateInstance() { throw new Error('not used'); },
     async deleteInstance() { throw new Error('not used'); },
     async getInstance(instanceId) { return instances.find((entry) => entry.id === instanceId) ?? null; },
+    async getHealthDetails(instanceId) {
+      const found = instances.find((entry) => entry.id === instanceId);
+      if (!found) throw new Error('Instance not found.');
+      return { instance: found, availability: [], latestConnectivity: null, licenseHistory: [] };
+    },
     async testConnectivity() { throw new Error('not used'); },
     async listInstances(scope) {
       if (scope?.includeAll) return instances;
