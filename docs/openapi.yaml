@@ -557,6 +557,22 @@ paths:
   /api/instances/{instanceId}:
     parameters:
       - $ref: '#/components/parameters/instanceId'
+    get:
+      tags: [Instances]
+      summary: Get enrolled OxyGen instance detail
+      description: Returns a single instance scoped to the signed-in user's effective instance access; used by the per-instance dashboard.
+      responses:
+        '200':
+          description: Scoped instance detail.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [instance]
+                properties:
+                  instance: { $ref: '#/components/schemas/OxyGenInstance' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
     patch:
       tags: [Instances]
       summary: Update enrolled OxyGen instance

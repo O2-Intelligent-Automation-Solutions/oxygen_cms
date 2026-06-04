@@ -62,6 +62,15 @@ export async function registerInstanceRoutes(app: FastifyInstance, authRepositor
     catch (error) { return errorReply(reply, error, 'Unable to create instance.'); }
   });
 
+  app.get('/api/instances/:instanceId', { preHandler: requireSignedIn }, async (request, reply) => {
+    const { instanceId } = request.params as { instanceId: string };
+    const profile = (request as AuthenticatedRequest).authProfile;
+    const instances = await instanceRepository.listInstances(instanceScope(profile));
+    const instance = instances.find((entry) => entry.id === instanceId);
+    if (!instance) return reply.code(404).send({ error: 'Instance not found.' });
+    return { instance };
+  });
+
   app.patch('/api/instances/:instanceId', { preHandler: adminPreHandler }, async (request, reply) => {
     const { instanceId } = request.params as { instanceId: string };
     const input = updateInstanceSchema.parse(request.body);

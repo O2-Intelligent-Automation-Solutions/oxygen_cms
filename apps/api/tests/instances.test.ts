@@ -161,6 +161,43 @@ describe('instance enrollment API', () => {
     await app.close();
   });
 
+
+  it('returns a scoped instance detail dashboard payload for an enrolled OxyGen instance', async () => {
+    const authRepository = createInMemoryAuthRepository();
+    const instanceRepository = createInMemoryInstanceRepository();
+    const app = await buildApp({ logger: false, authRepository, instanceRepository });
+    const { adminToken, operatorToken, tenant, groupA } = await bootstrap(app, authRepository);
+
+    const visible = await app.inject({ method: 'POST', url: '/api/instances', headers: { authorization: `Bearer ${adminToken}` }, payload: { name: 'Detail Visible', description: 'Detail dashboard target', tenantId: tenant.id, protocol: 'https', host: 'detail.example.com', port: 443, username: 'admin', password: 'RemotePassword!42', pollingIntervalSeconds: 300 } });
+    const hidden = await app.inject({ method: 'POST', url: '/api/instances', headers: { authorization: `Bearer ${adminToken}` }, payload: { name: 'Detail Hidden', description: null, tenantId: null, protocol: 'https', host: 'hidden-detail.example.com', username: 'admin', password: 'RemotePassword!42' } });
+    await authRepository.updateGroup(groupA.id, { name: groupA.name, description: groupA.description, tenantId: groupA.tenantId, instanceAccessMode: 'specific', instanceIds: [visible.json().instance.id] });
+
+    const adminDetail = await app.inject({ method: 'GET', url: `/api/instances/${visible.json().instance.id}`, headers: { authorization: `Bearer ${adminToken}` } });
+    expect(adminDetail.statusCode).toBe(200);
+    expect(adminDetail.json().instance).toMatchObject({
+      id: visible.json().instance.id,
+      name: 'Detail Visible',
+      description: 'Detail dashboard target',
+      tenantId: tenant.id,
+      baseUrl: 'https://detail.example.com:443',
+      launchUrl: 'https://detail.example.com:443/OPTWS/OxyGen.aspx',
+      status: 'unknown',
+      licenseStatus: 'unknown',
+      workflowSummaryJson: null
+    });
+    expect(adminDetail.json().instance.password).toBeUndefined();
+    expect(adminDetail.json().instance.passwordSecret).toBeUndefined();
+
+    const operatorVisible = await app.inject({ method: 'GET', url: `/api/instances/${visible.json().instance.id}`, headers: { authorization: `Bearer ${operatorToken}` } });
+    expect(operatorVisible.statusCode).toBe(200);
+    expect(operatorVisible.json().instance.name).toBe('Detail Visible');
+
+    const operatorHidden = await app.inject({ method: 'GET', url: `/api/instances/${hidden.json().instance.id}`, headers: { authorization: `Bearer ${operatorToken}` } });
+    expect(operatorHidden.statusCode).toBe(404);
+
+    await app.close();
+  });
+
   it('runs a real connectivity test from unsaved modal connection values without creating an instance', async () => {
     const authRepository = createInMemoryAuthRepository();
     const instanceRepository = createInMemoryInstanceRepository();

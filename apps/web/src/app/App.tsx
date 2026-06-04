@@ -21,7 +21,7 @@ type Group = { id: string; name: string; description: string | null; tenantId: T
 type Role = { id: string; name: string; description: string | null; tenantId: TenantId; isSystem: boolean };
 type Tenant = { id: string; name: string; description: string | null };
 type UserProfile = AuthProfile;
-type OxyGenInstance = { id: string; name: string; description: string | null; tenantId: TenantId; protocol: 'http' | 'https'; host: string; port: number | null; hostname: string; baseUrl: string; launchUrl: string; apiBaseUrl: string; username: string; pollingIntervalSeconds: number; isEnabled: boolean; status: string; sslValid: boolean | null; sslExpiresAt: string | null; lastCheckedAt: string | null; uptimePercent24h: number | null; processingStatus: string; emmQueueStatus: string; smsStatus: string; hangfireStatus: string; licenseKey: string | null; licenseStatus: string; lastError: string | null };
+type OxyGenInstance = { id: string; name: string; description: string | null; tenantId: TenantId; protocol: 'http' | 'https'; host: string; port: number | null; hostname: string; baseUrl: string; launchUrl: string; apiBaseUrl: string; username: string; pollingIntervalSeconds: number; isEnabled: boolean; status: string; sslValid: boolean | null; sslExpiresAt: string | null; lastCheckedAt: string | null; lastSuccessAt: string | null; lastFailureAt: string | null; uptimePercent24h: number | null; uptimePercent7d: number | null; responseTimeMs: number | null; processingStatus: string; emmQueueStatus: string; smsStatus: string; hangfireStatus: string; licenseKey: string | null; licenseStatus: string; licenseJson: unknown | null; settingsJson: unknown | null; workflowSummaryJson: unknown | null; lastError: string | null; createdAt: string; updatedAt: string };
 type BootstrapStatus = { requiresBootstrap: boolean };
 type SetupNextStep = 'database' | 'schema' | 'admin' | 'complete';
 type SetupStatus = { database: { configured: boolean; connected: boolean; schemaCurrent: boolean; defaultDatabaseName: string; targetSchemaVersion: string }; admin: { exists: boolean }; nextStep: SetupNextStep; requiresSetup: boolean };
@@ -30,7 +30,7 @@ type DeploymentStatus = { mode: 'self-contained' | 'custom'; managedMysql: boole
 type AppLabels = { tenant: string };
 type DatabaseMode = 'managed-mysql' | 'local-mysql' | 'existing-mysql';
 type DbWizardStep = 'mode' | 'connection' | 'credentials' | 'review';
-type NavSection = 'dashboard' | 'organizations' | 'instances' | 'users' | 'user-groups' | 'roles' | 'settings-general' | 'settings-advanced';
+type NavSection = 'dashboard' | 'organizations' | 'instances' | 'instance-dashboard' | 'users' | 'user-groups' | 'roles' | 'settings-general' | 'settings-advanced';
 type ModalKind = 'user' | 'group' | 'role' | 'tenant' | 'instance';
 type ModalEntity = UserProfile | Group | Role | Tenant | OxyGenInstance;
 type ModalState = { kind: ModalKind; data?: ModalEntity } | null;
@@ -149,6 +149,8 @@ export function App() {
   const [roles, setRoles] = useState<Role[]>([]);
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [instances, setInstances] = useState<OxyGenInstance[]>([]);
+  const [selectedInstanceId, setSelectedInstanceId] = useState('');
+  const [selectedInstanceDetail, setSelectedInstanceDetail] = useState<OxyGenInstance | null>(null);
   const [appLabels, setAppLabels] = useState<AppLabels>({ tenant: 'Tenant' });
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -174,6 +176,9 @@ export function App() {
   const instanceName = (instanceId: string) => instances.find((instance) => instance.id === instanceId)?.name || instanceId;
   const accessLabel = (mode: string, instanceIds: string[]) => mode === 'all' ? 'All instances' : mode === 'none' ? 'No instances' : mode === 'inherit' ? 'Inherited from groups' : `${instanceIds.length} specific instance${instanceIds.length === 1 ? '' : 's'}`;
   const launchUrlForInstance = (instance: OxyGenInstance) => `${instance.protocol}://${instance.host}:${instance.port ?? (instance.protocol === 'http' ? 80 : 443)}/optws/oxygen.aspx`;
+  const formatDateTime = (value: string | null) => value ? new Date(value).toLocaleString() : 'Not checked';
+  const formatNullable = (value: string | number | null | undefined, fallback = 'Unknown') => value === null || value === undefined || value === '' ? fallback : String(value);
+  const selectedInstance = selectedInstanceDetail || instances.find((instance) => instance.id === selectedInstanceId) || null;
   const InstanceAccessCheckboxes = ({ selected }: { selected: string[] }) => <div className="checkbox-group">{instances.length === 0 ? <span>No instances enrolled yet.</span> : instances.map((instance) => <label key={instance.id} className="checkbox-label"><input name="instanceIds" type="checkbox" value={instance.id} defaultChecked={selected.includes(instance.id)} /> {instance.name}</label>)}</div>;
 
   async function loadSetupStatus(active = true) {
@@ -218,6 +223,7 @@ export function App() {
     if (!t) return;
     const res = await api<{ instances: OxyGenInstance[] }>('/api/instances', { token: t });
     setInstances(res.instances);
+    setSelectedInstanceDetail((current) => current ? res.instances.find((instance) => instance.id === current.id) || current : current);
   }
 
   async function loadAppLabels(t = token) {
@@ -390,8 +396,24 @@ export function App() {
       setMessage(`${instance.name}: ${res.message} (${res.status}${typeof res.durationMs === 'number' ? `, ${res.durationMs} ms` : ''})`);
       const data = await api<{ instances: OxyGenInstance[] }>('/api/instances', { token });
       setInstances(data.instances);
+      const refreshed = data.instances.find((entry) => entry.id === instance.id) || null;
+      if (refreshed && selectedInstanceId === instance.id) setSelectedInstanceDetail(refreshed);
     }
     catch (err) { setError(err instanceof Error ? err.message : 'Connectivity test failed.'); }
+  }
+
+  async function openInstanceDashboard(instance: OxyGenInstance) {
+    clearStatus();
+    setSelectedInstanceId(instance.id);
+    setSelectedInstanceDetail(instance);
+    setActiveSection('instance-dashboard');
+    try {
+      const res = await api<{ instance: OxyGenInstance }>(`/api/instances/${instance.id}`, { token });
+      setSelectedInstanceDetail(res.instance);
+      setInstances((current) => current.map((entry) => entry.id === res.instance.id ? res.instance : entry));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to load instance dashboard.');
+    }
   }
 
   async function testInstanceFormConnectivity(form: HTMLFormElement | null) {
@@ -433,7 +455,7 @@ export function App() {
     try {
       await api<unknown>(path, { method: 'DELETE', token });
       setMessage(`Deleted ${label}.`);
-      if (kind === 'instance') await loadInstances();
+      if (kind === 'instance') { if (selectedInstanceId === id) { setSelectedInstanceId(''); setSelectedInstanceDetail(null); setActiveSection('instances'); } await loadInstances(); }
       else await refreshAdminData();
     } catch (err) { setError(err instanceof Error ? err.message : `Delete failed for ${label}.`); }
   }
@@ -449,7 +471,7 @@ export function App() {
   function openCreateInstanceModal() { setSelectedTenantId(''); setInstanceProtocol('https'); setInstancePort('443'); setInstancePollingEnabled(true); setModal({ kind: 'instance' }); }
   function openEditInstanceModal(instance: OxyGenInstance) { setSelectedTenantId(instance.tenantId || ''); setInstanceProtocol(instance.protocol); setInstancePort(String(instance.port ?? (instance.protocol === 'http' ? 80 : 443))); setInstancePollingEnabled(instance.isEnabled); setModal({ kind: 'instance', data: instance }); }
 
-  function handleLogout() { setToken(''); setProfile(null); setGroups([]); setUsers([]); setRoles([]); setTenants([]); setInstances([]); setActiveSection('dashboard'); setMessage('Signed out.'); }
+  function handleLogout() { setToken(''); setProfile(null); setGroups([]); setUsers([]); setRoles([]); setTenants([]); setInstances([]); setSelectedInstanceId(''); setSelectedInstanceDetail(null); setActiveSection('dashboard'); setMessage('Signed out.'); }
   function toggleAccordion(key: string) { setOpenAccordions((prev) => { const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next; }); }
 
   const labeledGroupColumnDefs = useMemo<ManagedGridColumn<GroupGridRow>[]>(() => groupColumnDefs.map((column) => column.key === 'tenant' ? { ...column, title: tenantLabel } : column), [tenantLabel]);
@@ -477,13 +499,14 @@ export function App() {
     return <td {...tdProps} className="k-command-cell"><Button className="btn-icon-info" onClick={() => openEditRoleModal(row.raw)} title="Edit" type="button" fillMode="flat"><Pencil /></Button><Button className="btn-icon-danger" onClick={() => deleteItem('role', row.raw.id, `role ${row.raw.name}`)} title="Delete" type="button" fillMode="flat"><Trash2 /></Button></td>;
   }
   const TenantActionCell = cell<TenantGridRow>((raw) => openEditTenantModal(raw as Tenant), (raw) => deleteItem('tenant', (raw as Tenant).id, `${tenantLabelLower} ${(raw as Tenant).name}`));
-  function InstanceActionCell({ dataItem, tdProps }: GridCustomCellProps) { const row = dataItem as InstanceGridRow; return <td {...tdProps} className="k-command-cell"><Button className="btn-icon-info" onClick={() => openEditInstanceModal(row.raw)} title="Edit" type="button" fillMode="flat"><Pencil /></Button><Button className="btn-icon-info" onClick={() => testInstanceConnectivity(row.raw)} title="Test connectivity" type="button" fillMode="flat"><RotateCw /></Button><Button className="btn-icon-info" onClick={() => window.open(launchUrlForInstance(row.raw), '_blank', 'noopener,noreferrer')} title="Launch OxyGen" type="button" fillMode="flat"><ExternalLink /></Button><Button className="btn-icon-danger" onClick={() => deleteItem('instance', row.raw.id, `instance ${row.raw.name}`)} title="Delete" type="button" fillMode="flat"><Trash2 /></Button></td>; }
+  function InstanceActionCell({ dataItem, tdProps }: GridCustomCellProps) { const row = dataItem as InstanceGridRow; return <td {...tdProps} className="k-command-cell"><Button className="btn-icon-info" onClick={() => openInstanceDashboard(row.raw)} title="Open dashboard" type="button" fillMode="flat"><LayoutDashboard /></Button><Button className="btn-icon-info" onClick={() => openEditInstanceModal(row.raw)} title="Edit" type="button" fillMode="flat"><Pencil /></Button><Button className="btn-icon-info" onClick={() => testInstanceConnectivity(row.raw)} title="Test connectivity" type="button" fillMode="flat"><RotateCw /></Button><Button className="btn-icon-info" onClick={() => window.open(launchUrlForInstance(row.raw), '_blank', 'noopener,noreferrer')} title="Launch OxyGen" type="button" fillMode="flat"><ExternalLink /></Button><Button className="btn-icon-danger" onClick={() => deleteItem('instance', row.raw.id, `instance ${row.raw.name}`)} title="Delete" type="button" fillMode="flat"><Trash2 /></Button></td>; }
 
   const sectionMeta = (() => {
     switch (activeSection) {
       case 'dashboard': return { eyebrow: 'Dashboard', heading: `Welcome, ${profile?.user.displayName || ''}` };
       case 'organizations': return { eyebrow: 'Organizations', heading: tenantLabelPlural };
       case 'instances': return { eyebrow: 'Organizations', heading: 'Instances' };
+      case 'instance-dashboard': return { eyebrow: 'Instance Dashboard', heading: selectedInstance?.name || 'Instance Detail' };
       case 'users': return { eyebrow: 'Security', heading: 'Users' };
       case 'user-groups': return { eyebrow: 'Security', heading: 'User Groups' };
       case 'roles': return { eyebrow: 'Security', heading: 'Roles' };
@@ -583,7 +606,9 @@ export function App() {
         <section className={`admin-content ${gridSection ? 'grid-section' : ''}`}><div className="page-header"><p className="eyebrow small">{sectionMeta.eyebrow}</p><h2>{sectionMeta.heading}</h2></div>
           {activeSection === 'dashboard' && <div className="dashboard-metrics"><div className="metric"><strong>{groups.length}</strong><span>User Groups</span></div><div className="metric"><strong>{users.length}</strong><span>Users</span></div><div className="metric"><strong>{roles.length}</strong><span>Roles</span></div><div className="metric"><strong>{tenants.length}</strong><span>{tenantLabelPlural}</span></div></div>}
           {activeSection === 'organizations' && isSystemAdmin && <ManagedGrid gridKey="tenants" token={token!} rows={tenantRows} columns={tenantColumnDefs} actionCell={TenantActionCell} toolbar={<Button className="btn-create" onClick={openCreateTenantModal} type="button" themeColor="primary"><Plus /> Create “{tenantLabel}”</Button>} />}
-          {activeSection === 'instances' && <ManagedGrid gridKey="instances" token={token!} rows={instanceRows} columns={labeledInstanceColumnDefs} actionCell={InstanceActionCell} actionWidth={144} toolbar={isSystemAdmin ? <Button className="btn-create" onClick={openCreateInstanceModal} type="button" themeColor="primary"><Plus /> Enroll Instance</Button> : null} />}
+          {activeSection === 'instances' && <ManagedGrid gridKey="instances" token={token!} rows={instanceRows} columns={labeledInstanceColumnDefs} actionCell={InstanceActionCell} actionWidth={180} toolbar={isSystemAdmin ? <Button className="btn-create" onClick={openCreateInstanceModal} type="button" themeColor="primary"><Plus /> Enroll Instance</Button> : null} />}
+          {activeSection === 'instance-dashboard' && selectedInstance && <div className="instance-detail-dashboard"><div className="instance-dashboard-actions"><Button className="compact-button" type="button" fillMode="flat" onClick={() => { setActiveSection('instances'); setSelectedInstanceId(''); setSelectedInstanceDetail(null); }}><ChevronLeft /> Back to Instances</Button>{isSystemAdmin && <Button className="compact-button" type="button" onClick={() => openEditInstanceModal(selectedInstance)}><Pencil /> Edit</Button>}{isSystemAdmin && <Button className="compact-button" type="button" onClick={() => testInstanceConnectivity(selectedInstance)}><RotateCw /> Test Connectivity</Button>}<Button className="compact-button" type="button" onClick={() => window.open(launchUrlForInstance(selectedInstance), '_blank', 'noopener,noreferrer')}><ExternalLink /> Launch OxyGen</Button></div><div className="instance-health-strip"><div className={`instance-health-card status-${selectedInstance.status}`}><span>Availability</span><strong>{selectedInstance.status}</strong><small>{formatDateTime(selectedInstance.lastCheckedAt)}</small></div><div className="instance-health-card"><span>SSL</span><strong>{selectedInstance.sslValid === null ? 'Unknown' : selectedInstance.sslValid ? 'Valid' : 'Invalid'}</strong><small>Expires {formatDateTime(selectedInstance.sslExpiresAt)}</small></div><div className="instance-health-card"><span>License</span><strong>{selectedInstance.licenseStatus}</strong><small>{formatNullable(selectedInstance.licenseKey, 'No license key collected')}</small></div><div className="instance-health-card"><span>Response</span><strong>{selectedInstance.responseTimeMs === null ? '—' : `${selectedInstance.responseTimeMs} ms`}</strong><small>Polling every {selectedInstance.pollingIntervalSeconds}s</small></div></div><div className="instance-detail-grid"><article className="panel instance-detail-card"><div className="panel-heading"><Server /><div><p className="eyebrow small">Endpoint</p><h3>Connection Details</h3></div></div><dl className="detail-list"><dt>{tenantLabel}</dt><dd>{tenantName(selectedInstance.tenantId)}</dd><dt>Host</dt><dd>{selectedInstance.host}</dd><dt>Port</dt><dd>{formatNullable(selectedInstance.port)}</dd><dt>Base URL</dt><dd>{selectedInstance.baseUrl}</dd><dt>API Base URL</dt><dd>{selectedInstance.apiBaseUrl}</dd><dt>Launch URL</dt><dd>{selectedInstance.launchUrl}</dd><dt>Username</dt><dd>{selectedInstance.username}</dd></dl></article><article className="panel instance-detail-card"><div className="panel-heading"><Activity /><div><p className="eyebrow small">Monitoring</p><h3>Health Status</h3></div></div><dl className="detail-list"><dt>Enabled</dt><dd>{selectedInstance.isEnabled ? 'Yes' : 'No'}</dd><dt>Last Success</dt><dd>{formatDateTime(selectedInstance.lastSuccessAt)}</dd><dt>Last Failure</dt><dd>{formatDateTime(selectedInstance.lastFailureAt)}</dd><dt>Uptime 24h</dt><dd>{selectedInstance.uptimePercent24h === null ? 'Unknown' : `${selectedInstance.uptimePercent24h}%`}</dd><dt>Uptime 7d</dt><dd>{selectedInstance.uptimePercent7d === null ? 'Unknown' : `${selectedInstance.uptimePercent7d}%`}</dd><dt>Last Error</dt><dd>{formatNullable(selectedInstance.lastError, 'None')}</dd></dl></article><article className="panel instance-detail-card"><div className="panel-heading"><Database /><div><p className="eyebrow small">OxyGen BPM</p><h3>Workflow & Components</h3></div></div><dl className="detail-list"><dt>Processing</dt><dd>{selectedInstance.processingStatus}</dd><dt>EMM Queue</dt><dd>{selectedInstance.emmQueueStatus}</dd><dt>SMS</dt><dd>{selectedInstance.smsStatus}</dd><dt>Hangfire</dt><dd>{selectedInstance.hangfireStatus}</dd><dt>Workflow Summary</dt><dd>{selectedInstance.workflowSummaryJson ? 'Collected' : 'Not collected yet'}</dd><dt>Global Settings</dt><dd>{selectedInstance.settingsJson ? 'Collected' : 'Not collected yet'}</dd></dl></article><article className="panel instance-detail-card"><div className="panel-heading"><ShieldCheck /><div><p className="eyebrow small">Record</p><h3>Metadata</h3></div></div><dl className="detail-list"><dt>Description</dt><dd>{formatNullable(selectedInstance.description, 'No description')}</dd><dt>Created</dt><dd>{formatDateTime(selectedInstance.createdAt)}</dd><dt>Updated</dt><dd>{formatDateTime(selectedInstance.updatedAt)}</dd><dt>Instance ID</dt><dd>{selectedInstance.id}</dd></dl></article></div></div>}
+          {activeSection === 'instance-dashboard' && !selectedInstance && <article className="panel"><p className="panel-copy">Select an instance from the grid to open its dashboard.</p><Button className="compact-button" type="button" onClick={() => setActiveSection('instances')}><ChevronLeft /> Back to Instances</Button></article>}
           {activeSection === 'user-groups' && isSystemAdmin && <ManagedGrid gridKey="user-groups" token={token!} rows={groupRows} columns={labeledGroupColumnDefs} actionCell={GroupActionCell} toolbar={<Button className="btn-create" onClick={openCreateGroupModal} type="button" themeColor="primary"><Plus /> Create &quot;Group&quot;</Button>} />}
           {activeSection === 'users' && isSystemAdmin && <ManagedGrid gridKey="users" token={token!} rows={userRows} columns={labeledUserColumnDefs} actionCell={UserActionCell} toolbar={<Button className="btn-create" onClick={openCreateUserModal} type="button" themeColor="primary"><Plus /> Create &quot;User&quot;</Button>} />}
           {activeSection === 'roles' && isSystemAdmin && <ManagedGrid gridKey="roles" token={token!} rows={roleRows} columns={labeledRoleColumnDefs} actionCell={RoleActionCell} toolbar={<Button className="btn-create" onClick={openCreateRoleModal} type="button" themeColor="primary"><Plus /> Create &quot;Role&quot;</Button>} />}
