@@ -3076,3 +3076,191 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
     font-size: 0.95rem;
   }
 }
+
+/* Dedicated mobile editor screen: mobile add/edit does not render a Dialog. */
+@media (max-width: 760px) {
+  .shell.app-shell:has(.mobile-editor-screen) {
+    display: block;
+    min-height: 100svh;
+    padding: 0;
+    overflow: hidden;
+    background:
+      radial-gradient(circle at 12% 0%, rgba(32, 214, 210, 0.18), transparent 18rem),
+      radial-gradient(circle at 90% 10%, rgba(29, 155, 215, 0.16), transparent 20rem),
+      linear-gradient(145deg, #06111f 0%, #0b2136 58%, #102b45 100%);
+  }
+
+  .shell.app-shell:has(.mobile-editor-screen) > .brand-bar,
+  .shell.app-shell:has(.mobile-editor-screen) > .mobile-app-bar,
+  .shell.app-shell:has(.mobile-editor-screen) > .mobile-bottom-bar,
+  .shell.app-shell:has(.mobile-editor-screen) > .mobile-drawer-backdrop,
+  .shell.app-shell:has(.mobile-editor-screen) > .admin-layout,
+  .shell.app-shell:has(.mobile-editor-screen) > .status {
+    display: none !important;
+  }
+
+  .mobile-editor-screen {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    width: 100%;
+    min-height: 100svh;
+    max-height: 100svh;
+    color: var(--brand-text);
+    background:
+      radial-gradient(circle at 12% 0%, rgba(32, 214, 210, 0.18), transparent 18rem),
+      radial-gradient(circle at 90% 10%, rgba(29, 155, 215, 0.16), transparent 20rem),
+      linear-gradient(145deg, #06111f 0%, #0b2136 58%, #102b45 100%);
+  }
+
+  .mobile-editor-screen-header {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr);
+    align-items: center;
+    gap: 12px;
+    min-height: 64px;
+    padding: max(12px, env(safe-area-inset-top)) 16px 12px;
+    border-bottom: 1px solid rgba(32, 214, 210, 0.24);
+    background: rgba(3, 12, 22, 0.98);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.26);
+  }
+
+  .mobile-editor-screen-header h2 {
+    min-width: 0;
+    margin: 0;
+    overflow: hidden;
+    color: #f6fbff;
+    font-family: var(--font-heading);
+    font-size: 1.08rem;
+    line-height: 1.15;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-editor-back {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+    padding: 0;
+    border: 1px solid rgba(125, 160, 188, 0.24);
+    border-radius: 16px;
+    background: rgba(8, 18, 35, 0.78);
+    color: var(--brand-text);
+    box-shadow: none;
+  }
+
+  .mobile-editor-back svg {
+    width: 22px;
+    height: 22px;
+  }
+
+  .mobile-editor-back:hover,
+  .mobile-editor-back:focus-visible {
+    border-color: rgba(32, 214, 210, 0.58);
+    background: rgba(32, 214, 210, 0.12);
+    color: var(--brand-primary);
+  }
+
+  .mobile-editor-screen-body {
+    min-height: 0;
+    overflow: hidden;
+    background: linear-gradient(180deg, rgba(6, 17, 31, 0.98) 0%, rgba(7, 20, 35, 0.99) 100%);
+  }
+
+  .mobile-editor-screen .modal-form {
+    height: 100%;
+    max-height: none;
+    overflow-y: auto;
+    display: grid;
+    align-content: start;
+    gap: 17px;
+    padding: 18px 16px calc(220px + env(safe-area-inset-bottom));
+    background: transparent;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(32, 214, 210, 0.62) rgba(3, 12, 22, 0.54);
+  }
+
+  .mobile-editor-screen .modal-form label {
+    gap: 8px;
+    font-size: 0.92rem;
+  }
+
+  .mobile-editor-screen .modal-form input,
+  .mobile-editor-screen .modal-form select,
+  .mobile-editor-screen .modal-form textarea {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    min-height: 52px;
+    border-radius: 16px;
+    font-size: 1rem;
+  }
+
+  .mobile-editor-screen .modal-form textarea {
+    min-height: 96px;
+  }
+
+  .mobile-editor-screen .form-section {
+    min-width: 0;
+    padding: 18px 14px 14px;
+    border-radius: 22px;
+    background: rgba(8, 18, 35, 0.52);
+  }
+
+  .mobile-editor-screen .form-section legend {
+    padding-inline: 8px;
+    font-size: 0.78rem;
+  }
+
+  .mobile-editor-screen .form-row,
+  .mobile-editor-screen .form-row.one,
+  .mobile-editor-screen .form-row.two,
+  .mobile-editor-screen .form-row.three,
+  .mobile-editor-screen .password-action-row,
+  .mobile-editor-screen .wizard-actions {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 14px;
+  }
+
+  .mobile-editor-screen .checkbox-label.inline-checkbox,
+  .mobile-editor-screen label.checkbox-label:not(.column-checkbox-label),
+  .mobile-editor-screen label:not(.column-checkbox-label):has(> input[type="checkbox"]) {
+    grid-template-columns: 18px minmax(0, 1fr) !important;
+    width: 100% !important;
+  }
+
+  .mobile-editor-screen .mobile-editor-actions {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 20;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+    margin: 0;
+    padding: 14px 16px max(16px, env(safe-area-inset-bottom));
+    border-top: 1px solid rgba(32, 214, 210, 0.20);
+    background: #030c16;
+    box-shadow: 0 -16px 34px rgba(0, 0, 0, 0.42);
+  }
+
+  .mobile-editor-screen .mobile-editor-actions .k-button,
+  .mobile-editor-screen .mobile-editor-actions button {
+    width: 100%;
+    min-height: 48px;
+    justify-content: center;
+    border-radius: 16px;
+  }
+
+  .mobile-editor-screen .k-dialog-actions,
+  .mobile-editor-screen .k-window-actions {
+    display: none !important;
+  }
+}
