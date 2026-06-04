@@ -572,7 +572,7 @@ paths:
     post:
       tags: [Instances]
       summary: Test instance connectivity
-      description: Current Phase 1 endpoint shape. Real DNS/HTTPS/SSL/auth checks are planned for the next connectivity milestone.
+      description: "Runs a live, CMS-initiated Phase 1 connectivity test: DNS resolution, HTTPS certificate inspection when applicable, OxyGen form authentication, and a read-only current-time API probe. Updates instance status and appends connectivity history when using the MySQL repository."
       responses:
         '200':
           description: Connectivity result.
@@ -964,14 +964,31 @@ components:
         workflowSummaryJson: {}
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
-    ConnectivityResult:
+    ConnectivityStepResult:
       type: object
-      required: [ok, status, message, checkedAt]
+      required: [ok]
       properties:
         ok: { type: boolean }
-        status: { type: string, enum: [not-tested, reachable, unreachable, auth-error, ssl-error] }
+        skipped: { type: boolean }
+        message: { type: string }
+        httpStatusCode: { type: integer, nullable: true }
+        errorCode: { type: string, nullable: true }
+        valid: { type: boolean, nullable: true }
+        expiresAt: { type: string, format: date-time, nullable: true }
+    ConnectivityResult:
+      type: object
+      required: [ok, status, message, checkedAt, durationMs, httpStatusCode, dns, ssl, authentication, api]
+      properties:
+        ok: { type: boolean }
+        status: { type: string, enum: [reachable, unreachable, auth-error, ssl-error] }
         message: { type: string }
         checkedAt: { type: string, format: date-time }
+        durationMs: { type: integer, minimum: 0 }
+        httpStatusCode: { type: integer, nullable: true }
+        dns: { $ref: '#/components/schemas/ConnectivityStepResult' }
+        ssl: { $ref: '#/components/schemas/ConnectivityStepResult' }
+        authentication: { $ref: '#/components/schemas/ConnectivityStepResult' }
+        api: { $ref: '#/components/schemas/ConnectivityStepResult' }
     GridPreferenceInput:
       type: object
       required: [columns, sort, group, filter, filtersVisible]

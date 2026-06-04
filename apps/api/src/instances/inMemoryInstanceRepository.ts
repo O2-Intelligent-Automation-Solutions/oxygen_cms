@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { testOxyGenConnectivity } from './oxygenConnectivity.js';
 import type { CreateInstanceInput, InstanceProtocol, InstanceRepository, OxyGenInstance, UpdateInstanceInput } from './types.js';
 
 function nowIso() {
@@ -146,13 +147,19 @@ export function createInMemoryInstanceRepository(): InstanceRepository {
       return instance ? publicInstance(instance) : null;
     },
     async testConnectivity(instanceId: string) {
-      if (!instances.has(instanceId)) throw new Error('Instance not found.');
-      return {
-        ok: true,
-        status: 'not-tested',
-        message: 'Connectivity test scaffold is ready; live OxyGen checks will be wired in the monitoring slice.',
-        checkedAt: nowIso()
-      };
+      const instance = instances.get(instanceId);
+      if (!instance) throw new Error('Instance not found.');
+      const result = await testOxyGenConnectivity({ instance, password: instance.passwordSecret });
+      instance.status = result.ok ? 'up' : result.status === 'auth-error' ? 'auth-error' : result.status === 'ssl-error' ? 'ssl-error' : 'down';
+      instance.lastCheckedAt = result.checkedAt;
+      instance.responseTimeMs = result.durationMs;
+      instance.sslValid = result.ssl.valid ?? null;
+      instance.sslExpiresAt = result.ssl.expiresAt ?? null;
+      instance.lastError = result.ok ? null : result.message;
+      if (result.ok) instance.lastSuccessAt = result.checkedAt;
+      else instance.lastFailureAt = result.checkedAt;
+      instance.updatedAt = nowIso();
+      return result;
     }
   };
 }

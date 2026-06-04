@@ -385,7 +385,12 @@ export function App() {
 
   async function testInstanceConnectivity(instance: OxyGenInstance) {
     clearStatus();
-    try { const res = await api<{ ok: boolean; status: string; message: string }>(`/api/instances/${instance.id}/test-connectivity`, { method: 'POST', token }); setMessage(`${instance.name}: ${res.message}`); }
+    try {
+      const res = await api<{ ok: boolean; status: string; message: string; durationMs?: number }>(`/api/instances/${instance.id}/test-connectivity`, { method: 'POST', token });
+      setMessage(`${instance.name}: ${res.message} (${res.status}${typeof res.durationMs === 'number' ? `, ${res.durationMs} ms` : ''})`);
+      const data = await api<{ instances: OxyGenInstance[] }>('/api/instances', { token });
+      setInstances(data.instances);
+    }
     catch (err) { setError(err instanceof Error ? err.message : 'Connectivity test failed.'); }
   }
 

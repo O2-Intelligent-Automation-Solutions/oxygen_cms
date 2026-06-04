@@ -4,6 +4,7 @@ import { createPool } from 'mysql2/promise';
 import type { DatabaseSettings, SetupSettingsStore } from '../setup/fileSetupSettingsStore.js';
 import { createCredentialCipherFromEnvironment, type CredentialCipher } from './credentialEncryption.js';
 import { normalizeOxyGenEndpoint } from './inMemoryInstanceRepository.js';
+import { testOxyGenConnectivity } from './oxygenConnectivity.js';
 import type { ConnectivityResult, CreateInstanceInput, InstanceProtocol, InstanceRepository, InstanceStatus, OxyGenInstance, UpdateInstanceInput } from './types.js';
 
 function nowIso() {
@@ -160,6 +161,10 @@ export function createMysqlInstanceRepository(pool: Pool, credentialCipher?: Cre
   function encryptCredential(plaintext: string) {
     return (credentialCipher ?? createCredentialCipherFromEnvironment()).encrypt(plaintext);
   }
+
+  function decryptCredential(secret: string) {
+    return (credentialCipher ?? createCredentialCipherFromEnvironment()).decrypt(secret);
+  }
   async function one<T extends RowDataPacket>(sql: string, params: unknown[] = []): Promise<T | null> {
     const [rows] = await pool.execute<T[]>(sql, params as never[]);
     return rows[0] ?? null;
@@ -173,6 +178,53 @@ export function createMysqlInstanceRepository(pool: Pool, credentialCipher?: Cre
   async function findInstanceById(instanceId: string) {
     const row = await one<InstanceRow>(`${instanceSelectSql} WHERE i.id = ? LIMIT 1`, [instanceId]);
     return row ? mapInstance(row) : null;
+  }
+
+  function availabilityFromConnectivity(result: ConnectivityResult): InstanceStatus {
+    if (result.ok) return 'up';
+    if (result.status === 'auth-error') return 'auth-error';
+    if (result.status === 'ssl-error') return 'ssl-error';
+    return 'down';
+  }
+
+  async function persistConnectivityResult(instanceId: string, result: ConnectivityResult) {
+    const availability = availabilityFromConnectivity(result);
+    const lastSuccessAt = result.ok ? result.checkedAt : null;
+    const lastFailureAt = result.ok ? null : result.checkedAt;
+    await pool.execute(
+      `UPDATE oxygen_instance_status
+       SET availability_status = ?, ssl_valid = ?, ssl_expires_at = ?, last_checked_at = ?,
+           last_success_at = COALESCE(?, last_success_at), last_failure_at = COALESCE(?, last_failure_at),
+           response_time_ms = ?, last_error = ?
+       WHERE instance_id = ?`,
+      [
+        availability,
+        result.ssl.valid ?? null,
+        result.ssl.expiresAt ? new Date(result.ssl.expiresAt) : null,
+        new Date(result.checkedAt),
+        lastSuccessAt ? new Date(lastSuccessAt) : null,
+        lastFailureAt ? new Date(lastFailureAt) : null,
+        result.durationMs,
+        result.ok ? null : result.message,
+        instanceId
+      ]
+    );
+    await pool.execute(
+      `INSERT INTO oxygen_instance_check_history
+       (instance_id, check_type, status, started_at, finished_at, duration_ms, http_status_code, error_code, error_message, details_json)
+       VALUES (?, 'connectivity', ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        instanceId,
+        availability,
+        new Date(Math.max(0, new Date(result.checkedAt).getTime() - result.durationMs)),
+        new Date(result.checkedAt),
+        result.durationMs,
+        result.httpStatusCode,
+        result.ok ? null : (result.authentication.errorCode ?? result.api.errorCode ?? result.ssl.errorCode ?? result.dns.errorCode ?? 'CONNECTIVITY_ERROR'),
+        result.ok ? null : result.message,
+        JSON.stringify({ dns: result.dns, ssl: result.ssl, authentication: result.authentication, api: result.api })
+      ]
+    );
   }
 
   async function assertTenantExists(tenantId: string | null | undefined) {
@@ -280,13 +332,12 @@ export function createMysqlInstanceRepository(pool: Pool, credentialCipher?: Cre
     getInstance: findInstanceById,
 
     async testConnectivity(instanceId: string): Promise<ConnectivityResult> {
-      if (!(await findInstanceById(instanceId))) throw new Error('Instance not found.');
-      return {
-        ok: true,
-        status: 'not-tested',
-        message: 'Connectivity test scaffold is ready; live OxyGen checks will be wired in the monitoring slice.',
-        checkedAt: nowIso()
-      };
+      const row = await one<InstanceRow>(`${instanceSelectSql} WHERE i.id = ? LIMIT 1`, [instanceId]);
+      if (!row) throw new Error('Instance not found.');
+      const instance = mapInstance(row);
+      const result = await testOxyGenConnectivity({ instance, password: decryptCredential(row.password_secret) });
+      await persistConnectivityResult(instanceId, result);
+      return result;
     }
   };
 }

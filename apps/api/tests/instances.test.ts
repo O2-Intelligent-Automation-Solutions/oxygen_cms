@@ -1,7 +1,54 @@
-import { describe, expect, it } from 'vitest';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { AddressInfo } from 'node:net';
+import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { createInMemoryAuthRepository } from '../src/auth/inMemoryAuthRepository.js';
 import { createInMemoryInstanceRepository } from '../src/instances/inMemoryInstanceRepository.js';
+
+const mockOxyGenServers: Array<ReturnType<typeof createServer>> = [];
+
+function readRequestBody(request: IncomingMessage) {
+  return new Promise<string>((resolve, reject) => {
+    let body = '';
+    request.setEncoding('utf8');
+    request.on('data', (chunk) => { body += chunk; });
+    request.on('end', () => resolve(body));
+    request.on('error', reject);
+  });
+}
+
+async function startMockOxyGenServer(password: string) {
+  const server = createServer(async (request: IncomingMessage, response: ServerResponse) => {
+    if (request.method === 'POST' && request.url === '/v2/Auth/Login') {
+      const body = await readRequestBody(request);
+      const form = new URLSearchParams(body);
+      if (form.get('Username') === 'admin' && form.get('Password') === password) {
+        response.statusCode = 200;
+        response.setHeader('set-cookie', 'ASP.NET_SessionId=mock-session; Path=/; HttpOnly');
+        response.end('OK');
+        return;
+      }
+      response.statusCode = 401;
+      response.end('Unauthorized');
+      return;
+    }
+    if (request.method === 'GET' && request.url === '/web-api/global/settings/currenttime' && request.headers.cookie?.includes('ASP.NET_SessionId=mock-session')) {
+      response.statusCode = 200;
+      response.setHeader('content-type', 'application/json');
+      response.end(JSON.stringify({ currentTime: '2026-06-04T00:00:00Z' }));
+      return;
+    }
+    response.statusCode = 404;
+    response.end('Not found');
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  mockOxyGenServers.push(server);
+  return (server.address() as AddressInfo).port;
+}
+
+afterEach(async () => {
+  await Promise.all(mockOxyGenServers.splice(0).map((server) => new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))));
+});
 
 async function bootstrap(app: Awaited<ReturnType<typeof buildApp>>, authRepository: ReturnType<typeof createInMemoryAuthRepository>) {
   await app.inject({ method: 'POST', url: '/api/auth/bootstrap', payload: { email: 'admin@example.com', displayName: 'Admin User', password: 'AdminPassword!42' } });
@@ -108,12 +155,45 @@ describe('instance enrollment API', () => {
     expect(updated.json().instance).toMatchObject({ name: 'Acme Prod', description: 'Updated deployment', tenantId: tenant.id, protocol: 'https', host: 'acme.example.com', port: 443, baseUrl: 'https://acme.example.com:443', launchUrl: 'https://acme.example.com:443/OPTWS/OxyGen.aspx', username: 'svc', isEnabled: false });
     expect(updated.json().instance.groupId).toBeUndefined();
 
-    const connectivity = await app.inject({ method: 'POST', url: `/api/instances/${created.json().instance.id}/test-connectivity`, headers: { authorization: `Bearer ${adminToken}` } });
-    expect(connectivity.statusCode).toBe(200);
-    expect(connectivity.json()).toMatchObject({ ok: true, status: 'not-tested', message: 'Connectivity test scaffold is ready; live OxyGen checks will be wired in the monitoring slice.' });
-
     const deleted = await app.inject({ method: 'DELETE', url: `/api/instances/${created.json().instance.id}`, headers: { authorization: `Bearer ${adminToken}` } });
     expect(deleted.statusCode).toBe(204);
+
+    await app.close();
+  });
+
+  it('runs a real on-demand connectivity test against an enrolled OxyGen endpoint', async () => {
+    const authRepository = createInMemoryAuthRepository();
+    const instanceRepository = createInMemoryInstanceRepository();
+    const app = await buildApp({ logger: false, authRepository, instanceRepository });
+    const { adminToken } = await bootstrap(app, authRepository);
+    const port = await startMockOxyGenServer('RemotePassword!42');
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/instances',
+      headers: { authorization: `Bearer ${adminToken}` },
+      payload: { name: 'Local Mock OxyGen', description: null, tenantId: null, protocol: 'http', host: '127.0.0.1', port, username: 'admin', password: 'RemotePassword!42' }
+    });
+    expect(created.statusCode).toBe(201);
+
+    const connectivity = await app.inject({ method: 'POST', url: `/api/instances/${created.json().instance.id}/test-connectivity`, headers: { authorization: `Bearer ${adminToken}` } });
+    expect(connectivity.statusCode).toBe(200);
+    expect(connectivity.json()).toMatchObject({
+      ok: true,
+      status: 'reachable',
+      message: 'Connectivity test passed.',
+      dns: { ok: true },
+      ssl: { ok: true, skipped: true, valid: null },
+      authentication: { ok: true, httpStatusCode: 200 },
+      api: { ok: true, httpStatusCode: 200 }
+    });
+    expect(connectivity.json().durationMs).toBeGreaterThanOrEqual(0);
+    expect(connectivity.json().password).toBeUndefined();
+    expect(connectivity.json().passwordSecret).toBeUndefined();
+
+    const listed = await app.inject({ method: 'GET', url: '/api/instances', headers: { authorization: `Bearer ${adminToken}` } });
+    expect(listed.json().instances[0]).toMatchObject({ status: 'up', lastError: null });
+    expect(listed.json().instances[0].lastCheckedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
 
     await app.close();
   });

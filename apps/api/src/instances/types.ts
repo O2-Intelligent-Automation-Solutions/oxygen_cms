@@ -69,11 +69,27 @@ export type UpdateInstanceInput = {
   isEnabled?: boolean;
 };
 
+export type ConnectivityStepResult = {
+  ok: boolean;
+  skipped?: boolean;
+  message?: string;
+  httpStatusCode?: number;
+  errorCode?: string;
+  valid?: boolean | null;
+  expiresAt?: string | null;
+};
+
 export type ConnectivityResult = {
   ok: boolean;
-  status: 'not-tested' | 'reachable' | 'unreachable' | 'auth-error' | 'ssl-error';
+  status: 'reachable' | 'unreachable' | 'auth-error' | 'ssl-error';
   message: string;
   checkedAt: string;
+  durationMs: number;
+  httpStatusCode: number | null;
+  dns: ConnectivityStepResult;
+  ssl: ConnectivityStepResult;
+  authentication: ConnectivityStepResult;
+  api: ConnectivityStepResult;
 };
 
 export interface InstanceRepository {
