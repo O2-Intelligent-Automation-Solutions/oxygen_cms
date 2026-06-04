@@ -1,15 +1,15 @@
 openapi: 3.1.0
 info:
   title: OxyGen CMS API
-  version: 0.7.0
+  version: 0.8.0
   summary: OxyGen Central Management Server API
   description: |
     API contract for OxyGen Central Management Server Phase 1.
 
-    Current CMS schema version: 0.07.
+    Current CMS schema version: 0.08.
 
     Phase 1 APIs cover first-run setup, local authentication/RBAC, tenant/user/group/role administration,
-    manual OxyGen instance enrollment, grid preferences, and application labels.
+    manual OxyGen instance enrollment, dashboard background poller status/controls, application logs, grid preferences, and application settings.
 servers:
   - url: http://localhost:3000
     description: Local API development server
@@ -30,6 +30,8 @@ tags:
   - name: Users
   - name: Instances
   - name: Dashboard
+  - name: System
+  - name: Application Logs
   - name: Grid Preferences
   - name: Application Settings
 paths:
@@ -179,7 +181,7 @@ paths:
                 properties:
                   ok: { type: boolean, const: true }
                   database: { type: string }
-                  targetSchemaVersion: { type: string, example: '0.07' }
+                  targetSchemaVersion: { type: string, example: '0.08' }
                   appliedVersions:
                     type: array
                     items: { type: string }
@@ -616,6 +618,113 @@ paths:
               schema: { $ref: '#/components/schemas/ConnectivityResult' }
         '400': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
+  /api/system/poller:
+    get:
+      tags: [System]
+      summary: Get background polling runner status
+      description: Returns the shared background polling runner state used by the dashboard Service card.
+      responses:
+        '200':
+          description: Poller status.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [poller]
+                properties:
+                  poller: { $ref: '#/components/schemas/InstancePollerStatus' }
+        '401': { $ref: '#/components/responses/Error' }
+  /api/system/poller/pause:
+    post:
+      tags: [System]
+      summary: Pause the background polling runner
+      description: SystemAdmin only. Pauses scheduled checks without stopping the API process.
+      responses:
+        '200':
+          description: Poller paused.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [poller]
+                properties:
+                  poller: { $ref: '#/components/schemas/InstancePollerStatus' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+  /api/system/poller/resume:
+    post:
+      tags: [System]
+      summary: Resume the background polling runner
+      description: SystemAdmin only. Resumes scheduled checks and recalculates next run time.
+      responses:
+        '200':
+          description: Poller resumed.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [poller]
+                properties:
+                  poller: { $ref: '#/components/schemas/InstancePollerStatus' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+  /api/system/poller/run-now:
+    post:
+      tags: [System]
+      summary: Execute the background polling runner immediately
+      description: SystemAdmin only. Forces an operator-initiated polling pass immediately, bypassing normal per-instance polling interval due checks while preserving in-flight instance protection.
+      responses:
+        '200':
+          description: Poller run completed.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [poller, summary]
+                properties:
+                  poller: { $ref: '#/components/schemas/InstancePollerStatus' }
+                  summary:
+                    oneOf:
+                      - $ref: '#/components/schemas/InstancePollerSummary'
+                      - type: 'null'
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+  /api/logs:
+    get:
+      tags: [Application Logs]
+      summary: List persisted CMS application logs
+      description: Returns database-backed Audit, Service, CRUD, Connection, Security, and UI log entries, newest first.
+      parameters:
+        - in: query
+          name: type
+          schema: { $ref: '#/components/schemas/AppLogType' }
+        - in: query
+          name: severity
+          schema: { $ref: '#/components/schemas/AppLogSeverity' }
+        - in: query
+          name: userName
+          schema: { type: string }
+          description: Exact user/source filter used by the Settings → Logs UI.
+        - in: query
+          name: source
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+      responses:
+        '200':
+          description: Log list.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [logs, total]
+                properties:
+                  logs:
+                    type: array
+                    items: { $ref: '#/components/schemas/AppLogEntry' }
+                  total: { type: integer, minimum: 0 }
+        '401': { $ref: '#/components/responses/Error' }
   /api/grid-preferences/{gridKey}:
     parameters:
       - $ref: '#/components/parameters/gridKey'
@@ -690,6 +799,41 @@ paths:
                 required: [labels]
                 properties:
                   labels: { $ref: '#/components/schemas/AppLabels' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+  /api/app-settings/log-retention:
+    get:
+      tags: [Application Settings]
+      summary: Get application log retention setting
+      responses:
+        '200':
+          description: Log retention setting.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [logRetention]
+                properties:
+                  logRetention: { $ref: '#/components/schemas/LogRetentionSettings' }
+        '401': { $ref: '#/components/responses/Error' }
+    put:
+      tags: [Application Settings]
+      summary: Save application log retention setting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LogRetentionSettings' }
+      responses:
+        '200':
+          description: Saved log retention setting.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [logRetention]
+                properties:
+                  logRetention: { $ref: '#/components/schemas/LogRetentionSettings' }
         '400': { $ref: '#/components/responses/Error' }
         '401': { $ref: '#/components/responses/Error' }
 components:
@@ -769,7 +913,7 @@ components:
       properties:
         databaseConfigured: { type: boolean }
         schemaCurrent: { type: boolean }
-        targetSchemaVersion: { type: string, example: '0.07' }
+        targetSchemaVersion: { type: string, example: '0.08' }
         adminConfigured: { type: boolean }
         ready: { type: boolean }
     PublicDeploymentConfig:
@@ -972,12 +1116,16 @@ components:
                 items: { type: string, format: uuid }
     DashboardSummary:
       type: object
-      required: [scope, tenant, counts, instances]
+      required: [scope, tenant, poller, counts, instances]
       properties:
         scope: { type: string, enum: [tenant, global] }
         tenant:
           oneOf:
             - $ref: '#/components/schemas/Tenant'
+            - type: 'null'
+        poller:
+          oneOf:
+            - $ref: '#/components/schemas/InstancePollerStatus'
             - type: 'null'
         counts:
           type: object
@@ -1099,6 +1247,52 @@ components:
         authentication: { $ref: '#/components/schemas/ConnectivityStepResult' }
         api: { $ref: '#/components/schemas/ConnectivityStepResult' }
         license: { $ref: '#/components/schemas/LicenseProbeResult' }
+    InstancePollerSummary:
+      type: object
+      required: [checked, skipped, failed]
+      properties:
+        checked: { type: integer, minimum: 0 }
+        skipped: { type: integer, minimum: 0 }
+        failed: { type: integer, minimum: 0 }
+    InstancePollerStatus:
+      type: object
+      required: [state, isRunning, isPaused, tickIntervalMs, inFlight, lastRunAt, nextRunAt, lastSummary, lastError]
+      properties:
+        state: { type: string, enum: [running, paused, stopped] }
+        isRunning: { type: boolean }
+        isPaused: { type: boolean }
+        tickIntervalMs: { type: integer, minimum: 1 }
+        inFlight: { type: integer, minimum: 0 }
+        lastRunAt: { type: [string, 'null'], format: date-time }
+        nextRunAt: { type: [string, 'null'], format: date-time }
+        lastSummary:
+          oneOf:
+            - $ref: '#/components/schemas/InstancePollerSummary'
+            - type: 'null'
+        lastError: { type: [string, 'null'] }
+    AppLogType:
+      type: string
+      enum: [Audit, Service, CRUD, Connection, Security, UI]
+    AppLogSeverity:
+      type: string
+      enum: [Critical, Error, Warning, Logging, Verbose]
+    AppLogEntry:
+      type: object
+      required: [id, type, severity, source, userName, message, details, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        type: { $ref: '#/components/schemas/AppLogType' }
+        severity: { $ref: '#/components/schemas/AppLogSeverity' }
+        source: { type: string }
+        userName: { type: [string, 'null'] }
+        message: { type: string }
+        details: {}
+        createdAt: { type: string, format: date-time }
+    LogRetentionSettings:
+      type: object
+      required: [days]
+      properties:
+        days: { type: integer, minimum: 1, maximum: 3650, default: 90 }
     GridPreferenceInput:
       type: object
       required: [columns, sort, group, filter, filtersVisible]

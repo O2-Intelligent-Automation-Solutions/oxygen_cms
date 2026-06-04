@@ -260,6 +260,21 @@ const appSettingsSchemaSql = `CREATE TABLE IF NOT EXISTS application_settings (
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );`;
 
+const applicationLogsSchemaSql = `CREATE TABLE IF NOT EXISTS application_logs (
+  id CHAR(36) NOT NULL PRIMARY KEY,
+  log_type ENUM('Audit', 'Service', 'CRUD', 'Connection', 'Security', 'UI') NOT NULL,
+  severity ENUM('Critical', 'Error', 'Warning', 'Logging', 'Verbose') NOT NULL,
+  source VARCHAR(255) NOT NULL,
+  user_name VARCHAR(320) NULL,
+  message TEXT NOT NULL,
+  details_json JSON NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_application_logs_created_at (created_at),
+  KEY idx_application_logs_type_severity (log_type, severity),
+  KEY idx_application_logs_source (source),
+  KEY idx_application_logs_user_name (user_name)
+);`;
+
 export const schemaMigrations: SchemaMigration[] = [
   {
     version: '0.01',
@@ -302,5 +317,11 @@ export const schemaMigrations: SchemaMigration[] = [
     name: 'application settings schema',
     checksum: '372a5e1d2eaf111c92b0076658f39563a7e8c92994bdae1fe0f0cc1da0b0cf83',
     upSql: appSettingsSchemaSql
+  },
+  {
+    version: '0.08',
+    name: 'application logs schema',
+    checksum: 'e36e7aa435bf2784666bc601f827a0a6f0c9117c183ae3cbc9c60ad51bb1e882',
+    upSql: applicationLogsSchemaSql
   }
 ];

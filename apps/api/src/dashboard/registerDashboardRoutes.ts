@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { requireAuth } from '../auth/registerAuthRoutes.js';
 import type { AuthProfile, AuthRepository, TenantId } from '../auth/types.js';
+import type { InstancePoller } from '../instances/instancePoller.js';
 import type { InstanceRepository, OxyGenInstance } from '../instances/types.js';
 
 type AuthenticatedRequest = FastifyRequest & { authProfile: AuthProfile };
@@ -106,7 +107,7 @@ function instanceSeverity(instance: OxyGenInstance, issues: DashboardIssue[]): D
   return 'ok';
 }
 
-export async function registerDashboardRoutes(app: FastifyInstance, authRepository: AuthRepository, instanceRepository: InstanceRepository) {
+export async function registerDashboardRoutes(app: FastifyInstance, authRepository: AuthRepository, instanceRepository: InstanceRepository, poller?: InstancePoller | null) {
   app.get('/api/dashboard', { preHandler: requireAuth(authRepository) }, async (request) => {
     const profile = (request as AuthenticatedRequest).authProfile;
     const scope: DashboardScope = profile.user.tenantId ? 'tenant' : 'global';
@@ -149,6 +150,7 @@ export async function registerDashboardRoutes(app: FastifyInstance, authReposito
       dashboard: {
         scope,
         tenant: tenant ? { id: tenant.id, name: tenant.name, description: tenant.description } : null,
+        poller: poller?.getStatus() ?? null,
         counts: {
           tenants: scope === 'tenant' ? 1 : tenants.length,
           groups: scopedByTenant(groups).length,

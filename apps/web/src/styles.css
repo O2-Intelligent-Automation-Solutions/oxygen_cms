@@ -670,6 +670,40 @@ button.secondary {
   grid-template-rows: auto minmax(0, 1fr);
 }
 
+.admin-content:has(.tenant-dashboard) {
+  overflow: auto;
+  padding-right: 2px;
+  scrollbar-gutter: stable;
+  scrollbar-color: rgba(32, 214, 210, 0.62) rgba(3, 12, 22, 0.72);
+  scrollbar-width: thin;
+}
+
+.admin-content:has(.tenant-dashboard)::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.admin-content:has(.tenant-dashboard)::-webkit-scrollbar-track {
+  background: rgba(3, 12, 22, 0.72);
+  border-radius: 999px;
+}
+
+.admin-content:has(.tenant-dashboard)::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(32, 214, 210, 0.72), rgba(29, 155, 215, 0.58));
+  border: 2px solid rgba(3, 12, 22, 0.72);
+  border-radius: 999px;
+}
+
+.admin-content:has(.tenant-dashboard)::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(32, 214, 210, 0.92), rgba(29, 155, 215, 0.76));
+}
+
+.admin-content.grid-section:has(.tenant-dashboard) {
+  overflow: auto;
+  padding-right: 2px;
+  scrollbar-gutter: stable;
+}
+
 .page-header {
   margin-bottom: 14px;
 }
@@ -1813,7 +1847,8 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
   overflow-wrap: break-word;
 }
 
-.instance-health-card.clickable {
+.instance-health-card.clickable,
+.instance-detail-card.clickable {
   width: 100%;
   border: 1px solid var(--instance-card-border);
   color: inherit;
@@ -1824,7 +1859,9 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
 }
 
 .instance-health-card.clickable:hover,
-.instance-health-card.clickable:focus-visible {
+.instance-health-card.clickable:focus-visible,
+.instance-detail-card.clickable:hover,
+.instance-detail-card.clickable:focus-visible {
   border-color: rgba(32, 214, 210, 0.62);
   box-shadow: 0 16px 32px rgba(0, 0, 0, 0.24), 0 0 0 1px rgba(32, 214, 210, 0.16);
   outline: none;
@@ -1839,6 +1876,23 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
 
 .instance-health-dialog .k-dialog-content {
   min-width: 0;
+}
+
+.instance-health-dialog .k-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.instance-health-dialog .k-dialog-actions .instance-health-dialog-close.k-button {
+  width: auto !important;
+  min-width: 104px !important;
+  justify-content: center !important;
+}
+
+.instance-health-dialog .k-dialog-actions .instance-health-dialog-close.k-button:focus-visible {
+  outline: 2px solid rgba(32, 214, 210, 0.55) !important;
+  outline-offset: 2px;
 }
 
 .health-detail-panel {
@@ -3428,7 +3482,7 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
 
 .dashboard-refresh-actions {
   display: flex;
-  align-items: end;
+  align-items: center;
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: 12px;
@@ -3443,6 +3497,7 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
   font-size: 0.74rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+  line-height: 1;
 }
 
 .dashboard-refresh-actions select {
@@ -3524,10 +3579,16 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
 }
 
 .tenant-metric-grid,
-.tenant-issue-grid,
-.tenant-instance-card-grid {
+.tenant-issue-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+  min-width: 0;
+}
+
+.tenant-instance-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
   gap: 14px;
   min-width: 0;
 }
@@ -3553,21 +3614,41 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
 .tenant-issue-card span,
 .tenant-instance-card small {
   color: var(--muted-text);
+  font-family: var(--brand-font-display);
   font-size: 0.78rem;
-  letter-spacing: 0.07em;
+  font-weight: 700;
+  letter-spacing: 0.09em;
   text-transform: uppercase;
 }
 
 .tenant-metric-card strong,
 .tenant-issue-card strong {
-  font-size: 2.15rem;
-  line-height: 1;
+  font-family: var(--brand-font-display);
+  font-size: clamp(1.45rem, 2.25vw, 1.9rem);
+  line-height: 0.95;
   color: #f6fbff;
+  letter-spacing: 0.03em;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 
 .tenant-metric-card small,
 .tenant-issue-card small {
   color: var(--muted-text);
+}
+
+.dashboard-admin-kpis .tenant-issue-card {
+  border-color: rgba(0, 229, 229, 0.34);
+}
+
+.dashboard-admin-kpis .tenant-issue-card span,
+.dashboard-admin-kpis .tenant-issue-card strong {
+  color: var(--brand-primary);
+  text-shadow: 0 0 18px rgba(0, 229, 229, 0.22);
+}
+
+.dashboard-admin-kpis .tenant-issue-card small {
+  color: #d7f6ff;
 }
 
 .tenant-metric-card.ok,
@@ -3619,7 +3700,7 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
 
 .dashboard-filter-bar {
   display: flex;
-  align-items: end;
+  align-items: center;
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: 10px;
@@ -3635,6 +3716,7 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
   letter-spacing: 0.06em;
   text-transform: uppercase;
   white-space: nowrap;
+  line-height: 1;
 }
 
 .dashboard-filter-bar select {
@@ -3690,6 +3772,10 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
 }
 
 .tenant-instance-card header div {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 8px;
   min-width: 0;
 }
 
@@ -3698,6 +3784,7 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
 }
 
 .tenant-instance-card p {
+  grid-column: 2;
   margin: 5px 0 0;
   color: var(--muted-text);
   overflow-wrap: anywhere;
@@ -3717,7 +3804,7 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
   display: inline-block;
   width: 8px;
   height: 8px;
-  margin-right: 8px;
+  margin-right: 0;
   border-radius: 50%;
   background: #5bffb1;
   box-shadow: 0 0 12px rgba(91, 255, 177, 0.7);
@@ -3765,22 +3852,31 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
 
 .tenant-instance-stats {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(3, minmax(76px, 1fr));
+  gap: 8px;
 }
 
 .tenant-instance-stats span {
   display: grid;
   gap: 4px;
-  padding: 10px;
+  min-width: 0;
+  padding: 10px 9px;
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.035);
 }
 
+.tenant-instance-stats small {
+  font-size: clamp(0.64rem, 0.72vw, 0.76rem);
+  letter-spacing: 0.055em;
+  line-height: 1.12;
+  white-space: nowrap;
+}
+
 .tenant-instance-stats b {
   color: #f5fbff;
-  font-size: 0.95rem;
-  overflow-wrap: anywhere;
+  font-size: clamp(0.78rem, 0.85vw, 0.92rem);
+  line-height: 1.12;
+  overflow-wrap: break-word;
 }
 
 .tenant-instance-foot {
@@ -3912,6 +4008,617 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
   }
 
   .tenant-instance-foot button {
+    width: 100%;
+  }
+}
+
+/* Dedicated mobile health detail screen: status cards render as a page, not a Dialog. */
+@media (max-width: 760px) {
+  .shell.app-shell:has(.mobile-health-screen) {
+    display: block;
+    min-height: 100svh;
+    padding: 0;
+    overflow: hidden;
+    background:
+      radial-gradient(circle at 12% 0%, rgba(32, 214, 210, 0.18), transparent 18rem),
+      radial-gradient(circle at 90% 10%, rgba(29, 155, 215, 0.16), transparent 20rem),
+      linear-gradient(145deg, #06111f 0%, #0b2136 58%, #102b45 100%);
+  }
+
+  .shell.app-shell:has(.mobile-health-screen) > .brand-bar,
+  .shell.app-shell:has(.mobile-health-screen) > .mobile-app-bar,
+  .shell.app-shell:has(.mobile-health-screen) > .mobile-bottom-bar,
+  .shell.app-shell:has(.mobile-health-screen) > .mobile-drawer-backdrop,
+  .shell.app-shell:has(.mobile-health-screen) > .admin-layout,
+  .shell.app-shell:has(.mobile-health-screen) > .status {
+    display: none !important;
+  }
+
+  .mobile-health-screen {
+    position: fixed;
+    inset: 0;
+    z-index: 1200;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    width: 100%;
+    min-height: 100svh;
+    max-height: 100svh;
+    color: var(--brand-text);
+    background:
+      radial-gradient(circle at 12% 0%, rgba(32, 214, 210, 0.18), transparent 18rem),
+      radial-gradient(circle at 90% 10%, rgba(29, 155, 215, 0.16), transparent 20rem),
+      linear-gradient(145deg, #06111f 0%, #0b2136 58%, #102b45 100%);
+  }
+
+  .mobile-health-screen-header {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr);
+    align-items: center;
+    gap: 12px;
+    min-height: 64px;
+    padding: max(12px, env(safe-area-inset-top)) 16px 12px;
+    border-bottom: 1px solid rgba(32, 214, 210, 0.24);
+    background: rgba(3, 12, 22, 0.98);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.26);
+  }
+
+  .mobile-health-screen-header .eyebrow {
+    margin-bottom: 3px;
+  }
+
+  .mobile-health-screen-header h2 {
+    min-width: 0;
+    margin: 0;
+    overflow: hidden;
+    color: #f6fbff;
+    font-family: var(--font-heading);
+    font-size: 1.04rem;
+    line-height: 1.14;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-health-screen-body {
+    min-height: 0;
+    overflow-y: auto;
+    display: grid;
+    align-content: start;
+    gap: 14px;
+    padding: 16px 14px max(28px, env(safe-area-inset-bottom));
+    background: linear-gradient(180deg, rgba(6, 17, 31, 0.98) 0%, rgba(7, 20, 35, 0.99) 100%);
+    scrollbar-width: thin;
+    scrollbar-color: rgba(32, 214, 210, 0.62) rgba(3, 12, 22, 0.54);
+  }
+
+  .mobile-health-screen .health-detail-panel {
+    min-width: 0;
+    gap: 14px;
+  }
+
+  .mobile-health-screen .panel-copy {
+    margin: 0;
+    font-size: 0.9rem;
+    line-height: 1.45;
+  }
+
+  .mobile-health-screen .availability-chart {
+    min-width: 0;
+    height: auto;
+    min-height: 102px;
+    overflow-x: auto;
+    gap: 7px;
+    padding: 12px;
+    border-radius: 18px;
+    background: rgba(3, 12, 22, 0.52);
+  }
+
+  .mobile-health-screen .availability-bar {
+    flex: 0 0 24px;
+    min-width: 24px;
+    border-radius: 999px 999px 5px 5px;
+  }
+
+  .mobile-health-screen .detail-list {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 7px;
+    padding: 14px;
+    border: 1px solid rgba(118, 214, 255, 0.22);
+    border-radius: 18px;
+    background: rgba(8, 18, 35, 0.58);
+  }
+
+  .mobile-health-screen .detail-list dt {
+    margin-top: 8px;
+    color: var(--brand-muted);
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .mobile-health-screen .detail-list dt:first-child {
+    margin-top: 0;
+  }
+
+  .mobile-health-screen .detail-list dd {
+    margin: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    color: #f6fbff;
+    font-size: 0.95rem;
+    line-height: 1.32;
+  }
+
+  .mobile-health-screen .response-step-list {
+    gap: 9px;
+    padding: 0;
+  }
+
+  .mobile-health-screen .response-step {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 5px;
+    padding: 13px 14px;
+    border-radius: 16px;
+  }
+
+  .mobile-health-screen .response-step strong,
+  .mobile-health-screen .response-step small {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    text-align: left;
+  }
+
+  .mobile-health-screen .read-only-json-editor,
+  .mobile-health-screen pre,
+  .mobile-health-screen code {
+    max-width: 100%;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+}
+
+/* Mobile Instance Dashboard mockup treatment. */
+@media (max-width: 760px) {
+  .shell.app-shell:has(.instance-detail-dashboard) {
+    padding: 55px 0 86px;
+    background:
+      linear-gradient(180deg, rgba(5, 55, 74, 0.94) 0, rgba(5, 55, 74, 0.94) 170px, rgba(3, 12, 22, 0.98) 170px, rgba(6, 17, 31, 1) 100%),
+      #06111f;
+  }
+
+  .shell.app-shell:has(.instance-detail-dashboard) .mobile-app-bar {
+    min-height: 55px;
+    padding: max(7px, env(safe-area-inset-top)) 7px 7px;
+    grid-template-columns: 40px minmax(0, 1fr) 40px;
+    gap: 7px;
+    border-bottom-color: rgba(32, 214, 210, 0.16);
+    background: rgba(3, 12, 22, 0.98);
+    box-shadow: none;
+  }
+
+  .shell.app-shell:has(.instance-detail-dashboard) .mobile-chrome-button {
+    width: 40px;
+    height: 40px;
+    border-radius: 14px;
+    border-color: rgba(125, 160, 188, 0.28);
+    background: rgba(8, 18, 35, 0.8);
+  }
+
+  .shell.app-shell:has(.instance-detail-dashboard) .mobile-brand-lockup {
+    gap: 8px;
+  }
+
+  .shell.app-shell:has(.instance-detail-dashboard) .mobile-brand-lockup .brand-logo {
+    width: clamp(118px, 33vw, 152px);
+    max-height: 38px;
+  }
+
+  .shell.app-shell:has(.instance-detail-dashboard) .mobile-brand-lockup .brand-product {
+    max-width: 7.3em;
+    padding-left: 8px;
+    font-size: clamp(0.47rem, 1.7vw, 0.56rem);
+    letter-spacing: 0.12em;
+    line-height: 1.14;
+  }
+
+  .admin-content:has(.instance-detail-dashboard) {
+    padding: 0;
+  }
+
+  .admin-content:has(.instance-detail-dashboard) .page-header {
+    margin: 0;
+    padding: 10px 6px 13px;
+    background: linear-gradient(180deg, rgba(8, 72, 94, 0.96), rgba(6, 52, 74, 0.66));
+  }
+
+  .admin-content:has(.instance-detail-dashboard) .page-header .eyebrow {
+    margin: 0 0 1px;
+    color: var(--brand-primary);
+    font-family: var(--brand-font-display);
+    font-size: 0.78rem;
+    font-weight: 900;
+    letter-spacing: 0.12em;
+  }
+
+  .admin-content:has(.instance-detail-dashboard) .page-header h2 {
+    margin: 0;
+    color: #f8fbff;
+    font-size: clamp(1.8rem, 7.5vw, 2.18rem);
+    line-height: 0.96;
+    letter-spacing: -0.03em;
+  }
+
+  .instance-detail-dashboard {
+    gap: 9px;
+    max-height: none;
+    margin: 0;
+    padding: 0 6px 8px;
+    overflow: visible;
+    scrollbar-width: none;
+  }
+
+  .instance-detail-dashboard::-webkit-scrollbar {
+    display: none;
+  }
+
+  .instance-health-strip {
+    grid-template-columns: 1fr;
+    gap: 9px;
+  }
+
+  .instance-health-card,
+  .instance-health-card.clickable {
+    min-height: 86px;
+    padding: 11px 12px 12px;
+    border-color: rgba(32, 214, 210, 0.2);
+    border-radius: 13px;
+    background: linear-gradient(145deg, rgba(8, 32, 52, 0.96), rgba(6, 22, 38, 0.98));
+    box-shadow: none;
+  }
+
+  .instance-health-card span {
+    color: #83d8ff;
+    font-family: var(--brand-font-display);
+    font-size: 0.72rem;
+    font-weight: 900;
+    letter-spacing: 0.1em;
+  }
+
+  .instance-health-card strong {
+    color: var(--brand-primary);
+    font-size: clamp(1.12rem, 5vw, 1.42rem);
+    letter-spacing: -0.01em;
+    text-transform: uppercase;
+  }
+
+  .instance-health-card.status-up strong {
+    color: #67f5a5;
+  }
+
+  .instance-health-card small {
+    color: #c8f1ff;
+    font-size: 0.82rem;
+    line-height: 1.22;
+  }
+
+  .instance-detail-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .instance-detail-card {
+    min-height: 64px;
+    padding: 12px 14px;
+    border-color: rgba(32, 214, 210, 0.24);
+    border-radius: 14px;
+    background: linear-gradient(145deg, rgba(8, 32, 52, 0.94), rgba(6, 22, 38, 0.98));
+    box-shadow: none;
+  }
+
+  .instance-detail-card .panel-heading {
+    display: grid;
+    grid-template-columns: 30px minmax(0, 1fr);
+    gap: 10px;
+    align-items: center;
+    margin: 0;
+  }
+
+  .instance-detail-card .panel-heading svg {
+    width: 27px;
+    height: 27px;
+    color: #5af7cb;
+  }
+
+  .instance-detail-card .panel-heading .eyebrow {
+    margin: 0;
+    color: var(--brand-primary);
+    font-family: var(--brand-font-display);
+    font-size: 0.73rem;
+    font-weight: 900;
+    letter-spacing: 0.11em;
+    line-height: 1.1;
+  }
+
+  .instance-detail-card h3 {
+    margin: 2px 0 0;
+    color: #f8fbff;
+    font-size: 0.94rem;
+    line-height: 1.08;
+  }
+
+  .instance-detail-card .detail-list {
+    display: none;
+  }
+
+  .shell.app-shell:has(.instance-detail-dashboard) .mobile-bottom-bar {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 900;
+    min-height: 64px;
+    padding: 8px 9px max(8px, env(safe-area-inset-bottom));
+    border: 1px solid rgba(125, 160, 188, 0.16);
+    border-radius: 18px 18px 0 0;
+    background: rgba(3, 12, 22, 0.98);
+    backdrop-filter: blur(18px);
+    box-shadow: 0 -16px 38px rgba(0, 0, 0, 0.36);
+  }
+
+  .shell.app-shell:has(.instance-detail-dashboard) .mobile-bottom-bar button {
+    min-height: 48px;
+    border-radius: 15px;
+    color: #d5e8f8;
+    font-size: 0.66rem;
+  }
+
+  .shell.app-shell:has(.instance-detail-dashboard) .mobile-bottom-bar button.primary {
+    flex: 1.45 1 0;
+    min-height: 48px;
+    border-color: transparent;
+    border-radius: 15px;
+    background: linear-gradient(135deg, var(--brand-primary), #2caee2);
+    color: #03111f;
+    font-weight: 850;
+  }
+}
+
+.service-status-card {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.9fr) minmax(0, 2.8fr) auto;
+  align-items: center;
+  gap: 12px;
+  border-left: 4px solid rgba(148, 163, 184, 0.6);
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+.service-status-card.ok {
+  border-left-color: #22c55e;
+}
+
+.service-status-card.warning {
+  border-left-color: #f59e0b;
+}
+
+.service-status-card.issue {
+  border-left-color: #ef4444;
+}
+
+.service-status-main {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.service-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  align-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.service-actions .k-button {
+  white-space: nowrap;
+}
+
+.logs-filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.service-title-block {
+  min-width: 0;
+}
+
+.service-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.service-title-row h3 {
+  margin: 0;
+  line-height: 1.15;
+  max-width: 100%;
+}
+
+.service-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--brand-text);
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  line-height: 1.15;
+}
+
+.service-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #94a3b8;
+  box-shadow: 0 0 18px rgba(148, 163, 184, 0.55);
+}
+
+.service-dot.ok {
+  background: #22c55e;
+  box-shadow: 0 0 20px rgba(34, 197, 94, 0.58);
+}
+
+.service-dot.warning {
+  background: #f59e0b;
+  box-shadow: 0 0 20px rgba(245, 158, 11, 0.55);
+}
+
+.service-dot.issue {
+  background: #ef4444;
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.55);
+}
+
+.service-status-grid {
+  display: grid;
+  grid-template-columns: minmax(130px, 1fr) minmax(130px, 1fr) minmax(70px, 0.55fr) minmax(190px, 1.8fr);
+  gap: 6px;
+  margin: 0;
+}
+
+.service-status-grid div {
+  padding: 7px 9px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 10px;
+  background: rgba(3, 12, 22, 0.42);
+}
+
+.service-status-grid div.wide {
+  grid-column: 1 / -1;
+}
+
+.service-status-grid div.compact {
+  min-width: 70px;
+}
+
+.service-status-grid div.summary-wide dd {
+  white-space: normal;
+}
+
+.service-status-grid dt {
+  color: var(--brand-muted);
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 2px;
+}
+
+.service-status-grid dd {
+  margin: 0;
+  color: var(--brand-text);
+  font-size: 0.82rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.settings-logs-stack {
+  display: grid;
+  gap: 16px;
+}
+
+.compact-settings-form {
+  grid-template-columns: minmax(180px, 260px) auto;
+  align-items: end;
+}
+
+.logs-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.logs-filter-bar {
+  justify-content: flex-start;
+  padding: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 16px;
+  background: rgba(3, 12, 22, 0.45);
+}
+
+.logs-filter-bar label {
+  display: grid;
+  gap: 6px;
+  min-width: 180px;
+  color: var(--brand-muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.logs-filter-bar input,
+.logs-filter-bar select {
+  min-height: 36px;
+  color: var(--brand-text);
+  background: rgba(8, 18, 35, 0.96);
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+
+@media (max-width: 1480px) {
+  .service-status-card {
+    grid-template-columns: minmax(250px, 0.85fr) minmax(0, 2.4fr) auto;
+  }
+
+  .service-status-grid {
+    grid-template-columns: minmax(120px, 1fr) minmax(120px, 1fr) minmax(62px, 0.5fr) minmax(160px, 1.55fr);
+  }
+}
+
+@media (max-width: 1180px) {
+  .service-status-card {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .service-status-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .service-status-grid div.summary-wide dd {
+    white-space: normal;
+  }
+
+  .service-actions {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 860px) {
+  .compact-settings-form,
+  .logs-filter-bar label {
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+}
+
+@media (max-width: 560px) {
+  .service-status-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .service-state,
+  .service-actions {
     width: 100%;
   }
 }

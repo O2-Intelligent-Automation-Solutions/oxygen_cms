@@ -52,7 +52,7 @@ describe('first-run database setup API', () => {
         connected: false,
         schemaCurrent: false,
         defaultDatabaseName: 'O2IAS_CMS',
-        targetSchemaVersion: '0.07'
+        targetSchemaVersion: '0.08'
       },
       admin: {
         exists: false
