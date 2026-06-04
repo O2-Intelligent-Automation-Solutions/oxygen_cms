@@ -11,6 +11,7 @@ import { createSetupAwareAuthRepository } from './auth/mysqlAuthRepository.js';
 import { registerAuthRoutes } from './auth/registerAuthRoutes.js';
 import type { AuthRepository } from './auth/types.js';
 import { loadConfig } from './config/loadConfig.js';
+import { registerDashboardRoutes } from './dashboard/registerDashboardRoutes.js';
 import { createInMemoryGridPreferenceRepository } from './gridPreferences/inMemoryGridPreferenceRepository.js';
 import { createSetupAwareGridPreferenceRepository } from './gridPreferences/mysqlGridPreferenceRepository.js';
 import { registerGridPreferenceRoutes } from './gridPreferences/registerGridPreferenceRoutes.js';
@@ -82,6 +83,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await registerSetupRoutes(app, authRepository, setupStatusProvider, setupSettingsStore, databaseProvisioner, deploymentConfig);
   await registerAuthRoutes(app, authRepository);
   await registerInstanceRoutes(app, authRepository, instanceRepository);
+  await registerDashboardRoutes(app, authRepository, instanceRepository);
   await registerGridPreferenceRoutes(app, authRepository, gridPreferenceRepository);
   await registerAppSettingsRoutes(app, authRepository, appSettingsRepository);
 

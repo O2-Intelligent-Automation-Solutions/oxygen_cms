@@ -29,6 +29,7 @@ tags:
   - name: Groups
   - name: Users
   - name: Instances
+  - name: Dashboard
   - name: Grid Preferences
   - name: Application Settings
 paths:
@@ -969,6 +970,47 @@ components:
               instanceIds:
                 type: array
                 items: { type: string, format: uuid }
+    DashboardSummary:
+      type: object
+      required: [scope, tenant, counts, instances]
+      properties:
+        scope: { type: string, enum: [tenant, global] }
+        tenant:
+          oneOf:
+            - $ref: '#/components/schemas/Tenant'
+            - type: 'null'
+        counts:
+          type: object
+          required: [tenants, groups, users, roles, tenantRoles, globalRoles, instances, totalInstances, instancesWithIssues, upInstances, downInstances, sslIssues, licenseIssues, disabledInstances]
+          properties:
+            tenants: { type: integer, minimum: 0 }
+            groups: { type: integer, minimum: 0 }
+            users: { type: integer, minimum: 0 }
+            roles: { type: integer, minimum: 0 }
+            tenantRoles: { type: integer, minimum: 0 }
+            globalRoles: { type: integer, minimum: 0 }
+            instances: { type: integer, minimum: 0, description: Alias of totalInstances for UI compatibility. }
+            totalInstances: { type: integer, minimum: 0 }
+            instancesWithIssues: { type: integer, minimum: 0 }
+            upInstances: { type: integer, minimum: 0 }
+            downInstances: { type: integer, minimum: 0 }
+            sslIssues: { type: integer, minimum: 0 }
+            licenseIssues: { type: integer, minimum: 0 }
+            disabledInstances: { type: integer, minimum: 0 }
+        instances:
+          type: array
+          items: { $ref: '#/components/schemas/DashboardInstance' }
+    DashboardInstance:
+      allOf:
+        - $ref: '#/components/schemas/OxyGenInstance'
+        - type: object
+          required: [issues, issueCount, hasIssue]
+          properties:
+            issues:
+              type: array
+              items: { type: string }
+            issueCount: { type: integer, minimum: 0 }
+            hasIssue: { type: boolean }
     OxyGenInstance:
       type: object
       required: [id, name, description, tenantId, protocol, host, port, hostname, baseUrl, launchUrl, apiBaseUrl, username, pollingIntervalSeconds, isEnabled, status, createdAt, updatedAt]

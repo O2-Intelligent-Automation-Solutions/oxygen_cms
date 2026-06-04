@@ -22,6 +22,8 @@ type Role = { id: string; name: string; description: string | null; tenantId: Te
 type Tenant = { id: string; name: string; description: string | null };
 type UserProfile = AuthProfile;
 type OxyGenInstance = { id: string; name: string; description: string | null; tenantId: TenantId; protocol: 'http' | 'https'; host: string; port: number | null; hostname: string; baseUrl: string; launchUrl: string; apiBaseUrl: string; username: string; pollingIntervalSeconds: number; isEnabled: boolean; status: string; sslValid: boolean | null; sslExpiresAt: string | null; lastCheckedAt: string | null; lastSuccessAt: string | null; lastFailureAt: string | null; uptimePercent24h: number | null; uptimePercent7d: number | null; responseTimeMs: number | null; processingStatus: string; emmQueueStatus: string; smsStatus: string; hangfireStatus: string; licenseKey: string | null; licenseStatus: string; licenseJson: unknown | null; settingsJson: unknown | null; workflowSummaryJson: unknown | null; lastError: string | null; createdAt: string; updatedAt: string };
+type DashboardInstance = OxyGenInstance & { issues: string[]; issueCount: number; hasIssue: boolean };
+type DashboardSummary = { scope: 'tenant' | 'global'; tenant: { id: string; name: string; description: string | null } | null; counts: { tenants: number; groups: number; users: number; roles: number; tenantRoles: number; globalRoles: number; instances: number; totalInstances: number; instancesWithIssues: number; upInstances: number; downInstances: number; sslIssues: number; licenseIssues: number; disabledInstances: number }; instances: DashboardInstance[] };
 type BootstrapStatus = { requiresBootstrap: boolean };
 type SetupNextStep = 'database' | 'schema' | 'admin' | 'complete';
 type SetupStatus = { database: { configured: boolean; connected: boolean; schemaCurrent: boolean; defaultDatabaseName: string; targetSchemaVersion: string }; admin: { exists: boolean }; nextStep: SetupNextStep; requiresSetup: boolean };
@@ -149,6 +151,7 @@ export function App() {
   const [roles, setRoles] = useState<Role[]>([]);
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [instances, setInstances] = useState<OxyGenInstance[]>([]);
+  const [dashboard, setDashboard] = useState<DashboardSummary | null>(null);
   const [selectedInstanceId, setSelectedInstanceId] = useState('');
   const [selectedInstanceDetail, setSelectedInstanceDetail] = useState<OxyGenInstance | null>(null);
   const [appLabels, setAppLabels] = useState<AppLabels>({ tenant: 'Tenant' });
@@ -222,8 +225,11 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const query = window.matchMedia('(max-width: 760px)');
-    const update = () => setIsMobileViewport(query.matches);
+    const query = window.matchMedia('(max-width: 900px)');
+    const update = () => {
+      setIsMobileViewport(query.matches);
+      if (!query.matches) setIsMobileDrawerOpen(false);
+    };
     update();
     query.addEventListener('change', update);
     return () => query.removeEventListener('change', update);
@@ -243,6 +249,14 @@ export function App() {
     const res = await api<{ instances: OxyGenInstance[] }>('/api/instances', { token: t });
     setInstances(res.instances);
     setSelectedInstanceDetail((current) => current ? res.instances.find((instance) => instance.id === current.id) || current : current);
+  }
+
+  async function loadDashboard(t = token) {
+    if (!t) return;
+    const res = await api<{ dashboard: DashboardSummary }>('/api/dashboard', { token: t });
+    setDashboard(res.dashboard);
+    setInstances(res.dashboard.instances);
+    setSelectedInstanceDetail((current) => current ? res.dashboard.instances.find((instance) => instance.id === current.id) || current : current);
   }
 
   async function loadAppLabels(t = token) {
@@ -273,7 +287,7 @@ export function App() {
     setUsers(ur.users);
     setRoles(rr.roles);
     setTenants(tr.tenants);
-    await loadInstances(t);
+    await loadDashboard(t);
     if (!selectedGroupId && gr.groups[0]) setSelectedGroupId(gr.groups[0].id);
     if (!selectedRole && rr.roles[0]) setSelectedRole(rr.roles[0].name);
   }
@@ -343,7 +357,7 @@ export function App() {
       setMessage(`Signed in as ${login.user.displayName}.`);
       await loadAppLabels(login.token);
       if (login.roles.includes('SystemAdmin')) await refreshAdminData(login.token);
-      else await loadInstances(login.token);
+      else await loadDashboard(login.token);
     } catch (err) { setError(err instanceof Error ? err.message : 'Login failed.'); }
   }
 
@@ -411,7 +425,7 @@ export function App() {
     try {
       if (editing) { const res = await api<{ instance: OxyGenInstance }>(`/api/instances/${editing.id}`, { method: 'PATCH', token, body: JSON.stringify(payload) }); setMessage(`Updated instance ${res.instance.name}.`); }
       else { const res = await api<{ instance: OxyGenInstance }>('/api/instances', { method: 'POST', token, body: JSON.stringify(payload) }); setMessage(`Created instance ${res.instance.name}.`); }
-      el.reset(); setModal(null); await loadInstances();
+      el.reset(); setModal(null); await loadDashboard();
     } catch (err) { setError(err instanceof Error ? err.message : editing ? 'Instance update failed.' : 'Instance creation failed.'); }
   }
 
@@ -554,9 +568,50 @@ export function App() {
     </>;
   }
 
+  const dashboardTitle = dashboard?.scope === 'tenant' ? `${dashboard.tenant?.name || tenantLabel} Dashboard` : `Global ${tenantLabel} Overview`;
+  const dashboardSubtitle = dashboard?.scope === 'tenant'
+    ? `Tenant-scoped visibility for ${dashboard.tenant?.name || 'your organization'}.`
+    : 'Aggregated CMS visibility across all tenants and accessible instances.';
+  const dashboardIssueRatio = dashboard ? `${dashboard.counts.instancesWithIssues}/${dashboard.counts.totalInstances}` : '0/0';
+  const dashboardHealthPercent = dashboard?.counts.totalInstances ? Math.round((dashboard.counts.upInstances / dashboard.counts.totalInstances) * 100) : 0;
+
+  function renderDashboard() {
+    if (!dashboard) {
+      return <article className="panel tenant-dashboard-empty"><p className="panel-copy">Loading dashboard summary…</p></article>;
+    }
+    const metricCards = [
+      { label: 'User Groups', value: dashboard.counts.groups, detail: 'Access profiles' },
+      { label: 'Users', value: dashboard.counts.users, detail: 'Tenant user accounts' },
+      { label: 'Roles', value: dashboard.counts.roles, detail: dashboard.scope === 'tenant' ? `${dashboard.counts.tenantRoles} tenant / ${dashboard.counts.globalRoles} global` : `${dashboard.counts.tenantRoles} tenant-specific` },
+      { label: 'Instances', value: dashboard.counts.totalInstances, detail: `${dashboard.counts.upInstances} up / ${dashboard.counts.instancesWithIssues} with issues` }
+    ];
+    const issueCards = [
+      { label: 'Issue / Total', value: dashboardIssueRatio, detail: 'Instances requiring review', tone: dashboard.counts.instancesWithIssues ? 'issue' : 'ok' },
+      { label: 'Availability', value: `${dashboardHealthPercent}%`, detail: `${dashboard.counts.upInstances} currently up`, tone: dashboard.counts.downInstances ? 'issue' : 'ok' },
+      { label: 'SSL Issues', value: dashboard.counts.sslIssues, detail: 'Invalid SSL or SSL probe errors', tone: dashboard.counts.sslIssues ? 'issue' : 'ok' },
+      { label: 'License Issues', value: dashboard.counts.licenseIssues, detail: 'Expired or error license status', tone: dashboard.counts.licenseIssues ? 'issue' : 'ok' }
+    ];
+    return <div className="tenant-dashboard">
+      <section className="tenant-dashboard-hero">
+        <div><p className="eyebrow small">{dashboard.scope === 'tenant' ? tenantLabel : 'CMS'} Dashboard</p><h3>{dashboardTitle}</h3><p>{dashboardSubtitle}</p></div>
+        <div className={`tenant-dashboard-status ${dashboard.counts.instancesWithIssues ? 'has-issues' : 'all-clear'}`}><strong>{dashboardIssueRatio}</strong><span>Issue / Total Instances</span></div>
+      </section>
+      <section className="tenant-metric-grid" aria-label="Tenant dashboard counts">{metricCards.map((card) => <article className="tenant-metric-card" key={card.label}><span>{card.label}</span><strong>{card.value}</strong><small>{card.detail}</small></article>)}</section>
+      <section className="tenant-issue-grid" aria-label="Tenant dashboard health">{issueCards.map((card) => <article className={`tenant-issue-card ${card.tone}`} key={card.label}><span>{card.label}</span><strong>{card.value}</strong><small>{card.detail}</small></article>)}</section>
+      <section className="tenant-instance-board" aria-label="Tenant instance cards">
+        <div className="tenant-section-heading"><div><p className="eyebrow small">Instances</p><h3>Instance Board</h3></div><Button className="compact-button" type="button" onClick={() => { nav('instances'); loadInstances(); }}><Server /> View Grid</Button></div>
+        {dashboard.instances.length === 0 ? <article className="panel tenant-dashboard-empty"><p className="panel-copy">No instances are currently visible for this dashboard scope.</p></article> : <div className="tenant-instance-card-grid">{dashboard.instances.map((instance) => <article className={`tenant-instance-card status-${instance.status} ${instance.hasIssue ? 'has-issue' : 'healthy'}`} key={instance.id}>
+          <header><div><span className="instance-status-dot" /><h4>{instance.name}</h4><p>{instance.host}</p></div><strong>{instance.status}</strong></header>
+          <div className="tenant-instance-stats"><span><b>{instance.uptimePercent24h === null ? '—' : `${instance.uptimePercent24h}%`}</b><small>24h uptime</small></span><span><b>{instance.responseTimeMs === null ? '—' : `${instance.responseTimeMs} ms`}</b><small>Response</small></span><span><b>{instance.licenseStatus}</b><small>License</small></span></div>
+          <div className="tenant-instance-foot"><span>{instance.hasIssue ? instance.issues.slice(0, 2).join(' · ') : 'No active issues'}</span><button type="button" onClick={() => openInstanceDashboard(instance)}>Dashboard</button></div>
+        </article>)}</div>}
+      </section>
+    </div>;
+  }
+
   const sectionMeta = (() => {
     switch (activeSection) {
-      case 'dashboard': return { eyebrow: 'Dashboard', heading: `Welcome, ${profile?.user.displayName || ''}` };
+      case 'dashboard': return { eyebrow: dashboard?.scope === 'tenant' ? tenantLabel : 'Dashboard', heading: dashboardTitle || `Welcome, ${profile?.user.displayName || ''}` };
       case 'organizations': return { eyebrow: 'Organizations', heading: tenantLabelPlural };
       case 'instances': return { eyebrow: 'Organizations', heading: 'Instances' };
       case 'instance-dashboard': return { eyebrow: 'Instance Dashboard', heading: selectedInstance?.name || 'Instance Detail' };
@@ -673,11 +728,11 @@ export function App() {
 
       {profile && !modal && <div className="mobile-app-bar"><button className="mobile-chrome-button" type="button" onClick={activeSection === 'instance-dashboard' ? closeInstanceDashboard : () => setIsMobileDrawerOpen(true)} aria-label={activeSection === 'instance-dashboard' ? 'Back' : 'Open navigation'}>{activeSection === 'instance-dashboard' ? <ChevronLeft /> : <Menu />}</button><a className="brand-lockup mobile-brand-lockup" href="/" aria-label="OxyGen CMS home"><img className="brand-logo" src={oxygenLogo} alt="OxyGen" /><span className="brand-product">Central Management Server</span></a><button className="mobile-chrome-button" type="button" onClick={() => setIsMobileDrawerOpen(true)} aria-label="Open navigation menu"><Menu /></button></div>}
 
-      {profile && isMobileDrawerOpen && <button className="mobile-drawer-backdrop" type="button" aria-label="Close navigation" onClick={() => setIsMobileDrawerOpen(false)} />}
+      {profile && isMobileViewport && isMobileDrawerOpen && <button className="mobile-drawer-backdrop" type="button" aria-label="Close navigation" onClick={() => setIsMobileDrawerOpen(false)} />}
 
       {profile && (<div className={`admin-layout ${isDrawerExpanded ? 'drawer-expanded' : 'drawer-collapsed'} ${isMobileDrawerOpen ? 'mobile-drawer-open' : ''}`}><aside className={`admin-sidebar ${isDrawerExpanded ? 'expanded' : 'collapsed'} ${isMobileDrawerOpen ? 'mobile-open' : ''}`}><button className="mobile-drawer-close" type="button" onClick={() => setIsMobileDrawerOpen(false)} aria-label="Close navigation"><X /></button><button className="sidebar-toggle" type="button" onClick={() => setIsDrawerExpanded((v) => !v)} aria-label={isDrawerExpanded ? 'Collapse navigation' : 'Expand navigation'}>{isDrawerExpanded ? <ChevronLeft /> : <ChevronRight />}</button><div className="sidebar-user"><UserCircle /><div><span className="su-name">{profile.user.displayName}</span><span className="su-role">{profile.roles[0]}</span></div></div><nav className="sidebar-nav"><button className={`nav-link${activeSection === 'dashboard' ? ' active' : ''}`} onClick={() => nav('dashboard')}><LayoutDashboard /><span>Dashboard</span></button><div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => toggleAccordion('organizations')}><Server /><span>Organizations</span>{openAccordions.has('organizations') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('organizations') && (<div className="nav-accordion-children"><button className={`nav-link child${activeSection === 'organizations' ? ' active' : ''}`} onClick={() => nav('organizations')}><span>{tenantLabelPlural}</span></button><button className={`nav-link child${activeSection === 'instances' ? ' active' : ''}`} onClick={() => { nav('instances'); loadInstances(); }}><span>Instances</span></button></div>)}</div><div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => toggleAccordion('security')}><ShieldCheck /><span>Security</span>{openAccordions.has('security') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('security') && (<div className="nav-accordion-children"><button className={`nav-link child${activeSection === 'users' ? ' active' : ''}`} onClick={() => nav('users')}><span>Users</span></button><button className={`nav-link child${activeSection === 'user-groups' ? ' active' : ''}`} onClick={() => nav('user-groups')}><span>User Groups</span></button><button className={`nav-link child${activeSection === 'roles' ? ' active' : ''}`} onClick={() => nav('roles')}><span>Roles</span></button></div>)}</div><div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => toggleAccordion('settings')}><Settings /><span>Settings</span>{openAccordions.has('settings') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('settings') && (<div className="nav-accordion-children"><button className={`nav-link child${activeSection === 'settings-general' ? ' active' : ''}`} onClick={() => nav('settings-general')}><span>General</span></button><button className={`nav-link child${activeSection === 'settings-advanced' ? ' active' : ''}`} onClick={() => nav('settings-advanced', false, 'Advanced Settings')}><span>Advanced</span></button></div>)}</div></nav><button className="sidebar-logout" onClick={handleLogout}><LogOut /><span>Sign out</span></button></aside>
         <section className={`admin-content ${gridSection ? 'grid-section' : ''}`}><div className="page-header"><p className="eyebrow small">{sectionMeta.eyebrow}</p><h2>{sectionMeta.heading}</h2></div>
-          {activeSection === 'dashboard' && <div className="dashboard-metrics"><div className="metric"><strong>{groups.length}</strong><span>User Groups</span></div><div className="metric"><strong>{users.length}</strong><span>Users</span></div><div className="metric"><strong>{roles.length}</strong><span>Roles</span></div><div className="metric"><strong>{tenants.length}</strong><span>{tenantLabelPlural}</span></div></div>}
+          {activeSection === 'dashboard' && renderDashboard()}
           {activeSection === 'organizations' && isSystemAdmin && <ManagedGrid gridKey="tenants" token={token!} rows={tenantRows} columns={tenantColumnDefs} actionCell={TenantActionCell} mobileActions={(row) => <MobileStandardActions onEdit={() => openEditTenantModal(row.raw)} onDelete={() => deleteItem('tenant', row.raw.id, `${tenantLabelLower} ${row.raw.name}`)} />} toolbar={<Button className="btn-create" onClick={openCreateTenantModal} type="button" themeColor="primary"><Plus /> Create “{tenantLabel}”</Button>} />}
           {activeSection === 'instances' && <ManagedGrid gridKey="instances" token={token!} rows={instanceRows} columns={labeledInstanceColumnDefs} actionCell={InstanceActionCell} actionWidth={180} mobileActions={mobileInstanceActions} toolbar={isSystemAdmin ? <Button className="btn-create" onClick={openCreateInstanceModal} type="button" themeColor="primary"><Plus /> Enroll Instance</Button> : null} />}
           {activeSection === 'instance-dashboard' && selectedInstance && <div className="instance-detail-dashboard"><div className="instance-dashboard-actions"><Button className="compact-button" type="button" fillMode="flat" onClick={closeInstanceDashboard}><ChevronLeft /> Back to Instances</Button>{isSystemAdmin && <Button className="compact-button" type="button" onClick={() => openEditInstanceModal(selectedInstance)}><Pencil /> Edit</Button>}{isSystemAdmin && <Button className="compact-button" type="button" onClick={() => testInstanceConnectivity(selectedInstance)}><RotateCw /> Test Connectivity</Button>}<Button className="compact-button" type="button" onClick={() => window.open(launchUrlForInstance(selectedInstance), '_blank', 'noopener,noreferrer')}><ExternalLink /> Launch OxyGen</Button></div><div className="instance-health-strip"><div className={`instance-health-card status-${selectedInstance.status}`}><span>Availability</span><strong>{selectedInstance.status}</strong><small>{formatDateTime(selectedInstance.lastCheckedAt)}</small></div><div className="instance-health-card"><span>SSL</span><strong>{selectedInstance.sslValid === null ? 'Unknown' : selectedInstance.sslValid ? 'Valid' : 'Invalid'}</strong><small>Expires {formatDateTime(selectedInstance.sslExpiresAt)}</small></div><div className="instance-health-card"><span>License</span><strong>{selectedInstance.licenseStatus}</strong><small>{formatNullable(selectedInstance.licenseKey, 'No license key collected')}</small></div><div className="instance-health-card"><span>Response</span><strong>{selectedInstance.responseTimeMs === null ? '—' : `${selectedInstance.responseTimeMs} ms`}</strong><small>Polling every {selectedInstance.pollingIntervalSeconds}s</small></div></div><div className="instance-detail-grid"><article className="panel instance-detail-card"><div className="panel-heading"><Server /><div><p className="eyebrow small">Endpoint</p><h3>Connection Details</h3></div></div><dl className="detail-list"><dt>{tenantLabel}</dt><dd>{tenantName(selectedInstance.tenantId)}</dd><dt>Host</dt><dd>{selectedInstance.host}</dd><dt>Port</dt><dd>{formatNullable(selectedInstance.port)}</dd><dt>Base URL</dt><dd>{selectedInstance.baseUrl}</dd><dt>API Base URL</dt><dd>{selectedInstance.apiBaseUrl}</dd><dt>Launch URL</dt><dd>{selectedInstance.launchUrl}</dd><dt>Username</dt><dd>{selectedInstance.username}</dd></dl></article><article className="panel instance-detail-card"><div className="panel-heading"><Activity /><div><p className="eyebrow small">Monitoring</p><h3>Health Status</h3></div></div><dl className="detail-list"><dt>Enabled</dt><dd>{selectedInstance.isEnabled ? 'Yes' : 'No'}</dd><dt>Last Success</dt><dd>{formatDateTime(selectedInstance.lastSuccessAt)}</dd><dt>Last Failure</dt><dd>{formatDateTime(selectedInstance.lastFailureAt)}</dd><dt>Uptime 24h</dt><dd>{selectedInstance.uptimePercent24h === null ? 'Unknown' : `${selectedInstance.uptimePercent24h}%`}</dd><dt>Uptime 7d</dt><dd>{selectedInstance.uptimePercent7d === null ? 'Unknown' : `${selectedInstance.uptimePercent7d}%`}</dd><dt>Last Error</dt><dd>{formatNullable(selectedInstance.lastError, 'None')}</dd></dl></article><article className="panel instance-detail-card"><div className="panel-heading"><Database /><div><p className="eyebrow small">OxyGen BPM</p><h3>Workflow & Components</h3></div></div><dl className="detail-list"><dt>Processing</dt><dd>{selectedInstance.processingStatus}</dd><dt>EMM Queue</dt><dd>{selectedInstance.emmQueueStatus}</dd><dt>SMS</dt><dd>{selectedInstance.smsStatus}</dd><dt>Hangfire</dt><dd>{selectedInstance.hangfireStatus}</dd><dt>Workflow Summary</dt><dd>{selectedInstance.workflowSummaryJson ? 'Collected' : 'Not collected yet'}</dd><dt>Global Settings</dt><dd>{selectedInstance.settingsJson ? 'Collected' : 'Not collected yet'}</dd></dl></article><article className="panel instance-detail-card"><div className="panel-heading"><ShieldCheck /><div><p className="eyebrow small">Record</p><h3>Metadata</h3></div></div><dl className="detail-list"><dt>Description</dt><dd>{formatNullable(selectedInstance.description, 'No description')}</dd><dt>Created</dt><dd>{formatDateTime(selectedInstance.createdAt)}</dd><dt>Updated</dt><dd>{formatDateTime(selectedInstance.updatedAt)}</dd><dt>Instance ID</dt><dd>{selectedInstance.id}</dd></dl></article></div></div>}
