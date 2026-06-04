@@ -71,6 +71,15 @@ export async function registerInstanceRoutes(app: FastifyInstance, authRepositor
     return { instance };
   });
 
+  app.get('/api/instances/:instanceId/health-details', { preHandler: requireSignedIn }, async (request, reply) => {
+    const { instanceId } = request.params as { instanceId: string };
+    const profile = (request as AuthenticatedRequest).authProfile;
+    const instances = await instanceRepository.listInstances(instanceScope(profile));
+    if (!instances.some((entry) => entry.id === instanceId)) return reply.code(404).send({ error: 'Instance not found.' });
+    try { return reply.code(200).send({ healthDetails: await instanceRepository.getHealthDetails(instanceId) }); }
+    catch (error) { return errorReply(reply, error, 'Unable to load instance health details.', 'Instance not found.'); }
+  });
+
   app.patch('/api/instances/:instanceId', { preHandler: adminPreHandler }, async (request, reply) => {
     const { instanceId } = request.params as { instanceId: string };
     const input = updateInstanceSchema.parse(request.body);

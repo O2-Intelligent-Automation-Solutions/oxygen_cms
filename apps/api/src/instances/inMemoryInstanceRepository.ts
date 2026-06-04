@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { testOxyGenConnectivity } from './oxygenConnectivity.js';
-import type { CreateInstanceInput, InstanceProtocol, InstanceRepository, OxyGenInstance, UpdateInstanceInput } from './types.js';
+import type { ConnectivityResult, CreateInstanceInput, InstanceCheckHistoryEntry, InstanceProtocol, InstanceRepository, OxyGenInstance, UpdateInstanceInput } from './types.js';
 
 function nowIso() {
   return new Date().toISOString();
@@ -74,10 +74,41 @@ export function normalizeOxyGenUrl(hostname: string) {
 
 export function createInMemoryInstanceRepository(): InstanceRepository {
   const instances = new Map<string, OxyGenInstance & { passwordSecret: string }>();
+  const history = new Map<string, InstanceCheckHistoryEntry[]>();
 
   function publicInstance(instance: OxyGenInstance & { passwordSecret: string }): OxyGenInstance {
     const { passwordSecret: _passwordSecret, ...safe } = instance;
     return safe;
+  }
+
+  function appendConnectivityHistory(instanceId: string, result: ConnectivityResult) {
+    const checkedAt = new Date(result.checkedAt);
+    const startedAt = new Date(Math.max(0, checkedAt.getTime() - result.durationMs)).toISOString();
+    const availability = result.ok ? 'up' : result.status === 'auth-error' ? 'auth-error' : result.status === 'ssl-error' ? 'ssl-error' : 'down';
+    const entries = history.get(instanceId) ?? [];
+    entries.unshift({
+      checkType: 'connectivity',
+      status: availability,
+      startedAt,
+      finishedAt: result.checkedAt,
+      durationMs: result.durationMs,
+      httpStatusCode: result.httpStatusCode,
+      errorCode: result.ok ? null : (result.authentication.errorCode ?? result.api.errorCode ?? result.ssl.errorCode ?? result.dns.errorCode ?? 'CONNECTIVITY_ERROR'),
+      errorMessage: result.ok ? null : result.message,
+      detailsJson: { dns: result.dns, ssl: result.ssl, authentication: result.authentication, api: result.api, license: result.license.step }
+    });
+    entries.unshift({
+      checkType: 'license',
+      status: result.license.step.skipped ? 'unknown' : result.license.status === 'valid' ? 'ok' : result.license.status === 'warning' || result.license.status === 'unknown' ? 'warning' : 'error',
+      startedAt,
+      finishedAt: result.checkedAt,
+      durationMs: result.durationMs,
+      httpStatusCode: result.license.step.httpStatusCode ?? null,
+      errorCode: result.license.step.errorCode ?? null,
+      errorMessage: result.license.step.ok ? null : (result.license.step.message ?? null),
+      detailsJson: { step: result.license.step, status: result.license.status, keyPresent: Boolean(result.license.key), payload: result.license.payload }
+    });
+    history.set(instanceId, entries.slice(0, 50));
   }
 
   return {
@@ -146,6 +177,18 @@ export function createInMemoryInstanceRepository(): InstanceRepository {
       const instance = instances.get(instanceId);
       return instance ? publicInstance(instance) : null;
     },
+    async getHealthDetails(instanceId: string) {
+      const instance = instances.get(instanceId);
+      if (!instance) throw new Error('Instance not found.');
+      const entries = history.get(instanceId) ?? [];
+      const availability = entries.filter((entry) => entry.checkType === 'connectivity').slice(0, 24);
+      return {
+        instance: publicInstance(instance),
+        availability,
+        latestConnectivity: availability[0] ?? null,
+        licenseHistory: entries.filter((entry) => entry.checkType === 'license').slice(0, 10)
+      };
+    },
     async testConnectivity(instanceId: string) {
       const instance = instances.get(instanceId);
       if (!instance) throw new Error('Instance not found.');
@@ -162,6 +205,7 @@ export function createInMemoryInstanceRepository(): InstanceRepository {
       if (result.ok) instance.lastSuccessAt = result.checkedAt;
       else instance.lastFailureAt = result.checkedAt;
       instance.updatedAt = nowIso();
+      appendConnectivityHistory(instanceId, result);
       return result;
     }
   };

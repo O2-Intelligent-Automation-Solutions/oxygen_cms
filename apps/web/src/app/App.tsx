@@ -5,7 +5,8 @@ import {
 import { type GridCustomCellProps } from '@progress/kendo-react-grid';
 import { Button } from '@progress/kendo-react-buttons';
 import { Dialog, DialogActionsBar } from '@progress/kendo-react-dialogs';
-import { FormEvent, ReactNode, useEffect, useMemo, useState } from 'react';
+import { createJSONEditor, Mode, type Content } from 'vanilla-jsoneditor';
+import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { ManagedGrid, type ManagedGridColumn } from './ManagedGrid';
 import o2Logo from '../brand/assets/o2-ias-logo-dark.png';
 import oxygenLogo from '../brand/assets/oxygen-logo-inline-dark.png';
@@ -23,6 +24,11 @@ type Tenant = { id: string; name: string; description: string | null };
 type UserProfile = AuthProfile;
 type OxyGenInstance = { id: string; name: string; description: string | null; tenantId: TenantId; protocol: 'http' | 'https'; host: string; port: number | null; hostname: string; baseUrl: string; launchUrl: string; apiBaseUrl: string; username: string; pollingIntervalSeconds: number; isEnabled: boolean; status: string; sslValid: boolean | null; sslExpiresAt: string | null; lastCheckedAt: string | null; lastSuccessAt: string | null; lastFailureAt: string | null; uptimePercent24h: number | null; uptimePercent7d: number | null; responseTimeMs: number | null; processingStatus: string; emmQueueStatus: string; smsStatus: string; hangfireStatus: string; licenseKey: string | null; licenseStatus: string; licenseJson: unknown | null; settingsJson: unknown | null; workflowSummaryJson: unknown | null; lastError: string | null; createdAt: string; updatedAt: string };
 type DashboardSeverity = 'ok' | 'warning' | 'failure' | 'unknown';
+type InstanceHealthModalKind = 'availability' | 'ssl' | 'license' | 'response';
+type InstanceCheckHistoryEntry = { checkType: string; status: string; startedAt: string; finishedAt: string | null; durationMs: number | null; httpStatusCode: number | null; errorCode: string | null; errorMessage: string | null; detailsJson: unknown | null };
+type InstanceHealthDetails = { instance: OxyGenInstance; availability: InstanceCheckHistoryEntry[]; latestConnectivity: InstanceCheckHistoryEntry | null; licenseHistory: InstanceCheckHistoryEntry[] };
+type ConnectivityStepDetail = { ok?: boolean; skipped?: boolean; message?: string; httpStatusCode?: number; errorCode?: string; valid?: boolean | null; expiresAt?: string | null; durationMs?: number };
+type ConnectivityDetailsJson = { dns?: ConnectivityStepDetail; ssl?: ConnectivityStepDetail; authentication?: ConnectivityStepDetail; api?: ConnectivityStepDetail; license?: ConnectivityStepDetail };
 type DashboardInstance = OxyGenInstance & { issues: string[]; issueCount: number; hasIssue: boolean; severity?: DashboardSeverity; primaryIssue?: string | null };
 type DashboardSummary = { scope: 'tenant' | 'global'; tenant: { id: string; name: string; description: string | null } | null; counts: { tenants: number; groups: number; users: number; roles: number; tenantRoles: number; globalRoles: number; instances: number; totalInstances: number; instancesWithIssues: number; upInstances: number; downInstances: number; sslIssues: number; licenseIssues: number; disabledInstances: number; connectivityIssues: number; processingIssues: number; unknownInstances: number }; instances: DashboardInstance[] };
 type BootstrapStatus = { requiresBootstrap: boolean };
@@ -41,6 +47,30 @@ type DashboardIssueFilter = 'all' | 'issues';
 type DashboardRefreshMode = 'quiet' | 'manual';
 type StatusTone = 'success' | 'warning' | 'failure';
 const AUTH_STORAGE_KEY = 'oxygen_cms.authToken';
+
+function ReadOnlyJsonEditor({ value }: { value: unknown }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const editorRef = useRef<ReturnType<typeof createJSONEditor> | null>(null);
+  const content: Content = { json: value ?? null };
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    editorRef.current = createJSONEditor({
+      target: containerRef.current,
+      props: { content, readOnly: true, mode: Mode.tree, mainMenuBar: true, navigationBar: true, statusBar: true }
+    });
+    return () => {
+      void editorRef.current?.destroy();
+      editorRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    editorRef.current?.updateProps({ content, readOnly: true });
+  }, [JSON.stringify(value ?? null)]);
+
+  return <div className="license-json-editor jse-theme-dark" ref={containerRef} />;
+}
 type GroupGridRow = { id: string; name: string; description: string; tenant: string; instanceAccess: string; raw: Group };
 type RoleGridRow = { id: string; name: string; description: string; tenant: string; system: string; raw: Role };
 type TenantGridRow = { id: string; name: string; description: string; raw: Tenant };
@@ -176,6 +206,9 @@ export function App() {
   const [activeSection, setActiveSection] = useState<NavSection>('dashboard');
   const [openAccordions, setOpenAccordions] = useState<Set<string>>(new Set(['security']));
   const [modal, setModal] = useState<ModalState>(null);
+  const [healthModal, setHealthModal] = useState<InstanceHealthModalKind | null>(null);
+  const [healthDetails, setHealthDetails] = useState<InstanceHealthDetails | null>(null);
+  const [isHealthDetailsLoading, setIsHealthDetailsLoading] = useState(false);
   const [isDrawerExpanded, setIsDrawerExpanded] = useState(false);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
@@ -697,6 +730,48 @@ export function App() {
   const responseLabel = (instance: DashboardInstance) => instance.status === 'down' ? 'NO RESPONSE' : instance.responseTimeMs === null ? '—' : `${instance.responseTimeMs} ms`;
   const responseTone = (instance: DashboardInstance) => instance.status === 'down' ? 'issue' : instance.responseTimeMs !== null ? 'ok' : instance.status === 'unknown' ? 'unknown' : statusTone(instance);
   const valueTone = (isGood: boolean, isUnknown = false, isWarning = false) => isWarning ? 'warning' : isUnknown ? 'unknown' : isGood ? 'ok' : 'issue';
+  const formatDuration = (value: number | null | undefined) => value === null || value === undefined ? '—' : `${value} ms`;
+  const formatHealthStatus = (status: string) => status === 'auth-error' ? 'Auth error' : status === 'ssl-error' ? 'SSL warning' : status.replace(/-/g, ' ');
+  const connectivityDetails = (entry: InstanceCheckHistoryEntry | null | undefined): ConnectivityDetailsJson => (entry?.detailsJson && typeof entry.detailsJson === 'object' ? entry.detailsJson as ConnectivityDetailsJson : {});
+  const daysUntil = (value: string | null) => value ? Math.ceil((new Date(value).getTime() - Date.now()) / 86400000) : null;
+
+  async function openInstanceHealthModal(kind: InstanceHealthModalKind) {
+    if (!selectedInstance || !token) return;
+    setHealthModal(kind);
+    setHealthDetails(null);
+    setIsHealthDetailsLoading(true);
+    clearStatus();
+    try {
+      const res = await api<{ healthDetails: InstanceHealthDetails }>(`/api/instances/${selectedInstance.id}/health-details`, { token });
+      setHealthDetails(res.healthDetails);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to load instance health details.');
+    } finally {
+      setIsHealthDetailsLoading(false);
+    }
+  }
+
+  function renderTimingRow(label: string, step?: ConnectivityStepDetail, future = false) {
+    return <li className={`response-step ${future ? 'future' : step?.ok === false ? 'issue' : step?.ok ? 'ok' : 'unknown'}`}><span>{label}</span><strong>{future ? 'Future' : step?.skipped ? 'Skipped' : formatDuration(step?.durationMs)}</strong><small>{future ? 'Not collected yet' : step?.message || (step?.httpStatusCode ? `HTTP ${step.httpStatusCode}` : step?.ok ? 'OK' : 'No detail')}</small></li>;
+  }
+
+  function renderInstanceHealthModal() {
+    if (!healthModal || !selectedInstance) return null;
+    const title = `${selectedInstance.name} ${healthModal === 'ssl' ? 'SSL' : healthModal[0].toUpperCase() + healthModal.slice(1)} Details`;
+    const details = healthDetails;
+    const instance = details?.instance || selectedInstance;
+    const latestConnectivity = details?.latestConnectivity ?? null;
+    const stepDetails = connectivityDetails(latestConnectivity);
+    const sslDays = daysUntil(instance.sslExpiresAt);
+    return <Dialog className="cms-dialog instance-health-dialog" title={title} onClose={() => setHealthModal(null)} width={healthModal === 'license' ? 920 : 760}>
+      {isHealthDetailsLoading && <p className="panel-copy">Loading health details…</p>}
+      {!isHealthDetailsLoading && healthModal === 'availability' && <div className="health-detail-panel"><p className="panel-copy small-copy">Recent persisted availability checks from oldest to newest.</p>{details?.availability.length ? <div className="availability-chart" aria-label="Availability over time">{[...details.availability].reverse().map((entry, index) => <span key={`${entry.startedAt}-${index}`} className={`availability-bar status-${entry.status}`} title={`${formatDateTime(entry.finishedAt || entry.startedAt)} — ${formatHealthStatus(entry.status)}${entry.durationMs !== null ? ` (${entry.durationMs} ms)` : ''}`} />)}</div> : <p className="panel-copy">No availability history has been collected yet.</p>}<dl className="detail-list"><dt>Current status</dt><dd>{formatHealthStatus(instance.status)}</dd><dt>Last checked</dt><dd>{formatDateTime(instance.lastCheckedAt)}</dd><dt>Last success</dt><dd>{formatDateTime(instance.lastSuccessAt)}</dd><dt>Last failure</dt><dd>{formatDateTime(instance.lastFailureAt)}</dd><dt>Last error</dt><dd>{formatNullable(instance.lastError)}</dd></dl></div>}
+      {!isHealthDetailsLoading && healthModal === 'ssl' && <div className="health-detail-panel"><dl className="detail-list"><dt>Protocol</dt><dd>{instance.protocol.toUpperCase()}</dd><dt>Certificate status</dt><dd>{instance.protocol !== 'https' ? 'Skipped for HTTP' : instance.sslValid === null ? 'Unknown' : instance.sslValid ? 'Valid' : 'Invalid'}</dd><dt>Expires</dt><dd>{formatDateTime(instance.sslExpiresAt)}</dd><dt>Days until expiration</dt><dd>{sslDays === null ? 'Unknown' : sslDays}</dd><dt>Last SSL probe</dt><dd>{formatDuration(stepDetails.ssl?.durationMs)}</dd><dt>SSL message</dt><dd>{stepDetails.ssl?.message || 'No SSL detail collected.'}</dd><dt>Error code</dt><dd>{formatNullable(stepDetails.ssl?.errorCode)}</dd></dl></div>}
+      {!isHealthDetailsLoading && healthModal === 'license' && <div className="health-detail-panel"><dl className="detail-list"><dt>Status</dt><dd>{instance.licenseStatus}</dd><dt>License key</dt><dd>{formatNullable(instance.licenseKey, 'No license key collected')}</dd><dt>Last license probe</dt><dd>{details?.licenseHistory[0] ? `${formatDateTime(details.licenseHistory[0].finishedAt || details.licenseHistory[0].startedAt)} (${formatDuration(details.licenseHistory[0].durationMs)})` : 'No license history collected.'}</dd></dl><ReadOnlyJsonEditor value={instance.licenseJson ?? { message: 'No license JSON collected yet.' }} /></div>}
+      {!isHealthDetailsLoading && healthModal === 'response' && <div className="health-detail-panel"><p className="panel-copy small-copy">Timing from the last persisted check. Response remains the initial connection/TLS timing.</p><ol className="response-step-list">{renderTimingRow('Connect', instance.protocol === 'https' ? stepDetails.ssl : stepDetails.authentication)}{renderTimingRow('Auth', stepDetails.authentication)}{renderTimingRow('License', stepDetails.license)}{renderTimingRow('Settings', undefined, true)}{renderTimingRow('Triggers', undefined, true)}</ol><dl className="detail-list"><dt>Card response</dt><dd>{formatDuration(instance.responseTimeMs)}</dd><dt>Total check duration</dt><dd>{formatDuration(latestConnectivity?.durationMs)}</dd><dt>Last checked</dt><dd>{formatDateTime(instance.lastCheckedAt)}</dd></dl></div>}
+      <DialogActionsBar><Button type="button" onClick={() => setHealthModal(null)}>Close</Button></DialogActionsBar>
+    </Dialog>;
+  }
 
   function renderDashboard() {
     if (!dashboard) {
@@ -863,7 +938,7 @@ export function App() {
           {activeSection === 'dashboard' && renderDashboard()}
           {activeSection === 'organizations' && isSystemAdmin && <ManagedGrid gridKey="tenants" token={token!} rows={tenantRows} columns={tenantColumnDefs} actionCell={TenantActionCell} mobileActions={(row) => <MobileStandardActions onEdit={() => openEditTenantModal(row.raw)} onDelete={() => deleteItem('tenant', row.raw.id, `${tenantLabelLower} ${row.raw.name}`)} />} toolbar={<Button className="btn-create" onClick={openCreateTenantModal} type="button" themeColor="primary"><Plus /> Create “{tenantLabel}”</Button>} />}
           {activeSection === 'instances' && <ManagedGrid gridKey="instances" token={token!} rows={instanceRows} columns={labeledInstanceColumnDefs} actionCell={InstanceActionCell} actionWidth={180} mobileActions={mobileInstanceActions} toolbar={isSystemAdmin ? <Button className="btn-create" onClick={openCreateInstanceModal} type="button" themeColor="primary"><Plus /> Enroll Instance</Button> : null} />}
-          {activeSection === 'instance-dashboard' && selectedInstance && <div className="instance-detail-dashboard"><div className="instance-dashboard-actions"><Button className="compact-button" type="button" fillMode="flat" onClick={closeInstanceDashboard}><ChevronLeft /> Back to Instances</Button>{isSystemAdmin && <Button className="compact-button" type="button" onClick={() => openEditInstanceModal(selectedInstance)}><Pencil /> Edit</Button>}{isSystemAdmin && <Button className="compact-button" type="button" onClick={() => testInstanceConnectivity(selectedInstance)}><RotateCw /> Test Connectivity</Button>}<Button className="compact-button" type="button" onClick={() => window.open(launchUrlForInstance(selectedInstance), '_blank', 'noopener,noreferrer')}><ExternalLink /> Launch OxyGen</Button></div><div className="instance-health-strip"><div className={`instance-health-card status-${selectedInstance.status}`}><span>Availability</span><strong>{selectedInstance.status}</strong><small>{formatDateTime(selectedInstance.lastCheckedAt)}</small></div><div className="instance-health-card"><span>SSL</span><strong>{selectedInstance.sslValid === null ? 'Unknown' : selectedInstance.sslValid ? 'Valid' : 'Invalid'}</strong><small>Expires {formatDateTime(selectedInstance.sslExpiresAt)}</small></div><div className="instance-health-card"><span>License</span><strong>{selectedInstance.licenseStatus}</strong><small>{formatNullable(selectedInstance.licenseKey, 'No license key collected')}</small></div><div className="instance-health-card"><span>Response</span><strong>{selectedInstance.responseTimeMs === null ? '—' : `${selectedInstance.responseTimeMs} ms`}</strong><small>Polling every {selectedInstance.pollingIntervalSeconds}s</small></div></div><div className="instance-detail-grid"><article className="panel instance-detail-card"><div className="panel-heading"><Server /><div><p className="eyebrow small">Endpoint</p><h3>Connection Details</h3></div></div><dl className="detail-list"><dt>{tenantLabel}</dt><dd>{tenantName(selectedInstance.tenantId)}</dd><dt>Host</dt><dd>{selectedInstance.host}</dd><dt>Port</dt><dd>{formatNullable(selectedInstance.port)}</dd><dt>Base URL</dt><dd>{selectedInstance.baseUrl}</dd><dt>API Base URL</dt><dd>{selectedInstance.apiBaseUrl}</dd><dt>Launch URL</dt><dd>{selectedInstance.launchUrl}</dd><dt>Username</dt><dd>{selectedInstance.username}</dd></dl></article><article className="panel instance-detail-card"><div className="panel-heading"><Activity /><div><p className="eyebrow small">Monitoring</p><h3>Health Status</h3></div></div><dl className="detail-list"><dt>Enabled</dt><dd>{selectedInstance.isEnabled ? 'Yes' : 'No'}</dd><dt>Last Success</dt><dd>{formatDateTime(selectedInstance.lastSuccessAt)}</dd><dt>Last Failure</dt><dd>{formatDateTime(selectedInstance.lastFailureAt)}</dd><dt>Uptime 24h</dt><dd>{selectedInstance.uptimePercent24h === null ? 'Unknown' : `${selectedInstance.uptimePercent24h}%`}</dd><dt>Uptime 7d</dt><dd>{selectedInstance.uptimePercent7d === null ? 'Unknown' : `${selectedInstance.uptimePercent7d}%`}</dd><dt>Last Error</dt><dd>{formatNullable(selectedInstance.lastError, 'None')}</dd></dl></article><article className="panel instance-detail-card"><div className="panel-heading"><Database /><div><p className="eyebrow small">OxyGen BPM</p><h3>Workflow & Components</h3></div></div><dl className="detail-list"><dt>Processing</dt><dd>{selectedInstance.processingStatus}</dd><dt>EMM Queue</dt><dd>{selectedInstance.emmQueueStatus}</dd><dt>SMS</dt><dd>{selectedInstance.smsStatus}</dd><dt>Hangfire</dt><dd>{selectedInstance.hangfireStatus}</dd><dt>Workflow Summary</dt><dd>{selectedInstance.workflowSummaryJson ? 'Collected' : 'Not collected yet'}</dd><dt>Global Settings</dt><dd>{selectedInstance.settingsJson ? 'Collected' : 'Not collected yet'}</dd></dl></article><article className="panel instance-detail-card"><div className="panel-heading"><ShieldCheck /><div><p className="eyebrow small">Record</p><h3>Metadata</h3></div></div><dl className="detail-list"><dt>Description</dt><dd>{formatNullable(selectedInstance.description, 'No description')}</dd><dt>Created</dt><dd>{formatDateTime(selectedInstance.createdAt)}</dd><dt>Updated</dt><dd>{formatDateTime(selectedInstance.updatedAt)}</dd><dt>Instance ID</dt><dd>{selectedInstance.id}</dd></dl></article></div></div>}
+          {activeSection === 'instance-dashboard' && selectedInstance && <div className="instance-detail-dashboard"><div className="instance-dashboard-actions"><Button className="compact-button" type="button" fillMode="flat" onClick={closeInstanceDashboard}><ChevronLeft /> Back to Instances</Button>{isSystemAdmin && <Button className="compact-button" type="button" onClick={() => openEditInstanceModal(selectedInstance)}><Pencil /> Edit</Button>}{isSystemAdmin && <Button className="compact-button" type="button" onClick={() => testInstanceConnectivity(selectedInstance)}><RotateCw /> Test Connectivity</Button>}<Button className="compact-button" type="button" onClick={() => window.open(launchUrlForInstance(selectedInstance), '_blank', 'noopener,noreferrer')}><ExternalLink /> Launch OxyGen</Button></div><div className="instance-health-strip"><button className={`instance-health-card clickable status-${selectedInstance.status}`} type="button" onClick={() => void openInstanceHealthModal('availability')}><span>Availability</span><strong>{selectedInstance.status}</strong><small>{formatDateTime(selectedInstance.lastCheckedAt)}</small></button><button className="instance-health-card clickable" type="button" onClick={() => void openInstanceHealthModal('ssl')}><span>SSL</span><strong>{selectedInstance.sslValid === null ? 'Unknown' : selectedInstance.sslValid ? 'Valid' : 'Invalid'}</strong><small>Expires {formatDateTime(selectedInstance.sslExpiresAt)}</small></button><button className="instance-health-card clickable" type="button" onClick={() => void openInstanceHealthModal('license')}><span>License</span><strong>{selectedInstance.licenseStatus}</strong><small>{formatNullable(selectedInstance.licenseKey, 'No license key collected')}</small></button><button className="instance-health-card clickable" type="button" onClick={() => void openInstanceHealthModal('response')}><span>Response</span><strong>{selectedInstance.responseTimeMs === null ? '—' : `${selectedInstance.responseTimeMs} ms`}</strong><small>Polling every {selectedInstance.pollingIntervalSeconds}s</small></button></div><div className="instance-detail-grid"><article className="panel instance-detail-card"><div className="panel-heading"><Server /><div><p className="eyebrow small">Endpoint</p><h3>Connection Details</h3></div></div><dl className="detail-list"><dt>{tenantLabel}</dt><dd>{tenantName(selectedInstance.tenantId)}</dd><dt>Host</dt><dd>{selectedInstance.host}</dd><dt>Port</dt><dd>{formatNullable(selectedInstance.port)}</dd><dt>Base URL</dt><dd>{selectedInstance.baseUrl}</dd><dt>API Base URL</dt><dd>{selectedInstance.apiBaseUrl}</dd><dt>Launch URL</dt><dd>{selectedInstance.launchUrl}</dd><dt>Username</dt><dd>{selectedInstance.username}</dd></dl></article><article className="panel instance-detail-card"><div className="panel-heading"><Activity /><div><p className="eyebrow small">Monitoring</p><h3>Health Status</h3></div></div><dl className="detail-list"><dt>Enabled</dt><dd>{selectedInstance.isEnabled ? 'Yes' : 'No'}</dd><dt>Last Success</dt><dd>{formatDateTime(selectedInstance.lastSuccessAt)}</dd><dt>Last Failure</dt><dd>{formatDateTime(selectedInstance.lastFailureAt)}</dd><dt>Uptime 24h</dt><dd>{selectedInstance.uptimePercent24h === null ? 'Unknown' : `${selectedInstance.uptimePercent24h}%`}</dd><dt>Uptime 7d</dt><dd>{selectedInstance.uptimePercent7d === null ? 'Unknown' : `${selectedInstance.uptimePercent7d}%`}</dd><dt>Last Error</dt><dd>{formatNullable(selectedInstance.lastError, 'None')}</dd></dl></article><article className="panel instance-detail-card"><div className="panel-heading"><Database /><div><p className="eyebrow small">OxyGen BPM</p><h3>Workflow & Components</h3></div></div><dl className="detail-list"><dt>Processing</dt><dd>{selectedInstance.processingStatus}</dd><dt>EMM Queue</dt><dd>{selectedInstance.emmQueueStatus}</dd><dt>SMS</dt><dd>{selectedInstance.smsStatus}</dd><dt>Hangfire</dt><dd>{selectedInstance.hangfireStatus}</dd><dt>Workflow Summary</dt><dd>{selectedInstance.workflowSummaryJson ? 'Collected' : 'Not collected yet'}</dd><dt>Global Settings</dt><dd>{selectedInstance.settingsJson ? 'Collected' : 'Not collected yet'}</dd></dl></article><article className="panel instance-detail-card"><div className="panel-heading"><ShieldCheck /><div><p className="eyebrow small">Record</p><h3>Metadata</h3></div></div><dl className="detail-list"><dt>Description</dt><dd>{formatNullable(selectedInstance.description, 'No description')}</dd><dt>Created</dt><dd>{formatDateTime(selectedInstance.createdAt)}</dd><dt>Updated</dt><dd>{formatDateTime(selectedInstance.updatedAt)}</dd><dt>Instance ID</dt><dd>{selectedInstance.id}</dd></dl></article></div></div>}
           {activeSection === 'instance-dashboard' && !selectedInstance && <article className="panel"><p className="panel-copy">Select an instance from the grid to open its dashboard.</p><Button className="compact-button" type="button" onClick={() => setActiveSection('instances')}><ChevronLeft /> Back to Instances</Button></article>}
           {activeSection === 'user-groups' && isSystemAdmin && <ManagedGrid gridKey="user-groups" token={token!} rows={groupRows} columns={labeledGroupColumnDefs} actionCell={GroupActionCell} mobileActions={(row) => <MobileStandardActions onEdit={() => openEditGroupModal(row.raw)} onDelete={() => deleteItem('group', row.raw.id, `group ${row.raw.name}`)} />} toolbar={<Button className="btn-create" onClick={openCreateGroupModal} type="button" themeColor="primary"><Plus /> Create &quot;Group&quot;</Button>} />}
           {activeSection === 'users' && isSystemAdmin && <ManagedGrid gridKey="users" token={token!} rows={userRows} columns={labeledUserColumnDefs} actionCell={UserActionCell} mobileActions={(row) => <MobileStandardActions onEdit={() => openEditUserModal(row.raw)} onDelete={() => deleteItem('user', row.raw.user.id, `user ${row.raw.user.email}`)} />} toolbar={<Button className="btn-create" onClick={openCreateUserModal} type="button" themeColor="primary"><Plus /> Create &quot;User&quot;</Button>} />}
@@ -885,6 +960,8 @@ export function App() {
         </>}
       </nav>}
 
+
+      {renderInstanceHealthModal()}
 
       {modal && isMobileViewport && <section className="mobile-editor-screen" aria-labelledby="mobile-editor-title">
         <header className="mobile-editor-screen-header"><button className="mobile-editor-back" type="button" onClick={() => setModal(null)} aria-label="Back"><ChevronLeft /></button><h2 id="mobile-editor-title">{modalTitle}</h2></header>

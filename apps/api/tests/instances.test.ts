@@ -263,6 +263,19 @@ describe('instance enrollment API', () => {
     expect(listed.json().instances[0]).toMatchObject({ status: 'up', lastError: null });
     expect(listed.json().instances[0].lastCheckedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
 
+    const healthDetails = await app.inject({ method: 'GET', url: `/api/instances/${created.json().instance.id}/health-details`, headers: { authorization: `Bearer ${adminToken}` } });
+    expect(healthDetails.statusCode).toBe(200);
+    expect(healthDetails.json().healthDetails).toMatchObject({
+      instance: { id: created.json().instance.id, name: 'Local Mock OxyGen', status: 'up' },
+      availability: [{ checkType: 'connectivity', status: 'up' }],
+      latestConnectivity: { checkType: 'connectivity', status: 'up' },
+      licenseHistory: [{ checkType: 'license' }]
+    });
+    expect(healthDetails.json().healthDetails.latestConnectivity.detailsJson).toMatchObject({
+      authentication: { ok: true, httpStatusCode: 200 },
+      api: { ok: true, httpStatusCode: 200 }
+    });
+
     await app.close();
   });
 

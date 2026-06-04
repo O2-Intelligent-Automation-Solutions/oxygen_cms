@@ -102,11 +102,31 @@ export type ConnectivityResult = {
   license: LicenseProbeResult;
 };
 
+export type InstanceCheckHistoryEntry = {
+  checkType: string;
+  status: string;
+  startedAt: string;
+  finishedAt: string | null;
+  durationMs: number | null;
+  httpStatusCode: number | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  detailsJson: unknown | null;
+};
+
+export type InstanceHealthDetails = {
+  instance: OxyGenInstance;
+  availability: InstanceCheckHistoryEntry[];
+  latestConnectivity: InstanceCheckHistoryEntry | null;
+  licenseHistory: InstanceCheckHistoryEntry[];
+};
+
 export interface InstanceRepository {
   createInstance(input: CreateInstanceInput): Promise<OxyGenInstance>;
   updateInstance(instanceId: string, input: UpdateInstanceInput): Promise<OxyGenInstance>;
   deleteInstance(instanceId: string): Promise<void>;
   listInstances(scope?: { instanceIds?: string[]; includeAll?: boolean }): Promise<OxyGenInstance[]>;
   getInstance(instanceId: string): Promise<OxyGenInstance | null>;
+  getHealthDetails(instanceId: string): Promise<InstanceHealthDetails>;
   testConnectivity(instanceId: string): Promise<ConnectivityResult>;
 }

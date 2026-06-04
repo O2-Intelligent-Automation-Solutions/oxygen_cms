@@ -5,7 +5,7 @@ import type { DatabaseSettings, SetupSettingsStore } from '../setup/fileSetupSet
 import { createCredentialCipherFromEnvironment, type CredentialCipher } from './credentialEncryption.js';
 import { normalizeOxyGenEndpoint } from './inMemoryInstanceRepository.js';
 import { testOxyGenConnectivity } from './oxygenConnectivity.js';
-import type { ConnectivityResult, CreateInstanceInput, InstanceProtocol, InstanceRepository, InstanceStatus, OxyGenInstance, UpdateInstanceInput } from './types.js';
+import type { ConnectivityResult, CreateInstanceInput, InstanceCheckHistoryEntry, InstanceProtocol, InstanceRepository, InstanceStatus, OxyGenInstance, UpdateInstanceInput } from './types.js';
 
 function nowIso() {
   return new Date().toISOString();
@@ -76,6 +76,18 @@ type InstanceRow = RowDataPacket & {
   updated_at: Date | string;
 };
 
+type InstanceCheckHistoryRow = RowDataPacket & {
+  check_type: string;
+  status: string;
+  started_at: Date | string;
+  finished_at: Date | string | null;
+  duration_ms: number | null;
+  http_status_code: number | null;
+  error_code: string | null;
+  error_message: string | null;
+  details_json: unknown | null;
+};
+
 function mapInstance(row: InstanceRow): OxyGenInstance {
   return {
     id: row.id,
@@ -113,6 +125,20 @@ function mapInstance(row: InstanceRow): OxyGenInstance {
     workflowSummaryJson: parseJson(row.workflow_summary_json),
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at)
+  };
+}
+
+function mapHistoryEntry(row: InstanceCheckHistoryRow): InstanceCheckHistoryEntry {
+  return {
+    checkType: row.check_type,
+    status: row.status,
+    startedAt: toIso(row.started_at),
+    finishedAt: nullableIso(row.finished_at),
+    durationMs: nullableNumber(row.duration_ms),
+    httpStatusCode: nullableNumber(row.http_status_code),
+    errorCode: row.error_code,
+    errorMessage: row.error_message,
+    detailsJson: parseJson(row.details_json)
   };
 }
 
@@ -356,6 +382,27 @@ export function createMysqlInstanceRepository(pool: Pool, credentialCipher?: Cre
     },
 
     getInstance: findInstanceById,
+
+    async getHealthDetails(instanceId: string) {
+      const instance = await findInstanceById(instanceId);
+      if (!instance) throw new Error('Instance not found.');
+      const rows = await many<InstanceCheckHistoryRow>(
+        `SELECT check_type, status, started_at, finished_at, duration_ms, http_status_code, error_code, error_message, details_json
+         FROM oxygen_instance_check_history
+         WHERE instance_id = ? AND check_type IN ('connectivity', 'license')
+         ORDER BY started_at DESC, id DESC
+         LIMIT 50`,
+        [instanceId]
+      );
+      const entries = rows.map(mapHistoryEntry);
+      const availability = entries.filter((entry) => entry.checkType === 'connectivity').slice(0, 24);
+      return {
+        instance,
+        availability,
+        latestConnectivity: availability[0] ?? null,
+        licenseHistory: entries.filter((entry) => entry.checkType === 'license').slice(0, 10)
+      };
+    },
 
     async testConnectivity(instanceId: string): Promise<ConnectivityResult> {
       const row = await one<InstanceRow>(`${instanceSelectSql} WHERE i.id = ? LIMIT 1`, [instanceId]);
