@@ -1,7 +1,9 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { requireAuth, requireRole } from '../auth/registerAuthRoutes.js';
 import type { AuthProfile, AuthRepository } from '../auth/types.js';
-import { createInstanceSchema, updateInstanceSchema } from './schemas.js';
+import { normalizeOxyGenEndpoint } from './inMemoryInstanceRepository.js';
+import { testOxyGenConnectivity } from './oxygenConnectivity.js';
+import { createInstanceSchema, testConnectivitySchema, updateInstanceSchema } from './schemas.js';
 import type { InstanceRepository } from './types.js';
 
 type AuthenticatedRequest = FastifyRequest & { authProfile: AuthProfile };
@@ -30,6 +32,21 @@ function instanceScope(profile: AuthProfile) {
   return { instanceIds: Array.from(instanceIds) };
 }
 
+async function testConnectivityFromInput(input: ReturnType<typeof testConnectivitySchema.parse>) {
+  const normalized = normalizeOxyGenEndpoint(input);
+  return testOxyGenConnectivity({
+    instance: {
+      name: 'Unsaved OxyGen instance',
+      protocol: normalized.protocol,
+      host: normalized.host,
+      port: normalized.port,
+      apiBaseUrl: normalized.apiBaseUrl,
+      username: input.username.trim()
+    },
+    password: input.password
+  });
+}
+
 export async function registerInstanceRoutes(app: FastifyInstance, authRepository: AuthRepository, instanceRepository: InstanceRepository) {
   const requireSignedIn = requireAuth(authRepository);
   const adminPreHandler = [requireSignedIn, requireRole('SystemAdmin')];
@@ -56,6 +73,12 @@ export async function registerInstanceRoutes(app: FastifyInstance, authRepositor
     const { instanceId } = request.params as { instanceId: string };
     try { await instanceRepository.deleteInstance(instanceId); return reply.code(204).send(); }
     catch (error) { return errorReply(reply, error, 'Unable to delete instance.', 'Instance not found.'); }
+  });
+
+  app.post('/api/instances/test-connectivity', { preHandler: adminPreHandler }, async (request, reply) => {
+    const input = testConnectivitySchema.parse(request.body);
+    try { return reply.code(200).send(await testConnectivityFromInput(input)); }
+    catch (error) { return errorReply(reply, error, 'Unable to test instance connectivity.'); }
   });
 
   app.post('/api/instances/:instanceId/test-connectivity', { preHandler: adminPreHandler }, async (request, reply) => {

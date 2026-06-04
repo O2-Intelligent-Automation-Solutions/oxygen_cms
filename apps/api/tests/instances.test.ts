@@ -161,6 +161,37 @@ describe('instance enrollment API', () => {
     await app.close();
   });
 
+  it('runs a real connectivity test from unsaved modal connection values without creating an instance', async () => {
+    const authRepository = createInMemoryAuthRepository();
+    const instanceRepository = createInMemoryInstanceRepository();
+    const app = await buildApp({ logger: false, authRepository, instanceRepository });
+    const { adminToken } = await bootstrap(app, authRepository);
+    const port = await startMockOxyGenServer('RemotePassword!42');
+
+    const connectivity = await app.inject({
+      method: 'POST',
+      url: '/api/instances/test-connectivity',
+      headers: { authorization: `Bearer ${adminToken}` },
+      payload: { protocol: 'http', host: '127.0.0.1', port, username: 'admin', password: 'RemotePassword!42' }
+    });
+
+    expect(connectivity.statusCode).toBe(200);
+    expect(connectivity.json()).toMatchObject({
+      ok: true,
+      status: 'reachable',
+      message: 'Connectivity test passed.',
+      authentication: { ok: true, httpStatusCode: 200 },
+      api: { ok: true, httpStatusCode: 200 }
+    });
+    expect(connectivity.json().password).toBeUndefined();
+    expect(connectivity.json().passwordSecret).toBeUndefined();
+
+    const listed = await app.inject({ method: 'GET', url: '/api/instances', headers: { authorization: `Bearer ${adminToken}` } });
+    expect(listed.json().instances).toEqual([]);
+
+    await app.close();
+  });
+
   it('runs a real on-demand connectivity test against an enrolled OxyGen endpoint', async () => {
     const authRepository = createInMemoryAuthRepository();
     const instanceRepository = createInMemoryInstanceRepository();

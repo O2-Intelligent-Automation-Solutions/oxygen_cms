@@ -20,6 +20,15 @@ export const createInstanceSchema = z.object({
   isEnabled: z.boolean().optional().default(true)
 }).refine((value) => Boolean(value.host || value.hostname), { message: 'Host or URL is required.', path: ['host'] });
 
+export const testConnectivitySchema = z.object({
+  protocol: protocolSchema,
+  host: z.string().trim().min(1).optional(),
+  port: portSchema,
+  hostname: z.string().trim().min(1).optional(),
+  username: usernameSchema,
+  password: z.string().min(1)
+}).refine((value) => Boolean(value.host || value.hostname), { message: 'Host or URL is required.', path: ['host'] });
+
 export const updateInstanceSchema = z.object({
   name: z.string().trim().min(1),
   description: optionalText,

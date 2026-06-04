@@ -394,6 +394,38 @@ export function App() {
     catch (err) { setError(err instanceof Error ? err.message : 'Connectivity test failed.'); }
   }
 
+  async function testInstanceFormConnectivity(form: HTMLFormElement | null) {
+    if (!form) return;
+    clearStatus();
+    const editing = modal?.kind === 'instance' ? modal.data as OxyGenInstance | undefined : undefined;
+    const f = new FormData(form);
+    const password = String(f.get('password') || '');
+    if (!password && editing) {
+      await testInstanceConnectivity(editing);
+      return;
+    }
+    if (!password) {
+      setError('Enter the remote OxyGen password before testing the connection.');
+      return;
+    }
+    try {
+      const res = await api<{ ok: boolean; status: string; message: string; durationMs?: number }>('/api/instances/test-connectivity', {
+        method: 'POST',
+        token,
+        body: JSON.stringify({
+          protocol: f.get('protocol'),
+          host: f.get('host'),
+          port: Number(f.get('port') || 0),
+          username: f.get('username'),
+          password
+        })
+      });
+      setMessage(`${String(f.get('name') || editing?.name || 'Unsaved instance')}: ${res.message} (${res.status}${typeof res.durationMs === 'number' ? `, ${res.durationMs} ms` : ''})`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Connectivity test failed.');
+    }
+  }
+
   async function deleteItem(kind: ModalKind, id: string, label: string) {
     clearStatus();
     if (!window.confirm(`Delete ${label}?`)) return;
@@ -563,7 +595,7 @@ export function App() {
         {modal.kind === 'group' && <form className="modal-form" onSubmit={handleSaveGroup}><label>Name<input name="name" placeholder="Customer Group A" defaultValue={(modal.data as Group)?.name || ''} required /></label><label>Description<textarea name="description" rows={3} placeholder="Optional" defaultValue={(modal.data as Group)?.description || ''} /></label><TenantSelect disabled={Boolean(modal.data)} /><label>Instance access<select name="instanceAccessMode" defaultValue={(modal.data as Group)?.instanceAccessMode || 'none'}><option value="none">No instances</option><option value="all">All instances</option><option value="specific">Specific instances</option></select></label><label>Specific instances<InstanceAccessCheckboxes selected={(modal.data as Group)?.instanceIds || []} /></label><DialogActionsBar><Button type="button" fillMode="flat" onClick={() => setModal(null)}>Cancel</Button><Button type="submit" themeColor="primary">{modal.data ? 'Save' : 'Create'}</Button></DialogActionsBar></form>}
         {modal.kind === 'role' && <form className="modal-form" onSubmit={handleSaveRole}><label>Name<input name="name" placeholder="WorkflowReviewer" defaultValue={(modal.data as Role)?.name || ''} required /></label><label>Description<textarea name="description" rows={3} placeholder="Optional" defaultValue={(modal.data as Role)?.description || ''} /></label><TenantSelect disabled={Boolean(modal.data)} /><DialogActionsBar><Button type="button" fillMode="flat" onClick={() => setModal(null)}>Cancel</Button><Button type="submit" themeColor="primary">{modal.data ? 'Save' : 'Create'}</Button></DialogActionsBar></form>}
         {modal.kind === 'tenant' && <form className="modal-form" onSubmit={handleSaveTenant}><label>Name<input name="name" placeholder={`${tenantLabel} A`} defaultValue={(modal.data as Tenant)?.name || ''} required /></label><label>Description<textarea name="description" rows={3} placeholder="Optional" defaultValue={(modal.data as Tenant)?.description || ''} /></label><DialogActionsBar><Button type="button" fillMode="flat" onClick={() => setModal(null)}>Cancel</Button><Button type="submit" themeColor="primary">{modal.data ? 'Save' : 'Create'}</Button></DialogActionsBar></form>}
-        {modal.kind === 'instance' && <form className="modal-form instance-form" onSubmit={handleSaveInstance}><TenantSelect disabled={Boolean(modal.data)} /><label>Name<input name="name" placeholder="Acme Production" defaultValue={(modal.data as OxyGenInstance)?.name || ''} required /></label><label>Description<textarea name="description" rows={3} placeholder="Optional notes about this deployment" defaultValue={(modal.data as OxyGenInstance)?.description || ''} /></label><fieldset className="form-section"><legend>Connection</legend><div className="form-row three"><label>Protocol<select name="protocol" value={instanceProtocol} onChange={(e) => handleInstanceProtocolChange(e.target.value as 'http' | 'https')}><option value="https">HTTPS</option><option value="http">HTTP</option></select></label><label>Host / URL<input name="host" placeholder="customer.example.com" defaultValue={(modal.data as OxyGenInstance)?.host || ''} required /></label><label>Port<input name="port" type="number" min={1} max={65535} value={instancePort} onChange={(e) => setInstancePort(e.target.value)} required /></label></div></fieldset><fieldset className="form-section"><legend>Authentication</legend><div className="form-row two"><label>Username<input name="username" placeholder="admin" defaultValue={(modal.data as OxyGenInstance)?.username || 'admin'} required /></label><label>Password<input name="password" type="password" placeholder={modal.data ? 'Leave blank to keep current password' : 'Remote OxyGen password'} required={!modal.data} /></label></div></fieldset><fieldset className="form-section"><legend>Monitoring</legend><label className="checkbox-label inline-checkbox"><input name="isEnabled" type="checkbox" checked={instancePollingEnabled} onChange={(e) => setInstancePollingEnabled(e.target.checked)} /> Enabled for polling</label>{instancePollingEnabled && <div className="form-row one"><label>Polling interval seconds<input name="pollingIntervalSeconds" type="number" min={60} max={86400} defaultValue={(modal.data as OxyGenInstance)?.pollingIntervalSeconds || 300} required /></label></div>}</fieldset><DialogActionsBar><Button type="button" fillMode="flat" onClick={() => setModal(null)}>Cancel</Button><Button type="submit" themeColor="primary">{modal.data ? 'Save' : 'Create'}</Button></DialogActionsBar></form>}
+        {modal.kind === 'instance' && <form className="modal-form instance-form" onSubmit={handleSaveInstance}><TenantSelect disabled={Boolean(modal.data)} /><label>Name<input name="name" placeholder="Acme Production" defaultValue={(modal.data as OxyGenInstance)?.name || ''} required /></label><label>Description<textarea name="description" rows={3} placeholder="Optional notes about this deployment" defaultValue={(modal.data as OxyGenInstance)?.description || ''} /></label><fieldset className="form-section"><legend>Connection</legend><div className="form-row three"><label>Protocol<select name="protocol" value={instanceProtocol} onChange={(e) => handleInstanceProtocolChange(e.target.value as 'http' | 'https')}><option value="https">HTTPS</option><option value="http">HTTP</option></select></label><label>Host / URL<input name="host" placeholder="customer.example.com" defaultValue={(modal.data as OxyGenInstance)?.host || ''} required /></label><label>Port<input name="port" type="number" min={1} max={65535} value={instancePort} onChange={(e) => setInstancePort(e.target.value)} required /></label></div></fieldset><fieldset className="form-section"><legend>Authentication</legend><div className="form-row two"><label>Username<input name="username" placeholder="admin" defaultValue={(modal.data as OxyGenInstance)?.username || 'admin'} required /></label><label>Password<input name="password" type="password" placeholder={modal.data ? 'Leave blank to keep current password' : 'Remote OxyGen password'} required={!modal.data} /></label></div></fieldset><fieldset className="form-section"><legend>Monitoring</legend><label className="checkbox-label inline-checkbox"><input name="isEnabled" type="checkbox" checked={instancePollingEnabled} onChange={(e) => setInstancePollingEnabled(e.target.checked)} /> Enabled for polling</label>{instancePollingEnabled && <div className="form-row one"><label>Polling interval seconds<input name="pollingIntervalSeconds" type="number" min={60} max={86400} defaultValue={(modal.data as OxyGenInstance)?.pollingIntervalSeconds || 300} required /></label></div>}</fieldset><DialogActionsBar><Button type="button" fillMode="flat" onClick={() => setModal(null)}>Cancel</Button><Button type="button" fillMode="outline" onClick={(e) => testInstanceFormConnectivity((e.currentTarget as HTMLButtonElement).form)}><RotateCw /> Test Connection</Button><Button type="submit" themeColor="primary">{modal.data ? 'Save' : 'Create'}</Button></DialogActionsBar></form>}
       </Dialog>}
       {(message || error) && <p className={error ? 'status error' : 'status'}>{error || message}</p>}
     </main>

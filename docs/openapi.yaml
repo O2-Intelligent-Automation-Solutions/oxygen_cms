@@ -536,6 +536,24 @@ paths:
                   instance: { $ref: '#/components/schemas/OxyGenInstance' }
         '400': { $ref: '#/components/responses/Error' }
         '403': { $ref: '#/components/responses/Error' }
+  /api/instances/test-connectivity:
+    post:
+      tags: [Instances]
+      summary: Test unsaved instance connectivity
+      description: "Runs the same live DNS/TLS/auth/API connectivity check from create/edit modal connection values without creating or updating an enrolled instance, and without writing instance status/history."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TestConnectivityInput' }
+      responses:
+        '200':
+          description: Connectivity result.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConnectivityResult' }
+        '400': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
   /api/instances/{instanceId}:
     parameters:
       - $ref: '#/components/parameters/instanceId'
@@ -856,6 +874,16 @@ components:
         password: { type: string, writeOnly: true, description: Remote OxyGen credential. Stored encrypted at rest using AES-256-GCM and never returned by API responses. Requires OXYGEN_CMS_ENCRYPTION_KEY when persisted to MySQL. }
         pollingIntervalSeconds: { type: integer, minimum: 60, maximum: 86400, default: 300 }
         isEnabled: { type: boolean, default: true }
+    TestConnectivityInput:
+      type: object
+      required: [username, password]
+      properties:
+        protocol: { $ref: '#/components/schemas/InstanceProtocol' }
+        host: { type: string, description: Hostname/domain without protocol, or normalized from hostname. }
+        port: { type: [integer, 'null'], minimum: 1, maximum: 65535 }
+        hostname: { type: string, description: Legacy/full hostname input; host or hostname is required. }
+        username: { type: string, default: admin }
+        password: { type: string, writeOnly: true, description: Remote OxyGen credential used only for this live test and never persisted by this endpoint. }
     UpdateInstanceInput:
       allOf:
         - $ref: '#/components/schemas/CreateInstanceInput'

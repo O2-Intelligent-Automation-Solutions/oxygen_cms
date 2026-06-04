@@ -63,11 +63,11 @@ describeMysql('MySQL instance repository', () => {
     });
 
     try {
-      await pool.query("DELETE FROM oxygen_instance_check_history WHERE instance_id IN (SELECT id FROM oxygen_instances WHERE name IN ('Acme Production', 'Acme Prod', 'Beta Hidden', 'Local Mock OxyGen'))");
-      await pool.query("DELETE FROM oxygen_instance_status WHERE instance_id IN (SELECT id FROM oxygen_instances WHERE name IN ('Acme Production', 'Acme Prod', 'Beta Hidden', 'Local Mock OxyGen'))");
-      await pool.query("DELETE FROM user_group_instance_access WHERE instance_id IN (SELECT id FROM oxygen_instances WHERE name IN ('Acme Production', 'Acme Prod', 'Beta Hidden', 'Local Mock OxyGen'))");
-      await pool.query("DELETE FROM user_instance_access WHERE instance_id IN (SELECT id FROM oxygen_instances WHERE name IN ('Acme Production', 'Acme Prod', 'Beta Hidden', 'Local Mock OxyGen'))");
-      await pool.query("DELETE FROM oxygen_instances WHERE name IN ('Acme Production', 'Acme Prod', 'Beta Hidden', 'Local Mock OxyGen')");
+      await pool.query("DELETE FROM oxygen_instance_check_history WHERE instance_id IN (SELECT id FROM oxygen_instances WHERE name IN ('Acme Production', 'Acme Prod', 'Beta Hidden', 'Local Mock OxyGen', 'Development'))");
+      await pool.query("DELETE FROM oxygen_instance_status WHERE instance_id IN (SELECT id FROM oxygen_instances WHERE name IN ('Acme Production', 'Acme Prod', 'Beta Hidden', 'Local Mock OxyGen', 'Development'))");
+      await pool.query("DELETE FROM user_group_instance_access WHERE instance_id IN (SELECT id FROM oxygen_instances WHERE name IN ('Acme Production', 'Acme Prod', 'Beta Hidden', 'Local Mock OxyGen', 'Development'))");
+      await pool.query("DELETE FROM user_instance_access WHERE instance_id IN (SELECT id FROM oxygen_instances WHERE name IN ('Acme Production', 'Acme Prod', 'Beta Hidden', 'Local Mock OxyGen', 'Development'))");
+      await pool.query("DELETE FROM oxygen_instances WHERE name IN ('Acme Production', 'Acme Prod', 'Beta Hidden', 'Local Mock OxyGen', 'Development')");
       await pool.query("DELETE FROM tenants WHERE id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'");
       await pool.query("INSERT INTO tenants (id, name, description) VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'Acme Tenant', NULL)");
 
