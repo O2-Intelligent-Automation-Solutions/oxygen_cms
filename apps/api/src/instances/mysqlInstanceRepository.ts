@@ -202,7 +202,7 @@ export function createMysqlInstanceRepository(pool: Pool, credentialCipher?: Cre
       `UPDATE oxygen_instance_status
        SET availability_status = ?, ssl_valid = ?, ssl_expires_at = ?, last_checked_at = ?,
            last_success_at = COALESCE(?, last_success_at), last_failure_at = COALESCE(?, last_failure_at),
-           response_time_ms = ?, last_error = ?
+           response_time_ms = ?, last_error = ?, license_key = ?, license_status = ?, license_json = ?
        WHERE instance_id = ?`,
       [
         availability,
@@ -211,8 +211,11 @@ export function createMysqlInstanceRepository(pool: Pool, credentialCipher?: Cre
         new Date(result.checkedAt),
         lastSuccessAt ? new Date(lastSuccessAt) : null,
         lastFailureAt ? new Date(lastFailureAt) : null,
-        result.durationMs,
+        result.responseTimeMs,
         result.ok ? null : result.message,
+        result.license.key,
+        result.license.status,
+        result.license.payload === null ? null : JSON.stringify(result.license.payload),
         instanceId
       ]
     );
@@ -229,7 +232,23 @@ export function createMysqlInstanceRepository(pool: Pool, credentialCipher?: Cre
         result.httpStatusCode,
         result.ok ? null : (result.authentication.errorCode ?? result.api.errorCode ?? result.ssl.errorCode ?? result.dns.errorCode ?? 'CONNECTIVITY_ERROR'),
         result.ok ? null : result.message,
-        JSON.stringify({ dns: result.dns, ssl: result.ssl, authentication: result.authentication, api: result.api })
+        JSON.stringify({ dns: result.dns, ssl: result.ssl, authentication: result.authentication, api: result.api, license: result.license.step })
+      ]
+    );
+    await pool.execute(
+      `INSERT INTO oxygen_instance_check_history
+       (instance_id, check_type, status, started_at, finished_at, duration_ms, http_status_code, error_code, error_message, details_json)
+       VALUES (?, 'license', ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        instanceId,
+        result.license.step.skipped ? 'unknown' : result.license.status === 'valid' ? 'ok' : result.license.status === 'warning' || result.license.status === 'unknown' ? 'warning' : 'error',
+        new Date(Math.max(0, new Date(result.checkedAt).getTime() - result.durationMs)),
+        new Date(result.checkedAt),
+        result.durationMs,
+        result.license.step.httpStatusCode ?? null,
+        result.license.step.errorCode ?? null,
+        result.license.step.ok ? null : (result.license.step.message ?? null),
+        JSON.stringify({ step: result.license.step, status: result.license.status, keyPresent: Boolean(result.license.key), payload: result.license.payload })
       ]
     );
   }

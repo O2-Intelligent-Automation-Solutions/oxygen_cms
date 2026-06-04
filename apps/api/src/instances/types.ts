@@ -77,6 +77,14 @@ export type ConnectivityStepResult = {
   errorCode?: string;
   valid?: boolean | null;
   expiresAt?: string | null;
+  durationMs?: number;
+};
+
+export type LicenseProbeResult = {
+  step: ConnectivityStepResult;
+  status: LicenseStatus;
+  key: string | null;
+  payload: unknown | null;
 };
 
 export type ConnectivityResult = {
@@ -85,11 +93,13 @@ export type ConnectivityResult = {
   message: string;
   checkedAt: string;
   durationMs: number;
+  responseTimeMs: number | null;
   httpStatusCode: number | null;
   dns: ConnectivityStepResult;
   ssl: ConnectivityStepResult;
   authentication: ConnectivityStepResult;
   api: ConnectivityStepResult;
+  license: LicenseProbeResult;
 };
 
 export interface InstanceRepository {

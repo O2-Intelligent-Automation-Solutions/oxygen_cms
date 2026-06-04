@@ -541,7 +541,7 @@ paths:
     post:
       tags: [Instances]
       summary: Test unsaved instance connectivity
-      description: "Runs the same live DNS/TLS/auth/API connectivity check from create/edit modal connection values without creating or updating an enrolled instance, and without writing instance status/history."
+      description: "Runs the same live DNS/TLS/auth/API connectivity check from create/edit modal connection values without creating or updating an enrolled instance, and without writing instance status/history. After successful authentication it also probes GET /web-api/BUS/License and returns the parsed license result."
       requestBody:
         required: true
         content:
@@ -607,7 +607,7 @@ paths:
     post:
       tags: [Instances]
       summary: Test instance connectivity
-      description: "Runs a live, CMS-initiated Phase 1 connectivity test: DNS resolution, HTTPS certificate inspection when applicable, OxyGen form authentication, and a read-only current-time API probe. Updates instance status and appends connectivity history when using the MySQL repository."
+      description: "Runs a live, CMS-initiated Phase 1 connectivity test: DNS resolution, HTTPS certificate inspection when applicable, OxyGen form authentication, a read-only current-time API probe, and GET /web-api/BUS/License. Updates instance availability/SSL/license status and appends connectivity/license history when using the MySQL repository."
       responses:
         '200':
           description: Connectivity result.
@@ -981,7 +981,7 @@ components:
             - type: 'null'
         counts:
           type: object
-          required: [tenants, groups, users, roles, tenantRoles, globalRoles, instances, totalInstances, instancesWithIssues, upInstances, downInstances, sslIssues, licenseIssues, disabledInstances]
+          required: [tenants, groups, users, roles, tenantRoles, globalRoles, instances, totalInstances, instancesWithIssues, upInstances, downInstances, sslIssues, licenseIssues, disabledInstances, connectivityIssues, processingIssues, unknownInstances]
           properties:
             tenants: { type: integer, minimum: 0 }
             groups: { type: integer, minimum: 0 }
@@ -994,9 +994,12 @@ components:
             instancesWithIssues: { type: integer, minimum: 0 }
             upInstances: { type: integer, minimum: 0 }
             downInstances: { type: integer, minimum: 0 }
-            sslIssues: { type: integer, minimum: 0 }
-            licenseIssues: { type: integer, minimum: 0 }
+            sslIssues: { type: integer, minimum: 0, description: Visible HTTPS instances with invalid certificates or SSL probe warnings. SSL issues are warnings, not connectivity failures. }
+            licenseIssues: { type: integer, minimum: 0, description: Visible instances with missing, warning, expired, or error license state. }
             disabledInstances: { type: integer, minimum: 0 }
+            connectivityIssues: { type: integer, minimum: 0, description: Visible instances whose availability status is down, auth-error, or another non-up/non-unknown connectivity state excluding SSL warnings. }
+            processingIssues: { type: integer, minimum: 0, description: Visible instances with processing, EMM queue, SMS, or Hangfire component status outside ok/unknown. }
+            unknownInstances: { type: integer, minimum: 0, description: Visible instances with unknown availability, SSL, license, or processing component state. }
         instances:
           type: array
           items: { $ref: '#/components/schemas/DashboardInstance' }
@@ -1004,13 +1007,23 @@ components:
       allOf:
         - $ref: '#/components/schemas/OxyGenInstance'
         - type: object
-          required: [issues, issueCount, hasIssue]
+          required: [issues, issueCount, hasIssue, severity, primaryIssue]
           properties:
             issues:
               type: array
               items: { type: string }
+            issueDetails:
+              type: array
+              items:
+                type: object
+                required: [label, severity]
+                properties:
+                  label: { type: string }
+                  severity: { type: string, enum: [warning, failure] }
             issueCount: { type: integer, minimum: 0 }
             hasIssue: { type: boolean }
+            severity: { type: string, enum: [ok, warning, failure, unknown], description: Highest dashboard severity for the instance card. Failures render red, warnings render yellow, healthy renders green. }
+            primaryIssue: { type: [string, 'null'], description: Most critical issue/warning label to show on dashboard instance cards. }
     OxyGenInstance:
       type: object
       required: [id, name, description, tenantId, protocol, host, port, hostname, baseUrl, launchUrl, apiBaseUrl, username, pollingIntervalSeconds, isEnabled, status, createdAt, updatedAt]
@@ -1055,26 +1068,37 @@ components:
       required: [ok]
       properties:
         ok: { type: boolean }
-        skipped: { type: boolean }
-        message: { type: string }
+        skipped: { type: boolean, nullable: true }
+        message: { type: string, nullable: true }
         httpStatusCode: { type: integer, nullable: true }
+        durationMs: { type: integer, minimum: 0, nullable: true, description: Step-level socket/TLS connection timing when captured. }
         errorCode: { type: string, nullable: true }
         valid: { type: boolean, nullable: true }
         expiresAt: { type: string, format: date-time, nullable: true }
+    LicenseProbeResult:
+      type: object
+      required: [step, status, key, payload]
+      properties:
+        step: { $ref: '#/components/schemas/ConnectivityStepResult' }
+        status: { $ref: '#/components/schemas/LicenseStatus' }
+        key: { type: [string, 'null'] }
+        payload: {}
     ConnectivityResult:
       type: object
-      required: [ok, status, message, checkedAt, durationMs, httpStatusCode, dns, ssl, authentication, api]
+      required: [ok, status, message, checkedAt, durationMs, responseTimeMs, httpStatusCode, dns, ssl, authentication, api, license]
       properties:
         ok: { type: boolean }
         status: { type: string, enum: [reachable, unreachable, auth-error, ssl-error] }
         message: { type: string }
         checkedAt: { type: string, format: date-time }
-        durationMs: { type: integer, minimum: 0 }
+        durationMs: { type: integer, minimum: 0, description: Full connectivity refresh duration including authentication and API/license probes. }
+        responseTimeMs: { type: integer, minimum: 0, nullable: true, description: Initial HTTP/TLS connection time only; authentication and API/license probe time is excluded. }
         httpStatusCode: { type: integer, nullable: true }
         dns: { $ref: '#/components/schemas/ConnectivityStepResult' }
         ssl: { $ref: '#/components/schemas/ConnectivityStepResult' }
         authentication: { $ref: '#/components/schemas/ConnectivityStepResult' }
         api: { $ref: '#/components/schemas/ConnectivityStepResult' }
+        license: { $ref: '#/components/schemas/LicenseProbeResult' }
     GridPreferenceInput:
       type: object
       required: [columns, sort, group, filter, filtersVisible]

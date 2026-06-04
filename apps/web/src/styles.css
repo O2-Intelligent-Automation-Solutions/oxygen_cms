@@ -395,12 +395,24 @@ button.secondary {
 .status {
   margin: 22px 0 0;
   padding: 14px 16px;
-  color: #a7f3d0;
+  color: #5bffb1;
+  border-color: rgba(82, 224, 169, 0.42);
 }
 
+.status.success {
+  color: #5bffb1;
+  border-color: rgba(82, 224, 169, 0.42);
+}
+
+.status.warning {
+  color: var(--brand-warning);
+  border-color: rgba(255, 209, 102, 0.52);
+}
+
+.status.failure,
 .status.error {
-  color: #fecaca;
-  border-color: rgba(248, 113, 113, 0.4);
+  color: #ff5b6b;
+  border-color: rgba(255, 91, 107, 0.55);
 }
 
 .list {
@@ -3278,7 +3290,7 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
 
 .tenant-dashboard-hero {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 220px;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 18px;
   align-items: stretch;
   padding: 22px;
@@ -3286,6 +3298,14 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
   border-radius: 24px;
   background: linear-gradient(135deg, rgba(10, 35, 55, 0.96), rgba(6, 12, 20, 0.98));
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.24);
+}
+
+.tenant-dashboard-hero.compact {
+  align-items: center;
+}
+
+.tenant-dashboard-hero.compact .dashboard-refresh-stamp {
+  margin-top: 0;
 }
 
 .tenant-dashboard-hero h3,
@@ -3298,6 +3318,74 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
   margin: 8px 0 0;
   color: var(--muted-text);
   max-width: 780px;
+}
+
+.dashboard-refresh-stamp {
+  display: block;
+  margin-top: 10px;
+  color: var(--muted-text);
+}
+
+.dashboard-refresh-actions {
+  display: flex;
+  align-items: end;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.dashboard-refresh-actions label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 220px;
+  color: var(--muted-text);
+  font-size: 0.74rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.dashboard-refresh-actions select {
+  min-height: 36px;
+  min-width: 240px;
+  border: 1px solid rgba(118, 214, 255, 0.22);
+  border-radius: 10px;
+  background: rgba(6, 18, 30, 0.95);
+  color: #f6fbff;
+  padding: 0 10px;
+}
+
+.dashboard-refresh-button.k-button,
+.dashboard-refresh-button {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 7px !important;
+  min-height: 36px !important;
+  line-height: 1 !important;
+  white-space: nowrap !important;
+  vertical-align: middle !important;
+}
+
+.dashboard-refresh-button svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+  flex: 0 0 16px;
+}
+
+.dashboard-refresh-button span {
+  display: inline-block;
+  line-height: 1;
+}
+
+.spin-icon {
+  animation: dashboard-spin 0.9s linear infinite;
+}
+
+@keyframes dashboard-spin {
+  to { transform: rotate(360deg); }
 }
 
 .tenant-dashboard-status {
@@ -3382,13 +3470,43 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
   color: var(--muted-text);
 }
 
+.tenant-metric-card.ok,
 .tenant-issue-card.ok {
-  border-color: rgba(91, 255, 177, 0.28);
+  border-color: rgba(91, 255, 177, 0.34);
 }
 
+.tenant-metric-card.ok strong,
+.tenant-issue-card.ok strong,
+.tenant-instance-stats b.ok {
+  color: #5bffb1;
+}
+
+.tenant-metric-card.issue,
 .tenant-issue-card.issue {
-  border-color: rgba(255, 159, 67, 0.5);
-  background: linear-gradient(145deg, rgba(50, 28, 8, 0.82), rgba(8, 22, 36, 0.92));
+  border-color: rgba(255, 91, 91, 0.58);
+  background: linear-gradient(145deg, rgba(54, 9, 18, 0.82), rgba(8, 22, 36, 0.92));
+}
+
+.tenant-metric-card.issue strong,
+.tenant-issue-card.issue strong,
+.tenant-instance-stats b.issue {
+  color: #ff5b6b;
+}
+
+.tenant-metric-card.warning,
+.tenant-issue-card.warning {
+  border-color: rgba(255, 209, 102, 0.58);
+  background: linear-gradient(145deg, rgba(69, 47, 11, 0.76), rgba(8, 22, 36, 0.92));
+}
+
+.tenant-metric-card.warning strong,
+.tenant-issue-card.warning strong,
+.tenant-instance-stats b.warning {
+  color: var(--brand-warning);
+}
+
+.tenant-instance-stats b.unknown {
+  color: #ffb454;
 }
 
 .tenant-section-heading {
@@ -3397,6 +3515,33 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 12px;
+}
+
+.dashboard-filter-bar {
+  display: flex;
+  align-items: end;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.dashboard-filter-bar label {
+  display: grid;
+  gap: 5px;
+  min-width: 170px;
+  color: var(--muted-text);
+  font-size: 0.74rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.dashboard-filter-bar select {
+  min-height: 36px;
+  border: 1px solid rgba(118, 214, 255, 0.22);
+  border-radius: 10px;
+  background: rgba(6, 18, 30, 0.95);
+  color: #f6fbff;
+  padding: 0 10px;
 }
 
 .tenant-instance-board {
@@ -3419,15 +3564,19 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
   background: rgba(53, 195, 255, 0.5);
 }
 
-.tenant-instance-card.has-issue::before,
-.tenant-instance-card.status-down::before,
-.tenant-instance-card.status-auth-error::before,
-.tenant-instance-card.status-ssl-error::before {
-  background: #ff9f43;
+.tenant-instance-card.issue::before {
+  background: #ff5b6b;
 }
 
-.tenant-instance-card.healthy::before,
-.tenant-instance-card.status-up::before {
+.tenant-instance-card.warning::before {
+  background: var(--brand-warning);
+}
+
+.tenant-instance-card.unknown::before {
+  background: #ffb454;
+}
+
+.tenant-instance-card.ok::before {
   background: #5bffb1;
 }
 
@@ -3472,9 +3621,44 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
   box-shadow: 0 0 12px rgba(91, 255, 177, 0.7);
 }
 
-.tenant-instance-card.has-issue .instance-status-dot {
-  background: #ff9f43;
-  box-shadow: 0 0 12px rgba(255, 159, 67, 0.7);
+.tenant-instance-card.ok h4,
+.tenant-instance-card.ok header strong {
+  color: #5bffb1;
+}
+
+.tenant-instance-card.issue h4,
+.tenant-instance-card.issue header strong {
+  color: #ff5b6b;
+}
+
+.tenant-instance-card.warning h4,
+.tenant-instance-card.warning header strong {
+  color: var(--brand-warning);
+}
+
+.tenant-instance-card.unknown h4,
+.tenant-instance-card.unknown header strong {
+  color: #ffb454;
+}
+
+.tenant-instance-card.ok .instance-status-dot {
+  background: #5bffb1;
+  box-shadow: 0 0 12px rgba(91, 255, 177, 0.7);
+}
+
+.tenant-instance-card.issue .instance-status-dot {
+  background: #ff5b6b;
+  box-shadow: 0 0 12px rgba(255, 91, 107, 0.7);
+}
+
+.tenant-instance-card.warning .instance-status-dot {
+  background: var(--brand-warning);
+  box-shadow: 0 0 12px rgba(255, 209, 102, 0.64);
+}
+
+.tenant-instance-card.unknown .instance-status-dot {
+  background: #ffb454;
+  box-shadow: 0 0 12px rgba(255, 180, 84, 0.7);
 }
 
 .tenant-instance-stats {
@@ -3511,14 +3695,44 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
   overflow-wrap: anywhere;
 }
 
-.tenant-instance-foot button {
+.tenant-instance-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.tenant-card-action.k-button {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 32px !important;
+  min-width: 32px !important;
+  height: 32px !important;
+  padding: 0 !important;
   flex: 0 0 auto;
   border: 1px solid rgba(53, 195, 255, 0.35);
-  border-radius: 999px;
+  border-radius: 10px;
   background: rgba(53, 195, 255, 0.1);
-  color: #d7f5ff;
-  padding: 8px 12px;
-  cursor: pointer;
+  color: #d7f5ff !important;
+  box-shadow: none !important;
+}
+
+.tenant-card-action.k-button:hover {
+  border-color: rgba(32, 214, 210, 0.58) !important;
+  background: rgba(32, 214, 210, 0.16) !important;
+  color: var(--brand-primary) !important;
+}
+
+.tenant-card-action.k-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.tenant-card-action svg {
+  width: 16px;
+  height: 16px;
 }
 
 .tenant-dashboard-empty {
@@ -3560,9 +3774,21 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
     flex-direction: column;
   }
 
+  .dashboard-filter-bar,
+  .dashboard-filter-bar label,
+  .dashboard-refresh-actions,
   .tenant-section-heading .compact-button {
     width: 100%;
-    justify-content: center;
+  }
+
+  .dashboard-filter-bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .dashboard-filter-bar select,
+  .dashboard-refresh-actions .compact-button {
+    width: 100%;
   }
 
   .tenant-instance-card header {

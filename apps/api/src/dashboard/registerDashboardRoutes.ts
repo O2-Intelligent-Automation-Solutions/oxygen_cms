@@ -26,22 +26,84 @@ function instanceScope(profile: AuthProfile) {
   return { instanceIds: Array.from(instanceIds) };
 }
 
-function componentIssue(status: string) {
-  return status !== 'ok' && status !== 'unknown';
+type DashboardSeverity = 'ok' | 'warning' | 'failure' | 'unknown';
+type DashboardIssue = { label: string; severity: Exclude<DashboardSeverity, 'ok' | 'unknown'> };
+
+function componentFailure(status: string) {
+  return status === 'error';
 }
 
-function instanceIssues(instance: OxyGenInstance) {
-  const issues: string[] = [];
-  if (!instance.isEnabled) issues.push('Polling disabled');
-  if (instance.status !== 'up' && instance.status !== 'unknown') issues.push(`Availability ${instance.status}`);
-  if (instance.sslValid === false || instance.status === 'ssl-error') issues.push('SSL issue');
-  if (instance.licenseStatus === 'expired' || instance.licenseStatus === 'error') issues.push(`License ${instance.licenseStatus}`);
-  if (componentIssue(instance.processingStatus)) issues.push(`Processing ${instance.processingStatus}`);
-  if (componentIssue(instance.emmQueueStatus)) issues.push(`EMM Queue ${instance.emmQueueStatus}`);
-  if (componentIssue(instance.smsStatus)) issues.push(`SMS ${instance.smsStatus}`);
-  if (componentIssue(instance.hangfireStatus)) issues.push(`Hangfire ${instance.hangfireStatus}`);
-  if (instance.lastError) issues.push(instance.lastError);
-  return Array.from(new Set(issues));
+function componentWarning(status: string) {
+  return status === 'warning';
+}
+
+function sslIssue(instance: OxyGenInstance) {
+  return instance.protocol === 'https' && (instance.sslValid === false || instance.status === 'ssl-error');
+}
+
+function connectivityIssue(instance: OxyGenInstance) {
+  return instance.status !== 'up' && instance.status !== 'unknown' && instance.status !== 'ssl-error';
+}
+
+function licenseFailure(instance: OxyGenInstance) {
+  return instance.licenseStatus === 'expired' || instance.licenseStatus === 'error' || (!instance.licenseKey && instance.licenseStatus !== 'unknown' && instance.licenseStatus !== 'warning');
+}
+
+function licenseWarning(instance: OxyGenInstance) {
+  return instance.licenseStatus === 'warning' || (!instance.licenseKey && instance.licenseStatus === 'unknown');
+}
+
+function licenseIssue(instance: OxyGenInstance) {
+  return licenseFailure(instance) || licenseWarning(instance);
+}
+
+function processingFailure(instance: OxyGenInstance) {
+  return componentFailure(instance.processingStatus) || componentFailure(instance.emmQueueStatus) || componentFailure(instance.smsStatus) || componentFailure(instance.hangfireStatus);
+}
+
+function processingWarning(instance: OxyGenInstance) {
+  return componentWarning(instance.processingStatus) || componentWarning(instance.emmQueueStatus) || componentWarning(instance.smsStatus) || componentWarning(instance.hangfireStatus);
+}
+
+function processingIssue(instance: OxyGenInstance) {
+  return processingFailure(instance) || processingWarning(instance);
+}
+
+function licenseIssueLabel(instance: OxyGenInstance) {
+  if (!instance.licenseKey) return instance.licenseStatus === 'unknown' ? 'License API unavailable' : 'License blank';
+  if (instance.licenseStatus === 'expired') return 'License expired';
+  if (instance.licenseStatus === 'error') return 'License invalid';
+  if (instance.licenseStatus === 'warning') return 'License warning';
+  return `License ${instance.licenseStatus}`;
+}
+
+function instanceIssueDetails(instance: OxyGenInstance): DashboardIssue[] {
+  const issues: DashboardIssue[] = [];
+  if (connectivityIssue(instance)) issues.push({ label: instance.status === 'auth-error' ? 'Authentication failure' : `Availability ${instance.status}`, severity: 'failure' });
+  if (licenseFailure(instance)) issues.push({ label: licenseIssueLabel(instance), severity: 'failure' });
+  if (processingFailure(instance)) issues.push({ label: 'Processing failure', severity: 'failure' });
+  if (sslIssue(instance)) issues.push({ label: 'SSL warning', severity: 'warning' });
+  if (licenseWarning(instance)) issues.push({ label: licenseIssueLabel(instance), severity: 'warning' });
+  if (processingWarning(instance)) issues.push({ label: 'Processing warning', severity: 'warning' });
+  if (componentWarning(instance.emmQueueStatus)) issues.push({ label: 'EMM disabled/warning', severity: 'warning' });
+  if (componentWarning(instance.smsStatus)) issues.push({ label: 'SMS disabled/warning', severity: 'warning' });
+  if (componentWarning(instance.hangfireStatus)) issues.push({ label: 'BUS disabled/warning', severity: 'warning' });
+  if (instance.lastError && connectivityIssue(instance)) issues.push({ label: instance.lastError, severity: 'failure' });
+
+  const seen = new Set<string>();
+  return issues.filter((issue) => {
+    const key = `${issue.severity}:${issue.label}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function instanceSeverity(instance: OxyGenInstance, issues: DashboardIssue[]): DashboardSeverity {
+  if (issues.some((issue) => issue.severity === 'failure')) return 'failure';
+  if (issues.some((issue) => issue.severity === 'warning')) return 'warning';
+  if (instance.status === 'unknown') return 'unknown';
+  return 'ok';
 }
 
 export async function registerDashboardRoutes(app: FastifyInstance, authRepository: AuthRepository, instanceRepository: InstanceRepository) {
@@ -60,20 +122,26 @@ export async function registerDashboardRoutes(app: FastifyInstance, authReposito
     const scopedByTenant = <T extends { tenantId: TenantId }>(items: T[]) => scope === 'tenant'
       ? items.filter((item) => item.tenantId === tenantId)
       : items;
+    const enabledScopedInstances = scopedInstances.filter((instance) => instance.isEnabled);
     const dashboardInstances = scope === 'tenant'
-      ? scopedInstances.filter((instance) => instance.tenantId === tenantId)
-      : scopedInstances;
+      ? enabledScopedInstances.filter((instance) => instance.tenantId === tenantId)
+      : enabledScopedInstances;
     const dashboardRoles = scope === 'tenant'
       ? roles.filter((role) => role.tenantId === tenantId || role.tenantId === null)
       : roles;
     const tenant = tenantId ? tenants.find((entry) => entry.id === tenantId) ?? null : null;
     const instances = dashboardInstances.map((instance) => {
-      const issues = instanceIssues(instance);
+      const issueDetails = instanceIssueDetails(instance);
+      const severity = instanceSeverity(instance, issueDetails);
+      const issues = issueDetails.map((issue) => issue.label);
       return {
         ...instance,
         issues,
+        issueDetails,
         issueCount: issues.length,
-        hasIssue: issues.length > 0
+        hasIssue: issues.length > 0,
+        severity,
+        primaryIssue: issues[0] ?? null
       };
     });
 
@@ -93,9 +161,12 @@ export async function registerDashboardRoutes(app: FastifyInstance, authReposito
           instancesWithIssues: instances.filter((instance) => instance.hasIssue).length,
           upInstances: instances.filter((instance) => instance.status === 'up').length,
           downInstances: instances.filter((instance) => instance.status === 'down').length,
-          sslIssues: instances.filter((instance) => instance.sslValid === false || instance.status === 'ssl-error').length,
-          licenseIssues: instances.filter((instance) => instance.licenseStatus === 'expired' || instance.licenseStatus === 'error').length,
-          disabledInstances: instances.filter((instance) => !instance.isEnabled).length
+          sslIssues: instances.filter(sslIssue).length,
+          licenseIssues: instances.filter(licenseIssue).length,
+          disabledInstances: scopedInstances.filter((instance) => !instance.isEnabled).length,
+          connectivityIssues: instances.filter(connectivityIssue).length,
+          processingIssues: instances.filter(processingIssue).length,
+          unknownInstances: instances.filter((instance) => instance.status === 'unknown' || instance.sslValid === null || instance.licenseStatus === 'unknown' || instance.processingStatus === 'unknown' || instance.emmQueueStatus === 'unknown' || instance.smsStatus === 'unknown' || instance.hangfireStatus === 'unknown').length
         },
         instances
       }

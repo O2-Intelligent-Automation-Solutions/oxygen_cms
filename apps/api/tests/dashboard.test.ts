@@ -36,7 +36,7 @@ function instance(overrides: Partial<OxyGenInstance> & Pick<OxyGenInstance, 'id'
     emmQueueStatus: 'ok',
     smsStatus: 'ok',
     hangfireStatus: 'ok',
-    licenseKey: null,
+    licenseKey: 'VALID-LICENSE',
     licenseStatus: 'valid',
     licenseJson: null,
     settingsJson: null,
@@ -69,7 +69,7 @@ describe('dashboard API', () => {
     const otherTenant = await authRepository.createTenant({ name: 'Other Tenant' });
     await authRepository.createRole({ name: 'AcmeReviewer', tenantId: tenant.id });
     await authRepository.createRole({ name: 'OtherReviewer', tenantId: otherTenant.id });
-    const group = await authRepository.createGroup({ name: 'Acme Operators', tenantId: tenant.id, instanceAccessMode: 'specific', instanceIds: ['acme-up', 'acme-down'] });
+    const group = await authRepository.createGroup({ name: 'Acme Operators', tenantId: tenant.id, instanceAccessMode: 'specific', instanceIds: ['acme-up', 'acme-down', 'acme-ssl', 'acme-authssl', 'acme-license', 'acme-processing', 'acme-disabled'] });
     await authRepository.createGroup({ name: 'Other Operators', tenantId: otherTenant.id, instanceAccessMode: 'all' });
     await authRepository.createUser({ email: 'acme-admin@example.com', displayName: 'Acme Admin', password: 'Password!23456', roleNames: ['TenantAdmin'], groupIds: [group.id], tenantId: tenant.id });
     await authRepository.createUser({ email: 'other-admin@example.com', displayName: 'Other Admin', password: 'Password!23456', roleNames: ['TenantAdmin'], groupIds: [], tenantId: otherTenant.id });
@@ -78,7 +78,12 @@ describe('dashboard API', () => {
       authRepository,
       instanceRepository: createFakeInstanceRepository([
         instance({ id: 'acme-up', name: 'Acme Up', tenantId: tenant.id }),
-        instance({ id: 'acme-down', name: 'Acme Down', tenantId: tenant.id, status: 'down', sslValid: false, lastError: 'Offline' }),
+        instance({ id: 'acme-down', name: 'Acme Down', tenantId: tenant.id, status: 'down', lastError: 'Offline' }),
+        instance({ id: 'acme-ssl', name: 'Acme SSL Warning', tenantId: tenant.id, status: 'ssl-error', sslValid: false }),
+        instance({ id: 'acme-authssl', name: 'Acme SSL Auth Failure', tenantId: tenant.id, status: 'auth-error', sslValid: false, lastError: 'OxyGen authentication failed with HTTP 401.' }),
+        instance({ id: 'acme-license', name: 'Acme Missing License', tenantId: tenant.id, licenseKey: null, licenseStatus: 'unknown' }),
+        instance({ id: 'acme-processing', name: 'Acme Processing', tenantId: tenant.id, processingStatus: 'error' }),
+        instance({ id: 'acme-disabled', name: 'Acme Disabled', tenantId: tenant.id, isEnabled: false, status: 'down', lastError: 'Disabled host offline' }),
         instance({ id: 'other-down', name: 'Other Down', tenantId: otherTenant.id, status: 'down' })
       ])
     });
@@ -89,9 +94,14 @@ describe('dashboard API', () => {
     const body = response.json();
     expect(body.dashboard.scope).toBe('tenant');
     expect(body.dashboard.tenant.id).toBe(tenant.id);
-    expect(body.dashboard.counts).toMatchObject({ groups: 1, users: 1, tenantRoles: 1, instances: 2, instancesWithIssues: 1 });
-    expect(body.dashboard.instances.map((entry: { id: string }) => entry.id)).toEqual(['acme-up', 'acme-down']);
-    expect(body.dashboard.instances.find((entry: { id: string; hasIssue: boolean }) => entry.id === 'acme-down').hasIssue).toBe(true);
+    expect(body.dashboard.counts).toMatchObject({ groups: 1, users: 1, tenantRoles: 1, instances: 6, instancesWithIssues: 5, connectivityIssues: 2, sslIssues: 2, licenseIssues: 1, processingIssues: 1 });
+    expect(body.dashboard.instances.map((entry: { id: string }) => entry.id)).toEqual(['acme-up', 'acme-down', 'acme-ssl', 'acme-authssl', 'acme-license', 'acme-processing']);
+    expect(body.dashboard.counts.disabledInstances).toBe(1);
+    expect(body.dashboard.instances.find((entry: { id: string; hasIssue: boolean }) => entry.id === 'acme-disabled')).toBeUndefined();
+    expect(body.dashboard.instances.find((entry: { id: string; hasIssue: boolean; severity: string; primaryIssue: string }) => entry.id === 'acme-down')).toMatchObject({ hasIssue: true, severity: 'failure', primaryIssue: 'Availability down' });
+    expect(body.dashboard.instances.find((entry: { id: string; issues: string[]; severity: string; primaryIssue: string }) => entry.id === 'acme-ssl')).toMatchObject({ severity: 'warning', primaryIssue: 'SSL warning' });
+    expect(body.dashboard.instances.find((entry: { id: string; issues: string[]; severity: string; primaryIssue: string }) => entry.id === 'acme-authssl')).toMatchObject({ severity: 'failure', primaryIssue: 'Authentication failure' });
+    expect(body.dashboard.instances.find((entry: { id: string; issues: string[]; severity: string; primaryIssue: string }) => entry.id === 'acme-license')).toMatchObject({ severity: 'warning', primaryIssue: 'License API unavailable' });
     await app.close();
   });
 });

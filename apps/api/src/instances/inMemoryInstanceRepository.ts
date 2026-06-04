@@ -152,10 +152,13 @@ export function createInMemoryInstanceRepository(): InstanceRepository {
       const result = await testOxyGenConnectivity({ instance, password: instance.passwordSecret });
       instance.status = result.ok ? 'up' : result.status === 'auth-error' ? 'auth-error' : result.status === 'ssl-error' ? 'ssl-error' : 'down';
       instance.lastCheckedAt = result.checkedAt;
-      instance.responseTimeMs = result.durationMs;
+      instance.responseTimeMs = result.responseTimeMs;
       instance.sslValid = result.ssl.valid ?? null;
       instance.sslExpiresAt = result.ssl.expiresAt ?? null;
       instance.lastError = result.ok ? null : result.message;
+      instance.licenseKey = result.license.key;
+      instance.licenseStatus = result.license.status;
+      instance.licenseJson = result.license.payload;
       if (result.ok) instance.lastSuccessAt = result.checkedAt;
       else instance.lastFailureAt = result.checkedAt;
       instance.updatedAt = nowIso();
