@@ -3526,13 +3526,15 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
 }
 
 .dashboard-filter-bar label {
-  display: grid;
-  gap: 5px;
-  min-width: 170px;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
   color: var(--muted-text);
   font-size: 0.74rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .dashboard-filter-bar select {
