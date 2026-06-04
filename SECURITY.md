@@ -6,7 +6,7 @@ OxyGen CMS is in pre-production Phase 1 development.
 
 | Version / Schema | Supported | Notes |
 | --- | --- | --- |
-| `0.xx` | Active development | Pre-production schema versions. Current target: `0.02`. |
+| `0.xx` | Active development | Pre-production schema versions. Current target: `0.07`. |
 | `1.x` | Future | Production-ready schema line after Phase 1 hardening. |
 
 ## Current Security Architecture
@@ -14,14 +14,14 @@ OxyGen CMS is in pre-production Phase 1 development.
 - Local CMS authentication is required before accessing admin APIs after first-run setup completes.
 - Passwords are hashed with per-user salts and are never returned by the API.
 - `SystemAdmin` and `TenantAdmin` are protected global roles.
-- Users, roles, groups, and future instances may be scoped by tenant/partner.
+- Users, roles, groups, and instances may be scoped by tenant.
 - `tenant_id = NULL` means global scope.
 - Tenant-scoped users must not manage tenants outside their assigned tenant.
-- Only global users may manage tenants/partners.
+- Only global users may manage tenants.
 
 ## Setup Secret Handling
 
-During Milestone 1.5, database setup settings are scaffolded in a local ignored file:
+Database setup settings are stored in a local ignored file:
 
 ```text
 apps/api/data/settings.json
@@ -36,16 +36,16 @@ Rules:
 
 ## Schema Security Notes
 
-Current DDL artifact:
+Current canonical DDL artifact:
 
 ```text
-apps/api/src/db/migrations/001_security_tenant_schema.sql
+apps/api/src/db/migrations/current-schema-0.07.sql
 ```
 
 Current schema version:
 
 ```text
-0.02
+0.07
 ```
 
 The `cms_schema_versions` table records applied schema versions and checksums. Pre-production versions must use the `0.xx` convention until production readiness.

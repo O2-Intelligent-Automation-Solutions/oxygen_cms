@@ -2,9 +2,9 @@
 
 ## Purpose
 
-OxyGen CMS uses a local MySQL database to persist CMS identity, local authentication, authorization, tenants/partners, enrolled OxyGen instances, monitor history, and collected read-only OxyGen snapshots.
+OxyGen CMS uses a local MySQL database to persist CMS identity, authentication, authorization, tenants, enrolled OxyGen instances, per-user grid preferences, application settings, monitor history, and collected read-only OxyGen snapshots.
 
-Milestone 1.5 introduces the database-first setup architecture: database provisioning and schema validation happen before the first CMS administrator is created.
+The setup architecture is database-first: database provisioning and schema validation happen before the first CMS administrator is created.
 
 ## Database Platform
 
@@ -16,201 +16,130 @@ Milestone 1.5 introduces the database-first setup architecture: database provisi
 
 ## Schema Versioning
 
-CMS maintains schema state in:
+CMS maintains schema state in `cms_schema_versions`.
 
-```sql
-cms_schema_versions
-```
-
-Current DDL location:
-
-```text
-apps/api/src/db/migrations/001_security_tenant_schema.sql
-```
-
-Embedded migration registry:
+Runtime migration registry:
 
 ```text
 apps/api/src/db/migrations/index.ts
 ```
 
+Canonical current schema DDL:
+
+```text
+apps/api/src/db/migrations/current-schema-0.07.sql
+```
+
 Current target schema version:
 
 ```text
-0.01
+0.07
 ```
 
-Versioning rule:
+Versioning rules:
 
 - Pre-production schemas use `0.xx` version numbers.
 - Production-ready schemas may move to `1.x`.
-- Version strings are stored as `VARCHAR(32)` so versions such as `0.01`, `0.02`, and `1.0` are preserved exactly.
+- Version strings are stored as `VARCHAR(32)`.
+- `index.ts` is the runtime source of truth. SQL artifact files document the same schema and should be kept aligned.
 
-Minimum schema version table:
+## Current Schema Versions
 
-```sql
-CREATE TABLE IF NOT EXISTS cms_schema_versions (
-  version VARCHAR(32) NOT NULL PRIMARY KEY,
-  name VARCHAR(255) NOT NULL,
-  checksum VARCHAR(128) NOT NULL,
-  applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-```
+| Version | Name | Purpose |
+| --- | --- | --- |
+| `0.01` | security tenant schema | Creates CMS security foundation and seed roles. |
+| `0.02` | oxygen instance enrollment schema | Adds durable OxyGen instance enrollment table. |
+| `0.03` | expanded instance status schema | Adds instance details, status summary, and check history tables. |
+| `0.04` | user and group instance access model | Moves instance access control to users/groups. |
+| `0.05` | grid preferences schema | Adds per-user/per-grid managed grid layout persistence. |
+| `0.06` | remove partner role terminology | Removes legacy unprotected role terminology. |
+| `0.07` | application settings schema | Adds application settings including display labels. |
 
-## Initial Security/Tenancy Schema
+## Security and Tenancy Model
 
-Schema version `0.01` creates the security and tenancy foundation:
+Core tables:
 
 ```text
-cms_schema_versions
-roles
 tenants
-user_groups
+roles
 users
+user_groups
 user_role_assignments
 user_group_assignments
 sessions
 ```
 
-### `tenants`
-
-Represents partners/customers/tenant boundaries.
-
 Rules:
 
-- `tenant_id = NULL` means global access/scope.
-- Tenant assignment is immutable after object creation.
-- Only global users can manage tenants/partners.
+- `tenant_id = NULL` means global scope.
+- Tenant assignment is immutable after creation for scoped records.
+- Only global users can manage tenant records.
+- `SystemAdmin` and `TenantAdmin` are protected global roles.
+- `Operator` and `Viewer` are editable default roles.
+- Users may belong to multiple roles and groups.
 
-### `roles`
+## Instance Access Model
 
-Represents permission profiles.
-
-Seeded roles:
-
-```text
-SystemAdmin   protected, global
-TenantAdmin   protected, global template
-PartnerAdmin  editable
-Operator       editable
-Viewer         editable
-```
-
-Rules:
-
-- `SystemAdmin` and `TenantAdmin` are protected and cannot be deleted.
-- Tenant-scoped roles are allowed later through `roles.tenant_id`.
-- Global roles have `tenant_id = NULL`.
-
-### `user_groups`
-
-Represents user folders/groups that can scope instance visibility.
-
-Rules:
-
-- Groups may be global or tenant-scoped.
-- Future enrolled instances will be associated to groups/folders for access filtering.
-
-### `users`
-
-Represents local CMS users.
-
-Rules:
-
-- Email is globally unique.
-- Password hashes are stored, never raw passwords.
-- `tenant_id = NULL` means global user.
-- Tenant-scoped creators may only create/manage users inside their tenant.
-
-### Join Tables
+Instance access is controlled through users and user groups:
 
 ```text
-user_role_assignments
-user_group_assignments
+users.instance_access_mode
+user_groups.instance_access_mode
+user_instance_access
+user_group_instance_access
 ```
 
-Rules:
+Access modes:
 
-- Users may have multiple roles.
-- Users may belong to multiple groups.
-- Group and role assignments determine future instance visibility and permissions.
+| Mode | User behavior | Group behavior |
+| --- | --- | --- |
+| `inherit` | User inherits access from assigned groups. | Not used for groups. |
+| `none` | User has no directly assigned instances. | Group grants no instances. |
+| `all` | User can see all instances allowed by tenant/global scope. | Group grants all tenant/global instances. |
+| `specific` | User has direct rows in `user_instance_access`. | Group has rows in `user_group_instance_access`. |
 
-### `sessions`
+## Instance and Monitoring Tables
 
-Stores bearer-token session state.
-
-Current implementation still uses in-memory runtime auth for review; the schema is ready for durable MySQL-backed sessions in the next pass.
-
-## Setup Settings Store
-
-During the browser-testable scaffold, database settings are stored in:
+Current implemented instance tables:
 
 ```text
-apps/api/data/settings.json
+oxygen_instances
+oxygen_instance_status
+oxygen_instance_check_history
 ```
 
-Current shape:
+Credential note:
 
-```json
-{
-  "database": {
-    "host": "localhost",
-    "port": 3306,
-    "database": "O2IAS_CMS",
-    "user": "oxygen_cms",
-    "password": "..."
-  },
-  "schemaCurrent": false
-}
-```
+- `oxygen_instances.password_secret` exists today but the next Phase 1 milestone must replace plaintext storage with encrypted credential payloads.
+- Remote OxyGen credentials must never be logged or returned to the browser.
 
-This file is local state only and must never be committed.
-
-Production hardening options:
-
-- Docker secrets
-- Environment variables
-- OS secret store
-- Encrypted local config file
-
-## Docker Development Database
-
-`docker-compose.yml` includes a MySQL service with defaults suitable for local provisioning tests:
+## UI Preference and Application Settings Tables
 
 ```text
-MYSQL_DATABASE=O2IAS_CMS
-MYSQL_USER=oxygen_cms
-MYSQL_PASSWORD=oxygen_cms_dev_password
-MYSQL_ROOT_PASSWORD=oxygen_cms_root_dev_password
+grid_preferences
+application_settings
 ```
 
-The MySQL data volume is named:
+- `grid_preferences` stores per-user Kendo managed grid layouts by `grid_key`.
+- `application_settings` stores JSON settings by key; currently used for configurable display labels.
+
+## Future Monitoring/Snapshot Tables
+
+Phase 1 still needs persistent collector tables for:
 
 ```text
-oxygen-cms-mysql-data
+monitor_runs
+monitor_events
+oxygen_license_snapshots
+oxygen_settings_snapshots
+oxygen_instance_settings
+oxygen_workflow_trigger_snapshots
+oxygen_workflow_event_snapshots
+oxygen_service_event_snapshots
 ```
 
-## Migration Runner
+See also:
 
-The generic migration runner lives at:
-
-```text
-apps/api/src/setup/schemaMigrations.ts
-```
-
-It:
-
-1. Ensures `cms_schema_versions` exists.
-2. Reads applied versions.
-3. Sorts pending migrations by semantic-ish string version order.
-4. Applies each pending migration.
-5. Records the applied version and checksum.
-
-## Next Database Work
-
-- Implement `MySQLSchemaMigrationAdapter` with `mysql2` or equivalent.
-- Execute `001_security_tenant_schema.sql` during the Apply Schema step.
-- Record `0.01` in `cms_schema_versions`.
-- Add a MySQL-backed `AuthRepository`.
-- Persist users, groups, roles, tenants, and sessions.
-- Add restart persistence regression tests.
+- [Data Dictionary](data-dictionary.md)
+- [Phase 1 Plan](plans/phase-1-oxygen-cms.md)
+- [Phase 2 Roadmap](plans/phase-2-oxygen-cms.md)

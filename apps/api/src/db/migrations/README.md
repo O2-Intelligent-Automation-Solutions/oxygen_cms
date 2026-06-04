@@ -2,72 +2,61 @@
 
 This directory contains SQL DDL artifacts for OxyGen CMS database schema migrations.
 
+## Source of Truth
+
+Runtime migrations are registered in:
+
+```text
+apps/api/src/db/migrations/index.ts
+```
+
+The SQL artifact files in this directory document the same migration history and should be kept aligned with the embedded registry.
+
 ## Current Schema
 
 Current pre-production schema version:
 
 ```text
-0.02
+0.07
 ```
 
-DDL artifacts:
+Canonical schema snapshot:
+
+```text
+current-schema-0.07.sql
+```
+
+## DDL Artifacts
 
 ```text
 001_security_tenant_schema.sql
 002_oxygen_instances.sql
+003_instance_status_schema.sql
+004_instance_access_model.sql
+005_grid_preferences_schema.sql
+006_remove_partner_role_terminology.sql
+007_application_settings_schema.sql
 ```
 
-Embedded TypeScript migration registry:
+## Version History
 
-```text
-index.ts
-```
+| Version | SQL artifact | Purpose |
+| --- | --- | --- |
+| `0.01` | `001_security_tenant_schema.sql` | Creates schema version table, tenants, roles, users, groups, assignments, and sessions. |
+| `0.02` | `002_oxygen_instances.sql` | Adds initial durable OxyGen instance enrollment table. |
+| `0.03` | `003_instance_status_schema.sql` | Adds instance description/tenant/protocol/host/port/API URL fields, latest status table, and check history table. |
+| `0.04` | `004_instance_access_model.sql` | Moves access control from instance group assignment to user/group instance access tables. |
+| `0.05` | `005_grid_preferences_schema.sql` | Adds per-user/per-grid managed grid layout preferences. |
+| `0.06` | `006_remove_partner_role_terminology.sql` | Removes legacy unprotected role terminology rows from existing databases. |
+| `0.07` | `007_application_settings_schema.sql` | Adds application settings JSON table for configurable labels and future general settings. |
 
-## Versioning Rules
-
-- Pre-production schema versions use `0.xx`.
-- Production-ready schema releases can move to `1.x`.
-- Store schema versions as strings, not integers.
-- The `cms_schema_versions.version` column is `VARCHAR(32)`.
-- Keep each SQL artifact checksum in sync with the matching entry in `index.ts`.
-
-## Version `0.01`
-
-Creates the current security/tenant foundation:
-
-```text
-cms_schema_versions
-tenants
-roles
-user_groups
-users
-user_role_assignments
-user_group_assignments
-sessions
-```
-
-Seeds global roles:
+## Effective Seed Roles
 
 ```text
 SystemAdmin
 TenantAdmin
-PartnerAdmin
 Operator
 Viewer
 ```
 
 `SystemAdmin` and `TenantAdmin` are protected global roles.
-
-## Version `0.02`
-
-Creates the durable instance enrollment table:
-
-```text
-oxygen_instances
-```
-
-`oxygen_instances.group_id` references `user_groups.id` so scoped instance visibility follows CMS group membership.
-
-## Implemented DDL Runtime
-
-The setup wizard's Apply Schema step executes the registered MySQL migrations and records versions `0.01` and `0.02` in `cms_schema_versions`. Auth/RBAC and instance enrollment runtime code now use these tables after schema setup is complete.

@@ -6,21 +6,28 @@
 - npm 10+
 - Docker / Docker Compose for local MySQL provisioning tests
 
-## Local Development
+In Hermes sessions, ensure the configured Node path is available before running npm commands:
 
-Install dependencies:
+```bash
+export PATH=/home/administrator/.hermes/node/bin:$PATH
+```
+
+## Install
 
 ```bash
 npm install
 ```
 
-Start the MySQL/API/web development stack:
+## Development Servers
+
+Start the self-contained managed development flow:
 
 ```bash
-docker compose up
+npm run dev:db:reset
+npm run dev:managed
 ```
 
-Or run services directly after starting MySQL:
+Or start services manually after MySQL is available:
 
 ```bash
 npm --workspace @oxygen-cms/api run dev
@@ -33,99 +40,18 @@ Default local URLs:
 - Setup status: <http://localhost:3000/api/setup/status>
 - Web app: <http://localhost:5173>
 
-Remote development review:
-
-- API binds to `0.0.0.0` by default via `API_HOST=0.0.0.0`.
-- The Vite web server should be run with `--host 0.0.0.0` for remote review.
-- Replace `<server-host>` with the remote server DNS name or IP:
-  - API health: `http://<server-host>:3000/api/health`
-  - Setup status: `http://<server-host>:3000/api/setup/status`
-  - Web app: `http://<server-host>:5173`
-
-## First-Run Wizard Review
-
-The first-run setup wizard is documented in [First-Run Setup Wizard](setup-wizard.md).
-
-Current setup order:
-
-```text
-Database setup → Apply schema → Create first administrator → Sign in
-```
-
-Local setup state is stored in:
-
-```text
-apps/api/data/settings.json
-```
-
-This path is ignored by git.
-
-Reset to database setup:
-
-```bash
-rm -f apps/api/data/settings.json
-```
-
-Review the setup API state:
-
-```bash
-curl -sS http://localhost:3000/api/setup/status | jq
-```
-
 ## Database Defaults
 
-Default CMS database:
+```text
+Database: O2IAS_CMS
+Application user: oxygen_cms
+Current schema target: 0.07
+```
+
+Canonical DDL:
 
 ```text
-O2IAS_CMS
-```
-
-Default application DB user:
-
-```text
-oxygen_cms
-```
-
-Pre-production schema version convention:
-
-```text
-0.xx
-```
-
-Current target schema version:
-
-```text
-0.01
-```
-
-Schema DDL artifact:
-
-```text
-apps/api/src/db/migrations/001_security_tenant_schema.sql
-```
-
-## Docker Compose MySQL
-
-The `mysql` service in `docker-compose.yml` provides a repeatable local database for provisioning work.
-
-Common commands:
-
-```bash
-docker compose up mysql
-# or full stack
-docker compose up
-```
-
-MySQL volume:
-
-```text
-oxygen-cms-mysql-data
-```
-
-To reset local Docker data during development:
-
-```bash
-docker compose down -v
+apps/api/src/db/migrations/current-schema-0.07.sql
 ```
 
 ## Validation
@@ -137,16 +63,17 @@ npm run typecheck
 npm run build
 npm test
 npm audit
+git diff --check
 ```
 
-Current expected result:
+MySQL integration tests are opt-in:
 
-```text
-14 tests passed
-0 vulnerabilities
+```bash
+MYSQL_INTEGRATION_TESTS=true npm --workspace @oxygen-cms/api test -- --run tests/mysqlAuthRepository.test.ts
+MYSQL_INTEGRATION_TESTS=true npm --workspace @oxygen-cms/api test -- --run tests/mysqlInstanceRepository.test.ts
+MYSQL_INTEGRATION_TESTS=true npm --workspace @oxygen-cms/api test -- --run tests/mysqlGridPreferenceRepository.test.ts
+MYSQL_INTEGRATION_TESTS=true npm --workspace @oxygen-cms/api test -- --run tests/mysqlAppSettingsRepository.test.ts
 ```
-
-GitHub Dependabot/security alerts must be resolved before starting the next milestone.
 
 ## Scope Guard
 

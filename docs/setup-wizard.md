@@ -1,60 +1,66 @@
 # First-Run Setup Wizard
 
-The setup wizard now separates deployment selection from database credentials so users are not presented with every database field at once.
+The setup wizard configures persistent CMS storage before allowing the first administrator to be created.
 
-## Database Setup Sequence
+## Setup Sequence
 
-1. **Deployment**
-   - Self-contained local MySQL, when the deployment advertises `CMS_MANAGED_MYSQL=true`.
-   - Create/configure database on a local MySQL server.
-   - Connect to an existing local/remote MySQL server.
-2. **Connection**
-   - Local mode collects port and database name.
-   - Existing mode collects host, port, and database name.
-   - Self-contained mode skips this step and uses deployment-provided values.
-3. **Credentials**
-   - Local mode collects privileged user/password and generated application DB user/password.
-   - Existing mode collects privileged schema credentials and application runtime credentials; no passwords are defaulted or generated.
-   - Self-contained mode skips this step and uses generated deployment secrets that are not exposed in the browser.
-4. **Review**
-   - Shows mode, host, port, database, and runtime user before provisioning.
+```text
+Database setup → Apply schema → Create first administrator → Sign in
+```
 
-After database settings are saved, the wizard proceeds to schema application, first administrator creation, and sign-in.
+## Step 1 — Database Setup
 
-## Self-Contained Deployment Model
+The wizard supports three deployment paths:
 
-The browser wizard does not install MySQL directly. The deployment package starts MySQL and supplies generated secrets to the API. The wizard then provisions the CMS database, runtime user, and schema using those managed settings.
+1. **Self-contained local MySQL**
+   - Available when the deployment advertises `CMS_MANAGED_MYSQL=true`.
+   - Uses deployment-provided MySQL values.
+   - Does not expose generated secrets in the browser.
+2. **Create/configure database on a local MySQL server**
+   - Collects local port, database name, privileged credentials, and application runtime credentials.
+3. **Connect to an existing local/remote MySQL server**
+   - Collects host, port, database name, privileged schema credentials, and application runtime credentials.
 
-### Disposable dev database workflow
+Defaults:
 
-Use the repo scripts when testing schema/setup changes on the development server:
+```text
+Database: O2IAS_CMS
+Application DB user: oxygen_cms
+```
+
+## Step 2 — Apply Schema
+
+Current target schema:
+
+```text
+0.07
+```
+
+Schema versions are recorded in `cms_schema_versions`.
+
+## Step 3 — Create First Administrator
+
+The first SystemAdmin account can only be created after database settings exist, the database connection succeeds, and schema version is current.
+
+## Step 4 — Sign In
+
+After bootstrap, the normal sign-in flow is shown. Auth/RBAC, instances, grid preferences, and application settings all use MySQL-backed repositories.
+
+## Self-Contained Development Workflow
 
 ```bash
 npm run dev:db:reset
 npm run dev:managed
 ```
 
-In another terminal, run the managed setup smoke test:
+In another terminal:
 
 ```bash
 npm run dev:managed:smoke
 ```
 
-`dev:db:reset` destroys the Docker MySQL volume, removes `apps/api/data/settings.json`, recreates the MySQL container, and waits for it to become healthy. `dev:managed` starts the API and Web dev servers with managed MySQL environment variables. `dev:managed:smoke` calls the managed provisioning and schema endpoints that the browser wizard uses.
+## Safety Notes
 
-Docker Compose advertises this mode with:
-
-```text
-CMS_MANAGED_MYSQL=true
-MYSQL_HOST=mysql
-MYSQL_PORT=3306
-MYSQL_DATABASE=O2IAS_CMS
-MYSQL_USER=oxygen_cms
-MYSQL_PASSWORD=<generated or compose default>
-MYSQL_PRIVILEGED_USER=root
-MYSQL_ROOT_PASSWORD=<generated or compose default>
-```
-
-## Custom Database Model
-
-For remote/custom MySQL, the user supplies both setup/schema privileged credentials and the application runtime credentials. Privileged credentials are used for setup/schema only; the application binds with the runtime user for day-to-day access.
+- Setup state in `apps/api/data/settings.json` is local-only and ignored by git.
+- Do not commit database passwords, runtime credentials, generated setup state, or remote OxyGen credentials.
+- Browser setup should redact deployment-managed secrets.
