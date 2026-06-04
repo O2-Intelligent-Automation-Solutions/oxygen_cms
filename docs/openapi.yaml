@@ -44,10 +44,20 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [status, service, environment, timestamp]
                 properties:
-                  ok:
-                    type: boolean
-                    const: true
+                  status:
+                    type: string
+                    const: ok
+                  service:
+                    type: string
+                    const: oxygen-cms-api
+                  environment:
+                    type: string
+                    example: development
+                  timestamp:
+                    type: string
+                    format: date-time
   /api/setup/status:
     get:
       tags: [Setup]
