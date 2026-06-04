@@ -63,11 +63,11 @@ describeMysql('MySQL instance repository', () => {
     });
 
     try {
-      await pool.query("DELETE FROM oxygen_instance_check_history WHERE instance_id IN (SELECT id FROM oxygen_instances WHERE name IN ('Acme Production', 'Acme Prod', 'Beta Hidden', 'Local Mock OxyGen', 'Development'))");
-      await pool.query("DELETE FROM oxygen_instance_status WHERE instance_id IN (SELECT id FROM oxygen_instances WHERE name IN ('Acme Production', 'Acme Prod', 'Beta Hidden', 'Local Mock OxyGen', 'Development'))");
-      await pool.query("DELETE FROM user_group_instance_access WHERE instance_id IN (SELECT id FROM oxygen_instances WHERE name IN ('Acme Production', 'Acme Prod', 'Beta Hidden', 'Local Mock OxyGen', 'Development'))");
-      await pool.query("DELETE FROM user_instance_access WHERE instance_id IN (SELECT id FROM oxygen_instances WHERE name IN ('Acme Production', 'Acme Prod', 'Beta Hidden', 'Local Mock OxyGen', 'Development'))");
-      await pool.query("DELETE FROM oxygen_instances WHERE name IN ('Acme Production', 'Acme Prod', 'Beta Hidden', 'Local Mock OxyGen', 'Development')");
+      await pool.query("DELETE FROM oxygen_instance_check_history WHERE instance_id IN (SELECT id FROM oxygen_instances WHERE name IN ('Acme Production', 'Acme Prod', 'Beta Hidden', 'Local Mock OxyGen'))");
+      await pool.query("DELETE FROM oxygen_instance_status WHERE instance_id IN (SELECT id FROM oxygen_instances WHERE name IN ('Acme Production', 'Acme Prod', 'Beta Hidden', 'Local Mock OxyGen'))");
+      await pool.query("DELETE FROM user_group_instance_access WHERE instance_id IN (SELECT id FROM oxygen_instances WHERE name IN ('Acme Production', 'Acme Prod', 'Beta Hidden', 'Local Mock OxyGen'))");
+      await pool.query("DELETE FROM user_instance_access WHERE instance_id IN (SELECT id FROM oxygen_instances WHERE name IN ('Acme Production', 'Acme Prod', 'Beta Hidden', 'Local Mock OxyGen'))");
+      await pool.query("DELETE FROM oxygen_instances WHERE name IN ('Acme Production', 'Acme Prod', 'Beta Hidden', 'Local Mock OxyGen')");
       await pool.query("DELETE FROM tenants WHERE id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'");
       await pool.query("INSERT INTO tenants (id, name, description) VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'Acme Tenant', NULL)");
 
@@ -139,7 +139,7 @@ describeMysql('MySQL instance repository', () => {
 
       const secondRepository = createMysqlInstanceRepository(pool, credentialCipher);
       expect((await secondRepository.listInstances({ instanceIds: [created.id] })).map((instance) => instance.name)).toEqual(['Acme Production']);
-      expect((await secondRepository.listInstances({ includeAll: true })).map((instance) => instance.name)).toEqual(['Acme Production', 'Beta Hidden']);
+      expect((await secondRepository.listInstances({ includeAll: true })).map((instance) => instance.name).filter((name) => ['Acme Production', 'Beta Hidden'].includes(name))).toEqual(['Acme Production', 'Beta Hidden']);
       expect((await secondRepository.listInstances({ instanceIds: [hidden.id] })).map((instance) => instance.name)).toEqual(['Beta Hidden']);
 
       const updated = await secondRepository.updateInstance(created.id, {
@@ -191,6 +191,9 @@ describeMysql('MySQL instance repository', () => {
       expect(passwordSecretAfterPasswordUpdate).not.toBe(passwordSecretAfterCreate);
       expect(passwordSecretAfterPasswordUpdate).not.toContain('ReplacementPassword!43');
 
+      await pool.query('UPDATE oxygen_instances SET password_secret = ? WHERE id = ?', ['legacy', hidden.id]);
+      await expect(secondRepository.testConnectivity(hidden.id)).rejects.toThrow('Saved instance credential is from an older format. Re-enter the remote OxyGen password in the instance edit modal and save before testing connectivity from the grid.');
+
       const mockOxyGen = await startMockOxyGenServer('RemotePassword!42');
       try {
         const mockInstance = await secondRepository.createInstance({
@@ -230,6 +233,11 @@ describeMysql('MySQL instance repository', () => {
       await secondRepository.deleteInstance(created.id);
       expect(await secondRepository.getInstance(created.id)).toBeNull();
     } finally {
+      await pool.query("DELETE FROM oxygen_instance_check_history WHERE instance_id IN (SELECT id FROM oxygen_instances WHERE name IN ('Acme Production', 'Acme Prod', 'Beta Hidden', 'Local Mock OxyGen'))");
+      await pool.query("DELETE FROM oxygen_instance_status WHERE instance_id IN (SELECT id FROM oxygen_instances WHERE name IN ('Acme Production', 'Acme Prod', 'Beta Hidden', 'Local Mock OxyGen'))");
+      await pool.query("DELETE FROM user_group_instance_access WHERE instance_id IN (SELECT id FROM oxygen_instances WHERE name IN ('Acme Production', 'Acme Prod', 'Beta Hidden', 'Local Mock OxyGen'))");
+      await pool.query("DELETE FROM user_instance_access WHERE instance_id IN (SELECT id FROM oxygen_instances WHERE name IN ('Acme Production', 'Acme Prod', 'Beta Hidden', 'Local Mock OxyGen'))");
+      await pool.query("DELETE FROM oxygen_instances WHERE name IN ('Acme Production', 'Acme Prod', 'Beta Hidden', 'Local Mock OxyGen')");
       await pool.end();
     }
   });

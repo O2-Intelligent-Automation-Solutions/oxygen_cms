@@ -221,6 +221,34 @@ input, select, textarea {
   outline: none;
 }
 
+input::placeholder,
+textarea::placeholder,
+.k-input::placeholder,
+.k-input-inner::placeholder {
+  color: rgba(84, 95, 107, 0.82) !important;
+  font-weight: 400 !important;
+  opacity: 1 !important;
+}
+
+input::-webkit-input-placeholder,
+textarea::-webkit-input-placeholder {
+  color: rgba(84, 95, 107, 0.82) !important;
+  font-weight: 400 !important;
+}
+
+input::-moz-placeholder,
+textarea::-moz-placeholder {
+  color: rgba(84, 95, 107, 0.82) !important;
+  font-weight: 400 !important;
+  opacity: 1 !important;
+}
+
+input:-ms-input-placeholder,
+textarea:-ms-input-placeholder {
+  color: rgba(84, 95, 107, 0.82) !important;
+  font-weight: 400 !important;
+}
+
 textarea {
   min-height: 78px;
   resize: vertical;
@@ -1414,4 +1442,111 @@ button.secondary {
   background: rgba(255, 255, 255, 0.08);
   color: var(--brand-text);
   border-color: var(--brand-line);
+}
+
+
+/* Review fixes: compact Kendo action buttons */
+.k-button.btn-dialog-test {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 7px !important;
+  min-width: 132px !important;
+  height: 34px !important;
+  min-height: 34px !important;
+  padding: 0 14px !important;
+  border-radius: 10px !important;
+  font-size: 0.78rem !important;
+  font-weight: 800 !important;
+  line-height: 1 !important;
+  white-space: nowrap !important;
+  color: var(--brand-primary) !important;
+  border-color: rgba(32, 214, 210, 0.42) !important;
+  background: rgba(32, 214, 210, 0.08) !important;
+  box-shadow: none !important;
+}
+
+.k-button.btn-dialog-test:hover {
+  color: #03111f !important;
+  border-color: transparent !important;
+  background: linear-gradient(135deg, var(--brand-primary), var(--brand-primary-2)) !important;
+}
+
+.k-button.btn-dialog-test svg {
+  width: 15px !important;
+  height: 15px !important;
+  flex: 0 0 15px !important;
+  display: block !important;
+  margin: 0 !important;
+  stroke-width: 2.4 !important;
+}
+
+.k-button.btn-dialog-test span {
+  display: inline-flex !important;
+  align-items: center !important;
+  line-height: 1 !important;
+  margin-left: 4px !important;
+}
+
+/* Final global placeholder override: must beat WebKit text-fill color used for dark autofill protection. */
+input::placeholder,
+textarea::placeholder,
+.cms-dialog input::placeholder,
+.cms-dialog textarea::placeholder,
+.modal-form input::placeholder,
+.modal-form textarea::placeholder,
+.k-input::placeholder,
+.k-input-inner::placeholder {
+  color: rgba(126, 141, 158, 0.86) !important;
+  -webkit-text-fill-color: rgba(126, 141, 158, 0.86) !important;
+  font-weight: 400 !important;
+  opacity: 1 !important;
+}
+
+input::-webkit-input-placeholder,
+textarea::-webkit-input-placeholder,
+.cms-dialog input::-webkit-input-placeholder,
+.cms-dialog textarea::-webkit-input-placeholder,
+.modal-form input::-webkit-input-placeholder,
+.modal-form textarea::-webkit-input-placeholder {
+  color: rgba(126, 141, 158, 0.86) !important;
+  -webkit-text-fill-color: rgba(126, 141, 158, 0.86) !important;
+  font-weight: 400 !important;
+}
+
+/* Global checkbox alignment: override generic form label grid so checkbox labels always align horizontally. */
+.checkbox-group {
+  display: grid !important;
+  gap: 10px !important;
+  align-items: start !important;
+  justify-items: start !important;
+}
+
+label.checkbox-label:not(.column-checkbox-label),
+label:not(.column-checkbox-label):has(> input[type="checkbox"]) {
+  display: inline-grid !important;
+  grid-template-columns: 18px minmax(0, max-content) !important;
+  align-items: center !important;
+  justify-content: start !important;
+  justify-items: start !important;
+  column-gap: 10px !important;
+  row-gap: 0 !important;
+  width: fit-content !important;
+  max-width: 100% !important;
+  margin: 0 !important;
+  color: var(--brand-muted) !important;
+  line-height: 1.25 !important;
+}
+
+label.checkbox-label:not(.column-checkbox-label) input[type="checkbox"],
+label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="checkbox"] {
+  grid-column: 1 !important;
+  width: 16px !important;
+  height: 16px !important;
+  min-width: 16px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  align-self: center !important;
+  justify-self: start !important;
+  accent-color: var(--brand-primary);
 }

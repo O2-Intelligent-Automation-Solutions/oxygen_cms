@@ -1,3 +1,24 @@
+import { existsSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { config as loadDotenv } from 'dotenv';
+
+function loadProjectEnvironment() {
+  const cwd = process.cwd();
+  const candidates = [
+    join(cwd, '.env'),
+    resolve(cwd, '..', '.env'),
+    resolve(cwd, '..', '..', '.env')
+  ];
+
+  for (const path of candidates) {
+    if (existsSync(path)) {
+      loadDotenv({ path, override: false });
+    }
+  }
+}
+
+loadProjectEnvironment();
+
 export type AppConfig = {
   nodeEnv: string;
   host: string;

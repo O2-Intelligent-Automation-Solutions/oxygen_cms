@@ -163,7 +163,14 @@ export function createMysqlInstanceRepository(pool: Pool, credentialCipher?: Cre
   }
 
   function decryptCredential(secret: string) {
-    return (credentialCipher ?? createCredentialCipherFromEnvironment()).decrypt(secret);
+    try {
+      return (credentialCipher ?? createCredentialCipherFromEnvironment()).decrypt(secret);
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Unsupported credential secret format.') {
+        throw new Error('Saved instance credential is from an older format. Re-enter the remote OxyGen password in the instance edit modal and save before testing connectivity from the grid.');
+      }
+      throw error;
+    }
   }
   async function one<T extends RowDataPacket>(sql: string, params: unknown[] = []): Promise<T | null> {
     const [rows] = await pool.execute<T[]>(sql, params as never[]);
