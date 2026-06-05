@@ -130,6 +130,10 @@ export function createInMemoryInstanceRepository(): InstanceRepository {
         username: input.username.trim(),
         pollingIntervalSeconds: input.pollingIntervalSeconds ?? 300,
         isEnabled: input.isEnabled ?? true,
+        checkLicense: input.checkLicense ?? true,
+        archived: input.archived ?? false,
+        metadata: input.metadata ?? null,
+        notes: cleanNullableText(input.notes),
         ...statusDefaults(),
         createdAt: timestamp,
         updatedAt: timestamp,
@@ -157,6 +161,10 @@ export function createInMemoryInstanceRepository(): InstanceRepository {
         username: input.username.trim(),
         pollingIntervalSeconds: input.pollingIntervalSeconds ?? existing.pollingIntervalSeconds,
         isEnabled: input.isEnabled ?? existing.isEnabled,
+        checkLicense: input.checkLicense ?? existing.checkLicense,
+        archived: input.archived ?? existing.archived,
+        metadata: input.metadata ?? null,
+        notes: cleanNullableText(input.notes),
         updatedAt: nowIso(),
         passwordSecret: input.password ?? existing.passwordSecret
       };
@@ -169,7 +177,7 @@ export function createInMemoryInstanceRepository(): InstanceRepository {
     async listInstances(scope) {
       const instanceIds = scope?.includeAll ? null : new Set(scope?.instanceIds ?? []);
       return Array.from(instances.values())
-        .filter((instance) => !instanceIds || instanceIds.has(instance.id))
+        .filter((instance) => (scope?.includeArchived || !instance.archived) && (!instanceIds || instanceIds.has(instance.id)))
         .map(publicInstance)
         .sort((a, b) => a.name.localeCompare(b.name));
     },

@@ -25,6 +25,7 @@ Recent dashboard/service-log work adds:
 - Best-effort poller log persistence so a missing/unavailable log table cannot crash the API service.
 - Dashboard KPI styling uses the OxyGen display font for all KPI numerals, with the administrative KPI group (Tenants, Users, User Groups, Roles) restored to aqua branding while health KPIs retain green/yellow/red semantic severity colors.
 - The Service card is a compact operational strip; Last Summary is widened for thousands-scale `checked / skipped / failed` values while In Flight remains compact.
+- Instances grid includes CSV Export/Import controls for SystemAdmin and TenantAdmin users. Global users export/import a `tenant` column by Tenant name and may leave it blank for global/unassigned instances; tenant-scoped users export without the `tenant` column and imports are forced to their assigned Tenant. `instance_guid` maps to the instance `id`; blank creates a new instance, existing GUID updates, unknown nonblank GUID creates with that GUID. Passwords are never exported; blank import passwords preserve existing credentials on update and are rejected on create.
 
 Validation gate for this state:
 

@@ -12,6 +12,7 @@ type ConnectivityInput = {
     port: number | null;
     apiBaseUrl: string;
     username: string;
+    checkLicense?: boolean;
   };
   password: string;
   timeoutMs?: number;
@@ -346,7 +347,7 @@ export async function testOxyGenConnectivity(input: ConnectivityInput): Promise<
   }
 
   const api = await probeCurrentTime(input, authentication.cookieHeader);
-  const license = await probeLicense(input, authentication.cookieHeader);
+  const license = input.instance.checkLicense === false ? skippedLicense('License probe skipped because check_license is disabled for this instance.') : await probeLicense(input, authentication.cookieHeader);
   const ok = api.step.ok;
   return {
     ok,

@@ -53,6 +53,10 @@ type InstanceRow = RowDataPacket & {
   password_secret: string;
   polling_interval_seconds: number;
   is_enabled: number | boolean;
+  check_license: number | boolean;
+  archived: number | boolean;
+  metadata_json: unknown | null;
+  notes: string | null;
   availability_status: InstanceStatus | null;
   ssl_valid: number | boolean | null;
   ssl_expires_at: Date | string | null;
@@ -104,6 +108,10 @@ function mapInstance(row: InstanceRow): OxyGenInstance {
     username: row.username,
     pollingIntervalSeconds: Number(row.polling_interval_seconds),
     isEnabled: Boolean(row.is_enabled),
+    checkLicense: Boolean(row.check_license),
+    archived: Boolean(row.archived),
+    metadata: parseJson(row.metadata_json),
+    notes: row.notes,
     status: row.availability_status ?? 'unknown',
     sslValid: row.ssl_valid === null || row.ssl_valid === undefined ? null : Boolean(row.ssl_valid),
     sslExpiresAt: nullableIso(row.ssl_expires_at),
@@ -294,12 +302,12 @@ export function createMysqlInstanceRepository(pool: Pool, credentialCipher?: Cre
     async createInstance(input: CreateInstanceInput) {
       await assertTenantExists(input.tenantId);
       const normalized = normalizeOxyGenEndpoint(input);
-      const id = randomUUID();
+      const id = input.id ?? randomUUID();
       try {
         await pool.execute(
           `INSERT INTO oxygen_instances
-           (id, name, description, tenant_id, protocol, host, port, hostname, base_url, launch_url, api_base_url, username, password_secret, polling_interval_seconds, is_enabled, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unknown')`,
+           (id, name, description, tenant_id, protocol, host, port, hostname, base_url, launch_url, api_base_url, username, password_secret, polling_interval_seconds, is_enabled, check_license, archived, metadata_json, notes, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unknown')`,
           [
             id,
             input.name.trim(),
@@ -315,7 +323,11 @@ export function createMysqlInstanceRepository(pool: Pool, credentialCipher?: Cre
             input.username.trim(),
             encryptCredential(input.password),
             input.pollingIntervalSeconds ?? 300,
-            input.isEnabled ?? true
+            input.isEnabled ?? true,
+            input.checkLicense ?? true,
+            input.archived ?? false,
+            input.metadata === null || input.metadata === undefined ? null : JSON.stringify(input.metadata),
+            cleanNullableText(input.notes)
           ]
         );
         await pool.execute('INSERT INTO oxygen_instance_status (instance_id, availability_status) VALUES (?, ?)', [id, 'unknown']);
@@ -346,7 +358,11 @@ export function createMysqlInstanceRepository(pool: Pool, credentialCipher?: Cre
         normalized.apiBaseUrl,
         input.username.trim(),
         input.pollingIntervalSeconds ?? existing.pollingIntervalSeconds,
-        input.isEnabled ?? existing.isEnabled
+        input.isEnabled ?? existing.isEnabled,
+        input.checkLicense ?? existing.checkLicense,
+        input.archived ?? existing.archived,
+        input.metadata === null || input.metadata === undefined ? null : JSON.stringify(input.metadata),
+        cleanNullableText(input.notes)
       ];
       if (input.password) params.push(encryptCredential(input.password));
       params.push(instanceId);
@@ -354,7 +370,7 @@ export function createMysqlInstanceRepository(pool: Pool, credentialCipher?: Cre
       try {
         await pool.execute(
           `UPDATE oxygen_instances
-           SET name = ?, description = ?, tenant_id = ?, protocol = ?, host = ?, port = ?, hostname = ?, base_url = ?, launch_url = ?, api_base_url = ?, username = ?, polling_interval_seconds = ?, is_enabled = ?${passwordSql}
+           SET name = ?, description = ?, tenant_id = ?, protocol = ?, host = ?, port = ?, hostname = ?, base_url = ?, launch_url = ?, api_base_url = ?, username = ?, polling_interval_seconds = ?, is_enabled = ?, check_license = ?, archived = ?, metadata_json = ?, notes = ?${passwordSql}
            WHERE id = ?`,
           params as never[]
         );
@@ -372,13 +388,15 @@ export function createMysqlInstanceRepository(pool: Pool, credentialCipher?: Cre
     },
 
     async listInstances(scope) {
+      const archiveSql = scope?.includeArchived ? '' : ' WHERE i.archived = 0';
       if (scope?.includeAll) {
-        return (await many<InstanceRow>(`${instanceSelectSql} ORDER BY i.name ASC`)).map(mapInstance);
+        return (await many<InstanceRow>(`${instanceSelectSql}${archiveSql} ORDER BY i.name ASC`)).map(mapInstance);
       }
       const instanceIds = scope?.instanceIds ?? [];
       if (instanceIds.length === 0) return [];
       const placeholders = instanceIds.map(() => '?').join(', ');
-      return (await many<InstanceRow>(`${instanceSelectSql} WHERE i.id IN (${placeholders}) ORDER BY i.name ASC`, instanceIds)).map(mapInstance);
+      const archivedClause = scope?.includeArchived ? '' : ' AND i.archived = 0';
+      return (await many<InstanceRow>(`${instanceSelectSql} WHERE i.id IN (${placeholders})${archivedClause} ORDER BY i.name ASC`, instanceIds)).map(mapInstance);
     },
 
     getInstance: findInstanceById,

@@ -162,6 +162,77 @@ describe('instance enrollment API', () => {
   });
 
 
+  it('persists instance import columns and hides archived instances unless requested', async () => {
+    const authRepository = createInMemoryAuthRepository();
+    const instanceRepository = createInMemoryInstanceRepository();
+    const app = await buildApp({ logger: false, authRepository, instanceRepository });
+    const { adminToken, tenant } = await bootstrap(app, authRepository);
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/instances',
+      headers: { authorization: `Bearer ${adminToken}` },
+      payload: {
+        name: 'Archived Metadata Instance',
+        description: 'Short summary',
+        tenantId: tenant.id,
+        protocol: 'https',
+        host: 'archived.example.com',
+        username: 'admin',
+        password: 'RemotePassword!42',
+        checkLicense: false,
+        archived: true,
+        metadata: { region: 'us-east', tier: 'gold' },
+        notes: '# Runbook\n\nUse the maintenance window.'
+      }
+    });
+
+    expect(created.statusCode).toBe(201);
+    expect(created.json().instance).toMatchObject({
+      name: 'Archived Metadata Instance',
+      checkLicense: false,
+      archived: true,
+      metadata: { region: 'us-east', tier: 'gold' },
+      notes: '# Runbook\n\nUse the maintenance window.'
+    });
+
+    const defaultList = await app.inject({ method: 'GET', url: '/api/instances', headers: { authorization: `Bearer ${adminToken}` } });
+    expect(defaultList.statusCode).toBe(200);
+    expect(defaultList.json().instances.map((instance: { name: string }) => instance.name)).not.toContain('Archived Metadata Instance');
+
+    const archiveList = await app.inject({ method: 'GET', url: '/api/instances?includeArchived=true', headers: { authorization: `Bearer ${adminToken}` } });
+    expect(archiveList.statusCode).toBe(200);
+    expect(archiveList.json().instances).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: created.json().instance.id, archived: true, checkLicense: false, metadata: { region: 'us-east', tier: 'gold' } })
+    ]));
+
+    const updated = await app.inject({
+      method: 'PATCH',
+      url: `/api/instances/${created.json().instance.id}`,
+      headers: { authorization: `Bearer ${adminToken}` },
+      payload: {
+        name: 'Unarchived Metadata Instance',
+        description: 'Short summary',
+        tenantId: tenant.id,
+        protocol: 'https',
+        host: 'archived.example.com',
+        username: 'admin',
+        checkLicense: true,
+        archived: false,
+        metadata: { region: 'us-west' },
+        notes: '<p>HTML notes</p>'
+      }
+    });
+
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json().instance).toMatchObject({ archived: false, checkLicense: true, metadata: { region: 'us-west' }, notes: '<p>HTML notes</p>' });
+
+    const visibleList = await app.inject({ method: 'GET', url: '/api/instances', headers: { authorization: `Bearer ${adminToken}` } });
+    expect(visibleList.json().instances.map((instance: { name: string }) => instance.name)).toContain('Unarchived Metadata Instance');
+
+    await app.close();
+  });
+
   it('returns a scoped instance detail dashboard payload for an enrolled OxyGen instance', async () => {
     const authRepository = createInMemoryAuthRepository();
     const instanceRepository = createInMemoryInstanceRepository();
@@ -275,6 +346,136 @@ describe('instance enrollment API', () => {
       authentication: { ok: true, httpStatusCode: 200 },
       api: { ok: true, httpStatusCode: 200 }
     });
+
+    await app.close();
+  });
+
+  it('exports global instance CSV with Tenant names and no passwords for global SystemAdmins', async () => {
+    const authRepository = createInMemoryAuthRepository();
+    const instanceRepository = createInMemoryInstanceRepository();
+    const app = await buildApp({ logger: false, authRepository, instanceRepository });
+    const { adminToken, tenant } = await bootstrap(app, authRepository);
+
+    const globalInstance = await app.inject({ method: 'POST', url: '/api/instances', headers: { authorization: `Bearer ${adminToken}` }, payload: { name: 'Global Exported', description: 'Global instance', tenantId: null, protocol: 'https', host: 'global.example.com', username: 'admin', password: 'GlobalPassword!42' } });
+    const tenantInstance = await app.inject({ method: 'POST', url: '/api/instances', headers: { authorization: `Bearer ${adminToken}` }, payload: { name: 'Tenant Exported', description: 'Tenant instance', tenantId: tenant.id, protocol: 'http', host: 'tenant.example.com', port: 8080, username: 'svc', password: 'TenantPassword!42' } });
+
+    const exported = await app.inject({ method: 'GET', url: '/api/instances/export.csv', headers: { authorization: `Bearer ${adminToken}` } });
+
+    expect(exported.statusCode).toBe(200);
+    expect(exported.headers['content-type']).toContain('text/csv');
+    expect(exported.headers['content-disposition']).toContain('oxygen-instances-');
+    const csv = exported.body;
+    expect(csv.split(/\r?\n/)[0]).toBe('instance_guid,name,description,tenant,protocol,host,port,username,polling_interval_seconds,is_enabled,check_license,archived,metadata,notes,password');
+    expect(csv).toContain(`${globalInstance.json().instance.id},Global Exported,Global instance,,https,global.example.com,443,admin,300,true,true,false,,,`);
+    expect(csv).toContain(`${tenantInstance.json().instance.id},Tenant Exported,Tenant instance,Acme Tenant,http,tenant.example.com,8080,svc,300,true,true,false,,,`);
+    expect(csv).not.toContain('GlobalPassword!42');
+    expect(csv).not.toContain('TenantPassword!42');
+
+    await app.close();
+  });
+
+  it('exports tenant-scoped CSV without Tenant column and only that Tenant instances', async () => {
+    const authRepository = createInMemoryAuthRepository();
+    const instanceRepository = createInMemoryInstanceRepository();
+    const app = await buildApp({ logger: false, authRepository, instanceRepository });
+    const { adminToken, tenant } = await bootstrap(app, authRepository);
+    const tenantAdmin = await authRepository.createUser({ email: 'tenant-admin@example.com', displayName: 'Tenant Admin', password: 'TenantAdminPassword!42', roleNames: ['TenantAdmin'], groupIds: [], tenantId: tenant.id, instanceAccessMode: 'all', instanceIds: [] });
+    const tenantAdminToken = await authRepository.createSession(tenantAdmin.user.id);
+
+    await app.inject({ method: 'POST', url: '/api/instances', headers: { authorization: `Bearer ${adminToken}` }, payload: { name: 'Visible Tenant Instance', tenantId: tenant.id, protocol: 'https', host: 'tenant-visible.example.com', username: 'admin', password: 'TenantPassword!42' } });
+    await app.inject({ method: 'POST', url: '/api/instances', headers: { authorization: `Bearer ${adminToken}` }, payload: { name: 'Hidden Global Instance', tenantId: null, protocol: 'https', host: 'global-hidden.example.com', username: 'admin', password: 'GlobalPassword!42' } });
+
+    const exported = await app.inject({ method: 'GET', url: '/api/instances/export.csv', headers: { authorization: `Bearer ${tenantAdminToken}` } });
+
+    expect(exported.statusCode).toBe(200);
+    const csv = exported.body;
+    expect(csv.split(/\r?\n/)[0]).toBe('instance_guid,name,description,protocol,host,port,username,polling_interval_seconds,is_enabled,check_license,archived,metadata,notes,password');
+    expect(csv).toContain('Visible Tenant Instance');
+    expect(csv).not.toContain('Hidden Global Instance');
+    expect(csv).not.toContain(',tenant,');
+
+    await app.close();
+  });
+
+  it('imports global CSV using Tenant names and upserts by instance_guid', async () => {
+    const authRepository = createInMemoryAuthRepository();
+    const instanceRepository = createInMemoryInstanceRepository();
+    const app = await buildApp({ logger: false, authRepository, instanceRepository });
+    const { adminToken, tenant } = await bootstrap(app, authRepository);
+    const existing = await app.inject({ method: 'POST', url: '/api/instances', headers: { authorization: `Bearer ${adminToken}` }, payload: { name: 'Before Import', tenantId: tenant.id, protocol: 'https', host: 'before.example.com', username: 'admin', password: 'KeepPassword!42' } });
+
+    const csv = [
+      'instance_guid,name,description,tenant,protocol,host,port,username,polling_interval_seconds,is_enabled,check_license,archived,metadata,notes,password',
+      `${existing.json().instance.id},After Import,Updated by CSV,Acme Tenant,http,after.example.com,8081,svc,600,false,false,false,"{ ""source"": ""csv"" }",Updated notes,`,
+      '11111111-1111-4111-8111-111111111111,New Tenant Instance,Created by CSV,Acme Tenant,https,new-tenant.example.com,,admin,300,true,true,false,,,NewPassword!42',
+      ',New Global Instance,Created globally,,https,new-global.example.com,,admin,300,true,true,true,,Archived global,GlobalPassword!42'
+    ].join('\n');
+
+    const imported = await app.inject({ method: 'POST', url: '/api/instances/import', headers: { authorization: `Bearer ${adminToken}` }, payload: { csv } });
+
+    expect(imported.statusCode).toBe(200);
+    expect(imported.json()).toMatchObject({ created: 2, updated: 1, failed: 0 });
+    const listed = await app.inject({ method: 'GET', url: '/api/instances?includeArchived=true', headers: { authorization: `Bearer ${adminToken}` } });
+    expect(listed.json().instances).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: existing.json().instance.id, name: 'After Import', tenantId: tenant.id, protocol: 'http', host: 'after.example.com', port: 8081, username: 'svc', pollingIntervalSeconds: 600, isEnabled: false, checkLicense: false, archived: false, metadata: { source: 'csv' }, notes: 'Updated notes' }),
+      expect.objectContaining({ id: '11111111-1111-4111-8111-111111111111', name: 'New Tenant Instance', tenantId: tenant.id }),
+      expect.objectContaining({ name: 'New Global Instance', tenantId: null, archived: true, notes: 'Archived global' })
+    ]));
+
+    await app.close();
+  });
+
+  it('imports tenant-scoped CSV into the signed-in user Tenant without accepting a Tenant column', async () => {
+    const authRepository = createInMemoryAuthRepository();
+    const instanceRepository = createInMemoryInstanceRepository();
+    const app = await buildApp({ logger: false, authRepository, instanceRepository });
+    const { adminToken, tenant } = await bootstrap(app, authRepository);
+    const tenantAdmin = await authRepository.createUser({ email: 'tenant-import-admin@example.com', displayName: 'Tenant Import Admin', password: 'TenantAdminPassword!42', roleNames: ['TenantAdmin'], groupIds: [], tenantId: tenant.id, instanceAccessMode: 'all', instanceIds: [] });
+    const tenantAdminToken = await authRepository.createSession(tenantAdmin.user.id);
+    const existing = await app.inject({ method: 'POST', url: '/api/instances', headers: { authorization: `Bearer ${adminToken}` }, payload: { name: 'Tenant Before Import', tenantId: tenant.id, protocol: 'https', host: 'tenant-before.example.com', username: 'admin', password: 'KeepPassword!42' } });
+
+    const csv = [
+      'instance_guid,name,description,protocol,host,port,username,polling_interval_seconds,is_enabled,check_license,archived,metadata,notes,password',
+      `${existing.json().instance.id},Tenant After Import,Updated by CSV,http,tenant-after.example.com,8082,svc,900,true,false,false,,,`,
+      ',Tenant Created Import,Created by CSV,https,tenant-created.example.com,,admin,300,true,true,false,,,CreatedPassword!42'
+    ].join('\n');
+
+    const imported = await app.inject({ method: 'POST', url: '/api/instances/import', headers: { authorization: `Bearer ${tenantAdminToken}` }, payload: { csv } });
+
+    expect(imported.statusCode).toBe(200);
+    expect(imported.json()).toMatchObject({ created: 1, updated: 1, failed: 0 });
+    const listed = await app.inject({ method: 'GET', url: '/api/instances', headers: { authorization: `Bearer ${adminToken}` } });
+    expect(listed.json().instances).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: existing.json().instance.id, name: 'Tenant After Import', tenantId: tenant.id }),
+      expect.objectContaining({ name: 'Tenant Created Import', tenantId: tenant.id })
+    ]));
+
+    const rejected = await app.inject({ method: 'POST', url: '/api/instances/import', headers: { authorization: `Bearer ${tenantAdminToken}` }, payload: { csv: 'instance_guid,name,description,tenant,protocol,host,port,username,polling_interval_seconds,is_enabled,check_license,archived,metadata,notes,password\n,Blocked,,Other Tenant,https,blocked.example.com,,admin,300,true,true,false,,,Password!42' } });
+    expect(rejected.statusCode).toBe(400);
+    expect(rejected.json().rows[0].errors[0]).toContain('Tenant-scoped imports must not include a tenant column.');
+
+    await app.close();
+  });
+
+  it('rejects instance CSV imports with unknown Tenant names before persisting any rows', async () => {
+    const authRepository = createInMemoryAuthRepository();
+    const instanceRepository = createInMemoryInstanceRepository();
+    const app = await buildApp({ logger: false, authRepository, instanceRepository });
+    const { adminToken } = await bootstrap(app, authRepository);
+
+    const csv = [
+      'instance_guid,name,description,tenant,protocol,host,port,username,polling_interval_seconds,is_enabled,check_license,archived,metadata,notes,password',
+      ',Valid Row,Would create,,https,valid.example.com,,admin,300,true,true,false,,,Password!42',
+      ',Invalid Row,Unknown Tenant,Missing Tenant,https,invalid.example.com,,admin,300,true,true,false,,,Password!42'
+    ].join('\n');
+
+    const imported = await app.inject({ method: 'POST', url: '/api/instances/import', headers: { authorization: `Bearer ${adminToken}` }, payload: { csv } });
+
+    expect(imported.statusCode).toBe(400);
+    expect(imported.json()).toMatchObject({ created: 0, updated: 0, failed: 1 });
+    expect(imported.json().rows[1].errors[0]).toContain('Unknown Tenant: Missing Tenant');
+    const listed = await app.inject({ method: 'GET', url: '/api/instances', headers: { authorization: `Bearer ${adminToken}` } });
+    expect(listed.json().instances).toEqual([]);
 
     await app.close();
   });

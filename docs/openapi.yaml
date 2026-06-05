@@ -506,6 +506,11 @@ paths:
     get:
       tags: [Instances]
       summary: List accessible OxyGen instances
+      parameters:
+        - in: query
+          name: includeArchived
+          schema: { type: boolean, default: false }
+          description: Include archived instances in the response. Archived instances are hidden from the default instance list but retained for dashboards/history and can be unarchived.
       responses:
         '200':
           description: Instance list scoped to the signed-in user's access.
@@ -538,6 +543,44 @@ paths:
                 properties:
                   instance: { $ref: '#/components/schemas/OxyGenInstance' }
         '400': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+  /api/instances/export.csv:
+    get:
+      tags: [Instances]
+      summary: Export OxyGen instances as CSV
+      description: SystemAdmin and TenantAdmin. Global users receive all instances with a `tenant` column containing Tenant names; blank tenant means global/unassigned. Tenant-scoped users receive only their Tenant's instances and the `tenant` column is omitted. The CSV includes `check_license`, `archived`, `metadata`, and `notes`; password values are never exported and the password column is always blank.
+      responses:
+        '200':
+          description: CSV file of visible instances.
+          content:
+            text/csv:
+              schema:
+                type: string
+                description: CSV with `instance_guid`, connection/configuration fields, and a blank `password` column. Global exports include `tenant` by Tenant name; tenant-scoped exports omit it.
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+  /api/instances/import:
+    post:
+      tags: [Instances]
+      summary: Import OxyGen instances from CSV
+      description: SystemAdmin and TenantAdmin. Upserts by `instance_guid` (the instance `id`). Blank `instance_guid` creates a new instance; an unknown nonblank GUID creates an instance with that GUID. Global users may include a `tenant` column with Tenant names, leaving it blank for global/unassigned instances. Tenant-scoped users must omit the `tenant` column; all creates/updates are forced to their assigned Tenant. Existing instance Tenant assignments cannot be changed. Blank passwords preserve the current password on update and are invalid on create. Imports validate all rows before persisting any changes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ImportInstancesInput' }
+      responses:
+        '200':
+          description: Import completed or dry-run summary.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InstanceImportResult' }
+        '400':
+          description: Import validation failed; no rows persisted.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InstanceImportResult' }
+        '401': { $ref: '#/components/responses/Error' }
         '403': { $ref: '#/components/responses/Error' }
   /api/instances/test-connectivity:
     post:
@@ -1061,6 +1104,7 @@ components:
       type: object
       required: [name, username, password]
       properties:
+        id: { type: string, format: uuid, description: Optional instance GUID. Used by CSV import to create instances with an exported `instance_guid`. }
         name: { type: string, minLength: 1 }
         description: { type: [string, 'null'] }
         tenantId: { type: [string, 'null'], format: uuid }
@@ -1072,6 +1116,10 @@ components:
         password: { type: string, writeOnly: true, description: Remote OxyGen credential. Stored encrypted at rest using AES-256-GCM and never returned by API responses. Requires OXYGEN_CMS_ENCRYPTION_KEY when persisted to MySQL. }
         pollingIntervalSeconds: { type: integer, minimum: 60, maximum: 86400, default: 300 }
         isEnabled: { type: boolean, default: true }
+        checkLicense: { type: boolean, default: true, description: Whether connectivity polling should call the OxyGen license/settings API. When false, the license probe is skipped. }
+        archived: { type: boolean, default: false, description: Hide this server from the default instance list while retaining data/history. }
+        metadata: { type: [object, 'null'], additionalProperties: true, description: Custom instance metadata shown as a JSON card on the Instance Dashboard. }
+        notes: { type: [string, 'null'], description: Large instance notes block. The UI auto-detects HTML, Markdown, RTF, or plain text for dashboard display. }
     TestConnectivityInput:
       type: object
       required: [username, password]
@@ -1088,6 +1136,46 @@ components:
         - type: object
           properties:
             password: { type: string, writeOnly: true, description: Blank or omitted means unchanged. Non-blank replacement credentials are stored encrypted at rest and never returned by API responses. }
+    ImportInstancesInput:
+      type: object
+      required: [csv]
+      properties:
+        csv:
+          type: string
+          description: CSV text to import. Headers are `instance_guid,name,description,tenant,protocol,host,port,username,polling_interval_seconds,is_enabled,check_license,archived,metadata,notes,password` for global users and the same list without `tenant` for tenant-scoped users. `metadata` must be valid JSON when nonblank; `notes` may contain HTML, Markdown, RTF, or plain text.
+        dryRun:
+          type: boolean
+          default: false
+          description: Validate and summarize without persisting changes.
+    InstanceImportRowResult:
+      type: object
+      required: [rowNumber, instanceGuid, name, action, errors, warnings]
+      properties:
+        rowNumber: { type: integer, minimum: 1 }
+        instanceGuid: { type: [string, 'null'], format: uuid }
+        name: { type: [string, 'null'] }
+        action: { type: string, enum: [create, update, skip, error] }
+        errors:
+          type: array
+          items: { type: string }
+        warnings:
+          type: array
+          items: { type: string }
+        instance:
+          oneOf:
+            - $ref: '#/components/schemas/OxyGenInstance'
+            - type: 'null'
+    InstanceImportResult:
+      type: object
+      required: [dryRun, created, updated, failed, rows]
+      properties:
+        dryRun: { type: boolean }
+        created: { type: integer, minimum: 0 }
+        updated: { type: integer, minimum: 0 }
+        failed: { type: integer, minimum: 0 }
+        rows:
+          type: array
+          items: { $ref: '#/components/schemas/InstanceImportRowResult' }
     Tenant:
       allOf:
         - $ref: '#/components/schemas/TenantInput'
@@ -1211,7 +1299,7 @@ components:
             primaryIssue: { type: [string, 'null'], description: Most critical issue/warning label to show on dashboard instance cards. }
     OxyGenInstance:
       type: object
-      required: [id, name, description, tenantId, protocol, host, port, hostname, baseUrl, launchUrl, apiBaseUrl, username, pollingIntervalSeconds, isEnabled, status, createdAt, updatedAt]
+      required: [id, name, description, tenantId, protocol, host, port, hostname, baseUrl, launchUrl, apiBaseUrl, username, pollingIntervalSeconds, isEnabled, checkLicense, archived, metadata, notes, status, createdAt, updatedAt]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
@@ -1227,6 +1315,10 @@ components:
         username: { type: string }
         pollingIntervalSeconds: { type: integer }
         isEnabled: { type: boolean }
+        checkLicense: { type: boolean, description: Whether the OxyGen license/settings API should be checked during polling. }
+        archived: { type: boolean, description: Hidden from default instance lists while data is retained. }
+        metadata: { type: [object, 'null'], additionalProperties: true }
+        notes: { type: [string, 'null'] }
         status: { $ref: '#/components/schemas/InstanceStatus' }
         sslValid: { type: [boolean, 'null'] }
         sslExpiresAt: { type: [string, 'null'], format: date-time }

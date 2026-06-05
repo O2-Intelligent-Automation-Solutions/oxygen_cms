@@ -18,6 +18,10 @@ export type OxyGenInstance = {
   username: string;
   pollingIntervalSeconds: number;
   isEnabled: boolean;
+  checkLicense: boolean;
+  archived: boolean;
+  metadata: unknown | null;
+  notes: string | null;
   status: InstanceStatus;
   sslValid: boolean | null;
   sslExpiresAt: string | null;
@@ -54,6 +58,10 @@ export type CreateInstanceInput = {
   password: string;
   pollingIntervalSeconds?: number;
   isEnabled?: boolean;
+  checkLicense?: boolean;
+  archived?: boolean;
+  metadata?: unknown | null;
+  notes?: string | null;
 };
 
 export type UpdateInstanceInput = {
@@ -68,6 +76,10 @@ export type UpdateInstanceInput = {
   password?: string;
   pollingIntervalSeconds?: number;
   isEnabled?: boolean;
+  checkLicense?: boolean;
+  archived?: boolean;
+  metadata?: unknown | null;
+  notes?: string | null;
 };
 
 export type ConnectivityStepResult = {
@@ -126,7 +138,7 @@ export interface InstanceRepository {
   createInstance(input: CreateInstanceInput): Promise<OxyGenInstance>;
   updateInstance(instanceId: string, input: UpdateInstanceInput): Promise<OxyGenInstance>;
   deleteInstance(instanceId: string): Promise<void>;
-  listInstances(scope?: { instanceIds?: string[]; includeAll?: boolean }): Promise<OxyGenInstance[]>;
+  listInstances(scope?: { instanceIds?: string[]; includeAll?: boolean; includeArchived?: boolean }): Promise<OxyGenInstance[]>;
   getInstance(instanceId: string): Promise<OxyGenInstance | null>;
   getHealthDetails(instanceId: string): Promise<InstanceHealthDetails>;
   testConnectivity(instanceId: string): Promise<ConnectivityResult>;

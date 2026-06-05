@@ -1,5 +1,5 @@
 export const DEFAULT_CMS_DATABASE_NAME = 'O2IAS_CMS';
-export const CURRENT_SCHEMA_VERSION = '0.10';
+export const CURRENT_SCHEMA_VERSION = '0.11';
 
 export type SetupNextStep = 'database' | 'schema' | 'admin' | 'complete';
 

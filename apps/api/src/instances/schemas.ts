@@ -5,6 +5,8 @@ const optionalTenantId = z.string().uuid().optional().nullable().transform((valu
 const protocolSchema = z.enum(['http', 'https']).optional().default('https');
 const portSchema = z.coerce.number().int().min(1).max(65535).optional().nullable().transform((value) => value ?? null);
 const usernameSchema = z.string().trim().min(1).optional().default('admin');
+const metadataSchema = z.unknown().optional().nullable().transform((value) => value ?? null);
+const notesSchema = z.string().optional().nullable().transform((value) => value || null);
 
 export const createInstanceSchema = z.object({
   id: z.string().uuid().optional(),
@@ -18,7 +20,11 @@ export const createInstanceSchema = z.object({
   username: usernameSchema,
   password: z.string().min(1),
   pollingIntervalSeconds: z.coerce.number().int().min(60).max(86400).optional().default(300),
-  isEnabled: z.boolean().optional().default(true)
+  isEnabled: z.boolean().optional().default(true),
+  checkLicense: z.boolean().optional().default(true),
+  archived: z.boolean().optional().default(false),
+  metadata: metadataSchema,
+  notes: notesSchema
 }).refine((value) => Boolean(value.host || value.hostname), { message: 'Host or URL is required.', path: ['host'] });
 
 export const testConnectivitySchema = z.object({
@@ -44,5 +50,14 @@ export const updateInstanceSchema = z.object({
   username: usernameSchema,
   password: z.string().min(1).optional().or(z.literal('')).transform((value) => value || undefined),
   pollingIntervalSeconds: z.coerce.number().int().min(60).max(86400).optional().default(300),
-  isEnabled: z.boolean().optional().default(true)
+  isEnabled: z.boolean().optional().default(true),
+  checkLicense: z.boolean().optional().default(true),
+  archived: z.boolean().optional().default(false),
+  metadata: metadataSchema,
+  notes: notesSchema
 }).refine((value) => Boolean(value.host || value.hostname), { message: 'Host or URL is required.', path: ['host'] });
+
+export const importInstancesSchema = z.object({
+  csv: z.string().min(1),
+  dryRun: z.boolean().optional().default(false)
+});

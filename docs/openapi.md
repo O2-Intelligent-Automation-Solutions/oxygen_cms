@@ -11,6 +11,10 @@ Current CMS schema version: `0.10`.
 
 This update documents:
 
+- instance CSV import/export endpoints:
+  - `GET /api/instances/export.csv` exports visible instances as CSV. Global users receive a `tenant` column populated by Tenant name; tenant-scoped users receive only their Tenant's instances and the `tenant` column is omitted. The export includes `check_license`, `archived`, `metadata`, and `notes`; the `password` column is always blank.
+  - `POST /api/instances/import` imports CSV text with `{ csv, dryRun? }`, upserting by `instance_guid` / instance `id`. Global users assign Tenants by Tenant name or leave `tenant` blank for global instances. Tenant-scoped users import only into their assigned Tenant. `metadata` must be valid JSON when provided; notes can be HTML/Markdown/RTF/text. Blank update passwords preserve stored credentials; create rows require a password.
+- `GET /api/instances?includeArchived=true` archive visibility for retained servers
 - dashboard `poller` status payloads
 - background poller system controls:
   - `GET /api/system/poller`

@@ -1,5 +1,5 @@
 -- OxyGen CMS canonical current schema snapshot
--- Schema version: 0.09
+-- Schema version: 0.11
 -- Runtime source of truth: apps/api/src/db/migrations/index.ts
 
 CREATE TABLE IF NOT EXISTS cms_schema_versions (
@@ -99,6 +99,10 @@ CREATE TABLE IF NOT EXISTS oxygen_instances (
   password_secret TEXT NOT NULL,
   polling_interval_seconds INT NOT NULL DEFAULT 300,
   is_enabled TINYINT(1) NOT NULL DEFAULT 1,
+  check_license TINYINT(1) NOT NULL DEFAULT 1,
+  archived TINYINT(1) NOT NULL DEFAULT 0,
+  metadata_json JSON NULL,
+  notes LONGTEXT NULL,
   status ENUM('unknown', 'up', 'down', 'auth-error', 'ssl-error') NOT NULL DEFAULT 'unknown',
   last_checked_at TIMESTAMP NULL,
   last_error TEXT NULL,
@@ -107,6 +111,7 @@ CREATE TABLE IF NOT EXISTS oxygen_instances (
   UNIQUE KEY uq_oxygen_instances_name (name),
   KEY idx_oxygen_instances_status (status),
   KEY idx_oxygen_instances_tenant (tenant_id),
+  KEY idx_oxygen_instances_archived (archived),
   CONSTRAINT fk_oxygen_instances_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT
 );
 

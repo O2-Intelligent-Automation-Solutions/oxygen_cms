@@ -777,11 +777,34 @@ button.secondary {
 
 .instance-grid-toolbar {
   position: relative;
-  flex-wrap: wrap;
+  display: flex;
+  flex-wrap: nowrap;
   width: 100%;
   min-width: 0;
-  align-items: flex-end;
+  align-items: center;
   justify-content: flex-end;
+  gap: 8px;
+  overflow: visible;
+  white-space: nowrap;
+}
+
+.instance-grid-toolbar > .k-button,
+.instance-grid-toolbar > .column-selector-wrap,
+.instance-toolbar-button.k-button,
+.column-selector-wrap > .btn-grid-tool.k-button {
+  flex: 0 0 auto;
+}
+
+.visually-hidden-file {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  border: 0;
 }
 
 .column-selector-wrap {
@@ -2020,6 +2043,29 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
 
 .license-json-editor .jse-main {
   min-height: 420px;
+}
+
+.instance-notes-frame {
+  width: 100%;
+  min-height: 420px;
+  border: 1px solid rgba(32, 214, 210, 0.24);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.instance-notes-block {
+  min-height: 260px;
+  max-height: min(520px, 60vh);
+  overflow: auto;
+  margin: 0;
+  padding: 16px;
+  border: 1px solid rgba(32, 214, 210, 0.24);
+  border-radius: 12px;
+  background: rgba(3, 12, 22, 0.74);
+  color: var(--brand-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  scrollbar-color: rgba(32, 214, 210, 0.72) rgba(10, 28, 42, 0.95);
 }
 
 .instance-detail-grid {

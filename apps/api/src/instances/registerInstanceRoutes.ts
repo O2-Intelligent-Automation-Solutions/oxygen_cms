@@ -2,9 +2,11 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { AppLogRepository } from '../appLogs/types.js';
 import { requireAuth, requireRole } from '../auth/registerAuthRoutes.js';
 import type { AuthProfile, AuthRepository } from '../auth/types.js';
+import { exportInstancesToCsv } from './csv.js';
+import { importInstancesFromCsv } from './importInstances.js';
 import { normalizeOxyGenEndpoint } from './inMemoryInstanceRepository.js';
 import { testOxyGenConnectivity } from './oxygenConnectivity.js';
-import { createInstanceSchema, testConnectivitySchema, updateInstanceSchema } from './schemas.js';
+import { createInstanceSchema, importInstancesSchema, testConnectivitySchema, updateInstanceSchema } from './schemas.js';
 import type { ConnectivityResult, InstanceRepository } from './types.js';
 
 type AuthenticatedRequest = FastifyRequest & { authProfile: AuthProfile };
@@ -14,9 +16,14 @@ function errorReply(reply: FastifyReply, error: unknown, fallback: string, notFo
   return reply.code(notFoundMessage && message === notFoundMessage ? 404 : 400).send({ error: message });
 }
 
-function instanceScope(profile: AuthProfile) {
-  if (profile.roles.includes('SystemAdmin') || profile.user.instanceAccessMode === 'all') return { includeAll: true };
-  if (profile.user.instanceAccessMode === 'none') return { instanceIds: [] };
+function includeArchivedFromRequest(request: FastifyRequest) {
+  const query = request.query as { includeArchived?: string | boolean } | undefined;
+  return query?.includeArchived === true || query?.includeArchived === 'true';
+}
+
+function instanceScope(profile: AuthProfile, includeArchived = false) {
+  if (profile.roles.includes('SystemAdmin') || profile.user.instanceAccessMode === 'all') return { includeAll: true, includeArchived };
+  if (profile.user.instanceAccessMode === 'none') return { instanceIds: [], includeArchived };
 
   const instanceIds = new Set<string>();
   if (profile.user.instanceAccessMode === 'specific') {
@@ -24,13 +31,25 @@ function instanceScope(profile: AuthProfile) {
   }
 
   for (const group of profile.groups) {
-    if (group.instanceAccessMode === 'all') return { includeAll: true };
+    if (group.instanceAccessMode === 'all') return { includeAll: true, includeArchived };
     if (group.instanceAccessMode === 'specific') {
       for (const instanceId of group.instanceIds) instanceIds.add(instanceId);
     }
   }
 
-  return { instanceIds: Array.from(instanceIds) };
+  return { instanceIds: Array.from(instanceIds), includeArchived };
+}
+
+function requireInstanceImportExportRole() {
+  return async (request: FastifyRequest, reply: FastifyReply) => {
+    const profile = request.authProfile;
+    if (!profile) return reply.code(401).send({ error: 'Authentication required.' });
+    if (!profile.roles.includes('SystemAdmin') && !profile.roles.includes('TenantAdmin')) return reply.code(403).send({ error: 'SystemAdmin or TenantAdmin role required.' });
+  };
+}
+
+function csvFilename() {
+  return `oxygen-instances-${new Date().toISOString().slice(0, 10)}.csv`;
 }
 
 async function testConnectivityFromInput(input: ReturnType<typeof testConnectivitySchema.parse>) {
@@ -104,10 +123,36 @@ async function appendConnectivityLog(app: FastifyInstance, repository: AppLogRep
 export async function registerInstanceRoutes(app: FastifyInstance, authRepository: AuthRepository, instanceRepository: InstanceRepository, appLogRepository?: AppLogRepository) {
   const requireSignedIn = requireAuth(authRepository);
   const adminPreHandler = [requireSignedIn, requireRole('SystemAdmin')];
+  const importExportPreHandler = [requireSignedIn, requireInstanceImportExportRole()];
 
   app.get('/api/instances', { preHandler: requireSignedIn }, async (request) => {
     const profile = (request as AuthenticatedRequest).authProfile;
-    return { instances: await instanceRepository.listInstances(instanceScope(profile)) };
+    return { instances: await instanceRepository.listInstances(instanceScope(profile, includeArchivedFromRequest(request))) };
+  });
+
+  app.get('/api/instances/export.csv', { preHandler: importExportPreHandler }, async (request, reply) => {
+    const profile = (request as AuthenticatedRequest).authProfile;
+    const [allInstances, tenants] = await Promise.all([
+      instanceRepository.listInstances({ includeAll: true, includeArchived: includeArchivedFromRequest(request) }),
+      authRepository.listTenants()
+    ]);
+    const instances = profile.user.tenantId ? allInstances.filter((instance) => instance.tenantId === profile.user.tenantId) : allInstances;
+    const csv = exportInstancesToCsv(instances, tenants, profile.user.tenantId ? 'tenant' : 'global');
+    return reply
+      .header('content-type', 'text/csv; charset=utf-8')
+      .header('content-disposition', `attachment; filename="${csvFilename()}"`)
+      .send(csv);
+  });
+
+  app.post('/api/instances/import', { preHandler: importExportPreHandler }, async (request, reply) => {
+    const profile = (request as AuthenticatedRequest).authProfile;
+    const input = importInstancesSchema.parse(request.body);
+    try {
+      const result = await importInstancesFromCsv({ authRepository, instanceRepository, profile, csv: input.csv, dryRun: input.dryRun });
+      return reply.code(result.failed > 0 && !result.dryRun ? 400 : 200).send(result);
+    } catch (error) {
+      return errorReply(reply, error, 'Unable to import instances.');
+    }
   });
 
   app.post('/api/instances', { preHandler: adminPreHandler }, async (request, reply) => {
@@ -119,7 +164,7 @@ export async function registerInstanceRoutes(app: FastifyInstance, authRepositor
   app.get('/api/instances/:instanceId', { preHandler: requireSignedIn }, async (request, reply) => {
     const { instanceId } = request.params as { instanceId: string };
     const profile = (request as AuthenticatedRequest).authProfile;
-    const instances = await instanceRepository.listInstances(instanceScope(profile));
+    const instances = await instanceRepository.listInstances(instanceScope(profile, true));
     const instance = instances.find((entry) => entry.id === instanceId);
     if (!instance) return reply.code(404).send({ error: 'Instance not found.' });
     return { instance };
@@ -128,7 +173,7 @@ export async function registerInstanceRoutes(app: FastifyInstance, authRepositor
   app.get('/api/instances/:instanceId/health-details', { preHandler: requireSignedIn }, async (request, reply) => {
     const { instanceId } = request.params as { instanceId: string };
     const profile = (request as AuthenticatedRequest).authProfile;
-    const instances = await instanceRepository.listInstances(instanceScope(profile));
+    const instances = await instanceRepository.listInstances(instanceScope(profile, true));
     if (!instances.some((entry) => entry.id === instanceId)) return reply.code(404).send({ error: 'Instance not found.' });
     try { return reply.code(200).send({ healthDetails: await instanceRepository.getHealthDetails(instanceId) }); }
     catch (error) { return errorReply(reply, error, 'Unable to load instance health details.', 'Instance not found.'); }

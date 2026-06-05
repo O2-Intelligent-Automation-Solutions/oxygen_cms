@@ -290,6 +290,14 @@ const applicationLogsTenantIdSql = `ALTER TABLE application_logs
   ADD KEY idx_application_logs_tenant_id (tenant_id),
   ADD KEY idx_application_logs_tenant_entity (tenant_id, entity_guid);`;
 
+const instanceImportColumnsSql = `ALTER TABLE oxygen_instances
+  ADD COLUMN check_license TINYINT(1) NOT NULL DEFAULT 1 AFTER is_enabled,
+  ADD COLUMN archived TINYINT(1) NOT NULL DEFAULT 0 AFTER check_license,
+  ADD COLUMN metadata_json JSON NULL AFTER archived,
+  ADD COLUMN notes LONGTEXT NULL AFTER metadata_json,
+  ADD KEY idx_oxygen_instances_archived (archived);
+`;
+
 export const schemaMigrations: SchemaMigration[] = [
   {
     version: '0.01',
@@ -350,5 +358,11 @@ export const schemaMigrations: SchemaMigration[] = [
     name: 'application log tenant metadata',
     checksum: '4f1a5d930c5c51d0de7a0b7b5d066e7f26843d137b4eb8e3dc3b24ef2e37f9cb',
     upSql: applicationLogsTenantIdSql
+  },
+  {
+    version: '0.11',
+    name: 'instance import metadata columns',
+    checksum: '391966ee3f814e3d2d8a983d55a196f77de24f490dd496abb5f7ba2873aa44ed',
+    upSql: instanceImportColumnsSql
   }
 ];
