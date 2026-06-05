@@ -2,13 +2,15 @@ import { randomUUID } from 'node:crypto';
 import type { AppLogEntry, AppLogListResult, AppLogQuery, AppLogRepository, CreateAppLogEntry } from './types.js';
 
 function matches(entry: AppLogEntry, query: AppLogQuery) {
-  if (query.type && entry.type !== query.type) return false;
-  if (query.severity && entry.severity !== query.severity) return false;
+  if (query.type?.length && !query.type.includes(entry.type)) return false;
+  if (query.severity?.length && !query.severity.includes(entry.severity)) return false;
   if (query.source && entry.source !== query.source) return false;
   if (query.userName && entry.userName !== query.userName) return false;
+  if (query.entityGuid && entry.entityGuid !== query.entityGuid) return false;
+  if (query.tenantId && entry.tenantId !== query.tenantId) return false;
   if (query.search) {
     const needle = query.search.toLowerCase();
-    const haystack = `${entry.message} ${entry.source} ${entry.userName ?? ''} ${JSON.stringify(entry.details ?? '')}`.toLowerCase();
+    const haystack = `${entry.message} ${entry.source} ${entry.userName ?? ''} ${entry.entityGuid ?? ''} ${entry.tenantId ?? ''} ${JSON.stringify(entry.details ?? '')}`.toLowerCase();
     if (!haystack.includes(needle)) return false;
   }
   return true;
@@ -24,6 +26,8 @@ export function createInMemoryAppLogRepository(): AppLogRepository {
         severity: entry.severity,
         source: entry.source,
         userName: entry.userName ?? null,
+        entityGuid: entry.entityGuid ?? (entry.details && typeof entry.details === 'object' && 'entityGuid' in entry.details ? String((entry.details as { entityGuid?: unknown }).entityGuid ?? '') || null : null),
+        tenantId: entry.tenantId ?? (entry.details && typeof entry.details === 'object' && 'tenantId' in entry.details ? String((entry.details as { tenantId?: unknown }).tenantId ?? '') || null : null),
         message: entry.message,
         details: entry.details ?? null,
         createdAt: new Date().toISOString()
@@ -44,6 +48,11 @@ export function createInMemoryAppLogRepository(): AppLogRepository {
         if (Date.parse(logs[index].createdAt) < cutoff) logs.splice(index, 1);
       }
       return originalLength - logs.length;
+    },
+    async clear() {
+      const originalLength = logs.length;
+      logs.splice(0, logs.length);
+      return originalLength;
     }
   };
 }

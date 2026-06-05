@@ -116,7 +116,7 @@ export function createInMemoryInstanceRepository(): InstanceRepository {
       const timestamp = nowIso();
       const normalized = normalizeOxyGenEndpoint(input);
       const instance: OxyGenInstance & { passwordSecret: string } = {
-        id: randomUUID(),
+        id: input.id ?? randomUUID(),
         name: input.name.trim(),
         description: cleanNullableText(input.description),
         tenantId: input.tenantId ?? null,

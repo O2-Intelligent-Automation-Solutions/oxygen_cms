@@ -2,7 +2,7 @@ import { Button } from '@progress/kendo-react-buttons';
 import { Grid, GridColumn, type GridColumnsStateChangeEvent, type GridCustomCellProps, type GridDataStateChangeEvent } from '@progress/kendo-react-grid';
 import { process, type State } from '@progress/kendo-data-query';
 import { GripVertical } from 'lucide-react';
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 
 export type ManagedGridColumn<T> = {
   key: Extract<keyof T, string>;
@@ -38,6 +38,17 @@ type ManagedGridProps<T extends { id: string }> = {
   actionWidth?: number | string;
   mobileActions?: (row: T) => ReactNode;
 };
+
+type ManagedGridStyle = CSSProperties & { '--cms-grid-min-width': string };
+
+function columnWidthValue(width?: number | string, fallback = 280) {
+  if (typeof width === 'number') return width;
+  if (typeof width === 'string') {
+    const parsed = Number.parseFloat(width);
+    if (Number.isFinite(parsed) && width.trim().endsWith('px')) return parsed;
+  }
+  return fallback;
+}
 
 async function gridPreferenceApi<T>(path: string, token: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers);
@@ -78,6 +89,14 @@ export function ManagedGrid<T extends { id: string }>({ gridKey, token, rows, co
   const [loaded, setLoaded] = useState(false);
   const [dragColumnKey, setDragColumnKey] = useState<string | null>(null);
   const didLoadRef = useRef(false);
+  const latestPreferenceRef = useRef<GridPreference | null>(null);
+  const dirtyPreferenceRef = useRef(false);
+
+  function persistGridPreference() {
+    if (!dirtyPreferenceRef.current || !latestPreferenceRef.current) return;
+    dirtyPreferenceRef.current = false;
+    gridPreferenceApi(`/api/grid-preferences/${gridKey}`, token, { method: 'PUT', body: JSON.stringify(latestPreferenceRef.current) }).catch(() => undefined);
+  }
 
   useEffect(() => {
     let active = true;
@@ -105,24 +124,38 @@ export function ManagedGrid<T extends { id: string }>({ gridKey, token, rows, co
   }, [gridKey, token, columns]);
 
   useEffect(() => {
-    if (!loaded || !didLoadRef.current) return;
-    const handle = window.setTimeout(() => {
-      const preference: GridPreference = {
-        columns: columnPrefs,
-        sort: gridState.sort ?? [],
-        group: gridState.group ?? [],
-        filter: gridState.filter ?? null,
-        filtersVisible
-      };
-      gridPreferenceApi(`/api/grid-preferences/${gridKey}`, token, { method: 'PUT', body: JSON.stringify(preference) }).catch(() => undefined);
-    }, 650);
-    return () => window.clearTimeout(handle);
-  }, [columnPrefs, filtersVisible, gridKey, gridState.filter, gridState.group, gridState.sort, loaded, token]);
+    latestPreferenceRef.current = {
+      columns: columnPrefs,
+      sort: gridState.sort ?? [],
+      group: gridState.group ?? [],
+      filter: filtersVisible ? gridState.filter ?? null : null,
+      filtersVisible
+    };
+    if (loaded && didLoadRef.current) dirtyPreferenceRef.current = true;
+  }, [columnPrefs, filtersVisible, gridState.filter, gridState.group, gridState.sort]);
 
-  const processedRows = useMemo(() => process(rows, gridState), [rows, gridState]);
+  useEffect(() => () => { persistGridPreference(); }, [gridKey, token]);
+
+  useEffect(() => {
+    function handleBeforeUnload() { persistGridPreference(); }
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [gridKey, token]);
+
+  const effectiveGridState = useMemo<State>(() => filtersVisible ? gridState : { ...gridState, filter: undefined }, [filtersVisible, gridState]);
+  const processedRows = useMemo(() => process(rows, effectiveGridState), [rows, effectiveGridState]);
   const columnsByKey = useMemo(() => new Map<string, ManagedGridColumn<T>>(columns.map((column) => [column.key, column])), [columns]);
   const orderedColumns = useMemo(() => [...columnPrefs].sort((left, right) => left.order - right.order), [columnPrefs]);
   const visibleColumns = orderedColumns.filter((column) => column.visible && columnsByKey.has(column.key));
+  const gridMinimumWidth = useMemo(() => {
+    const actionMinimum = actionCell ? columnWidthValue(actionWidth, 104) : 0;
+    const columnsMinimum = visibleColumns.reduce((total, preference) => {
+      const definition = columnsByKey.get(preference.key);
+      return total + columnWidthValue(preference.width ?? definition?.width, 300);
+    }, actionMinimum);
+    return Math.max(columnsMinimum, 720);
+  }, [actionCell, actionWidth, columnsByKey, visibleColumns]);
+  const gridStyle: ManagedGridStyle = { '--cms-grid-min-width': `${Math.ceil(gridMinimumWidth)}px` };
 
   function setColumnVisible(key: string, visible: boolean) {
     setColumnPrefs((current) => current.map((column) => column.key === key ? { ...column, visible } : column));
@@ -156,7 +189,14 @@ export function ManagedGrid<T extends { id: string }>({ gridKey, token, rows, co
   }
 
   function handleDataStateChange(event: GridDataStateChangeEvent) {
-    setGridState(event.dataState);
+    setGridState(filtersVisible ? event.dataState : { ...event.dataState, filter: undefined });
+  }
+
+  function toggleFiltersVisible() {
+    setFiltersVisible((value) => {
+      if (value) setGridState((current) => ({ ...current, filter: undefined }));
+      return !value;
+    });
   }
 
   function handleHeaderContextMenu(event: React.MouseEvent<HTMLElement>) {
@@ -199,18 +239,20 @@ export function ManagedGrid<T extends { id: string }>({ gridKey, token, rows, co
           </label>)}
         </div>}
       </div>
-      <Button className="btn-grid-tool" type="button" fillMode="flat" onClick={() => setFiltersVisible((value) => !value)}>{filtersVisible ? 'Hide Filters' : 'Show Filters'}</Button>
+      <Button className="btn-grid-tool" type="button" fillMode="flat" onClick={toggleFiltersVisible}>{filtersVisible ? 'Hide Filters' : 'Show Filters'}</Button>
     </div>
     <div className="instance-grid-wrap" onContextMenu={handleHeaderContextMenu} onClick={() => setHeaderMenu(null)}>
       <Grid
         className="cms-kendo-grid"
         data={processedRows}
+        scrollable="scrollable"
+        style={gridStyle}
         sortable
         filterable={filtersVisible}
         groupable
         reorderable
         resizable
-        {...gridState}
+        {...effectiveGridState}
         onDataStateChange={handleDataStateChange}
         onColumnsStateChange={handleColumnsStateChange}
       >

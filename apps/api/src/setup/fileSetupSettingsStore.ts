@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import { CURRENT_SCHEMA_VERSION } from './types.js';
 
 export type DatabaseSettings = {
   host: string;
@@ -24,6 +25,7 @@ type SetupSettingsFile = {
   schemaDatabase?: DatabaseSettings;
   schema?: {
     current: boolean;
+    version?: string;
     updatedAt: string;
   };
 };
@@ -67,11 +69,11 @@ export function createFileSetupSettingsStore(path: string): SetupSettingsStore {
     },
     async isSchemaCurrent() {
       const settings = await readSettings();
-      return settings.schema?.current === true;
+      return settings.schema?.current === true && settings.schema.version === CURRENT_SCHEMA_VERSION;
     },
     async markSchemaCurrent() {
       const settings = await readSettings();
-      await writeSettings({ ...settings, schema: { current: true, updatedAt: new Date().toISOString() } });
+      await writeSettings({ ...settings, schema: { current: true, version: CURRENT_SCHEMA_VERSION, updatedAt: new Date().toISOString() } });
     }
   };
 }

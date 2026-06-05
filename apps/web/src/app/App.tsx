@@ -31,8 +31,9 @@ type InstancePollerSummary = { checked: number; skipped: number; failed: number 
 type InstancePollerStatus = { state: 'running' | 'paused' | 'stopped'; isRunning: boolean; isPaused: boolean; tickIntervalMs: number; inFlight: number; lastRunAt: string | null; nextRunAt: string | null; lastSummary: InstancePollerSummary | null; lastError: string | null };
 type AppLogType = 'Audit' | 'Service' | 'CRUD' | 'Connection' | 'Security' | 'UI';
 type AppLogSeverity = 'Critical' | 'Error' | 'Warning' | 'Logging' | 'Verbose';
-type AppLogEntry = { id: string; type: AppLogType; severity: AppLogSeverity; source: string; userName: string | null; message: string; details: unknown | null; createdAt: string };
-type AppLogGridRow = { id: string; createdAt: string; type: AppLogType; severity: AppLogSeverity; source: string; userName: string; message: string; raw: AppLogEntry };
+type AppLogDetails = { apiCall?: string; method?: string; url?: string; responseCode?: number; statusCode?: number; entityGuid?: string | null; tenantId?: string | null } & Record<string, unknown>;
+type AppLogEntry = { id: string; type: AppLogType; severity: AppLogSeverity; source: string; userName: string | null; entityGuid: string | null; tenantId: TenantId; message: string; details: unknown | null; createdAt: string };
+type AppLogGridRow = { id: string; createdAt: string; type: AppLogType; severity: AppLogSeverity; tenant: string; source: string; userName: string; entityGuid: string; message: string; apiCall: string; responseCode: string; raw: AppLogEntry };
 type LogRetentionSettings = { days: number };
 type ConnectivityStepDetail = { ok?: boolean; skipped?: boolean; message?: string; httpStatusCode?: number; errorCode?: string; valid?: boolean | null; expiresAt?: string | null; durationMs?: number };
 type ConnectivityDetailsJson = { dns?: ConnectivityStepDetail; ssl?: ConnectivityStepDetail; authentication?: ConnectivityStepDetail; api?: ConnectivityStepDetail; license?: ConnectivityStepDetail };
@@ -54,6 +55,34 @@ type DashboardIssueFilter = 'all' | 'issues';
 type DashboardRefreshMode = 'quiet' | 'manual';
 type StatusTone = 'success' | 'warning' | 'failure';
 const AUTH_STORAGE_KEY = 'oxygen_cms.authToken';
+
+function cmsPathFor(section: NavSection, instanceId?: string) {
+  if (section === 'dashboard') return '/Dashboard';
+  if (section === 'organizations') return '/Tenants';
+  if (section === 'instances') return '/Instances';
+  if (section === 'instance-dashboard') return instanceId ? `/Entity/${instanceId}` : '/Instances';
+  if (section === 'users') return '/Users';
+  if (section === 'user-groups') return '/Groups';
+  if (section === 'roles') return '/Roles';
+  if (section === 'settings-logs') return instanceId ? `/Logs/Entity/${instanceId}` : '/Logs';
+  if (section === 'settings-general') return '/Settings';
+  return '/Settings/Advanced';
+}
+
+function sectionFromPath(pathname: string): { section: NavSection; entityId?: string } {
+  const parts = pathname.split('/').filter(Boolean).map((part) => decodeURIComponent(part));
+  const first = (parts[0] || '').toLowerCase();
+  if (!first || first === 'dashboard') return { section: 'dashboard' };
+  if (first === 'tenants' || first === 'organizations') return { section: 'organizations' };
+  if (first === 'instances') return parts[1] ? { section: 'instance-dashboard', entityId: parts[1] } : { section: 'instances' };
+  if (first === 'entity') return parts[1] ? { section: 'instance-dashboard', entityId: parts[1] } : { section: 'instances' };
+  if (first === 'users') return { section: 'users' };
+  if (first === 'groups' || first === 'user-groups') return { section: 'user-groups' };
+  if (first === 'roles') return { section: 'roles' };
+  if (first === 'logs') return parts[1]?.toLowerCase() === 'entity' && parts[2] ? { section: 'settings-logs', entityId: parts[2] } : { section: 'settings-logs' };
+  if (first === 'settings') return parts[1]?.toLowerCase() === 'advanced' ? { section: 'settings-advanced' } : parts[1]?.toLowerCase() === 'logs' ? { section: 'settings-logs' } : { section: 'settings-general' };
+  return { section: 'dashboard' };
+}
 
 function ReadOnlyJsonEditor({ value }: { value: unknown }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -135,15 +164,19 @@ const instanceColumnDefs: ManagedGridColumn<InstanceGridRow>[] = [
 ];
 const appLogColumnDefs: ManagedGridColumn<AppLogGridRow>[] = [
   { key: 'createdAt', title: 'Timestamp', width: 190 },
+  { key: 'tenant', title: 'Tenant', width: 160 },
   { key: 'type', title: 'Type', width: 130 },
   { key: 'severity', title: 'Severity', width: 130 },
-  { key: 'source', title: 'Source', width: 160 },
-  { key: 'userName', title: 'User Name', width: 170 },
-  { key: 'message', title: 'Message' }
+  { key: 'userName', title: 'User Name', width: 190 },
+  { key: 'entityGuid', title: 'Entity GUID', width: 360 },
+  { key: 'message', title: 'Message', width: 520 },
+  { key: 'source', title: 'Source', width: 160, defaultVisible: false },
+  { key: 'apiCall', title: 'API Call', width: 260, defaultVisible: false },
+  { key: 'responseCode', title: 'API Response', width: 140, defaultVisible: false }
 ];
 
-const logTypes: Array<'all' | AppLogType> = ['all', 'Audit', 'Service', 'CRUD', 'Connection', 'Security', 'UI'];
-const logSeverities: Array<'all' | AppLogSeverity> = ['all', 'Critical', 'Error', 'Warning', 'Logging', 'Verbose'];
+const logTypes: AppLogType[] = ['Audit', 'Service', 'CRUD', 'Connection', 'Security', 'UI'];
+const logSeverities: AppLogSeverity[] = ['Critical', 'Error', 'Warning', 'Logging', 'Verbose'];
 
 const capabilities = [
   { icon: Server, label: 'Instance monitoring', detail: 'Track OxyGen availability, SSL, auth, and API health.' },
@@ -164,6 +197,34 @@ function apiErrorMessage(status: number, body: Record<string, unknown>) {
   const base = String(body.error || body.message || `Request failed with status ${status}`);
   const details = body.details ? ` ${JSON.stringify(body.details)}` : '';
   return import.meta.env.DEV ? `API ${status}: ${base}${details}` : base;
+}
+
+function appLogDetails(details: unknown): AppLogDetails {
+  if (!details || typeof details !== 'object' || Array.isArray(details)) return {};
+  return details as AppLogDetails;
+}
+
+function stringDetail(value: unknown) {
+  return typeof value === 'string' && value.trim() ? value : '';
+}
+
+function responseCodeDetail(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? String(value) : '';
+}
+
+function toggleLogFilterValue<T extends string>(current: T[], value: T, checked: boolean) {
+  if (checked) return current.includes(value) ? current : [...current, value];
+  return current.filter((item) => item !== value);
+}
+
+function logFilterSummary(selected: string[], allLabel: string) {
+  if (!selected.length) return allLabel;
+  if (selected.length === 1) return selected[0];
+  return `${selected.length} selected`;
+}
+
+function LogMultiSelectFilter<T extends string>({ label, allLabel, options, selected, onChange }: { label: string; allLabel: string; options: T[]; selected: T[]; onChange: (next: T[]) => void }) {
+  return <div className="logs-filter-control"><span className="logs-filter-label">{label}</span><details className="logs-multiselect"><summary><span>{logFilterSummary(selected, allLabel)}</span><ChevronDown size={16} /></summary><div className="logs-multiselect-menu"><label className="checkbox-label inline-checkbox"><input type="checkbox" checked={selected.length === 0} onChange={() => onChange([])} /> {allLabel}</label>{options.map((option) => <label className="checkbox-label inline-checkbox" key={option}><input type="checkbox" checked={selected.includes(option)} onChange={(e) => onChange(toggleLogFilterValue(selected, option, e.target.checked))} /> {option}</label>)}</div></details></div>;
 }
 
 async function api<T>(path: string, options: RequestInit & { token?: string } = {}): Promise<T> {
@@ -214,9 +275,12 @@ export function App() {
   const [appLabels, setAppLabels] = useState<AppLabels>({ tenant: 'Tenant' });
   const [logRetention, setLogRetention] = useState<LogRetentionSettings>({ days: 90 });
   const [appLogs, setAppLogs] = useState<AppLogEntry[]>([]);
-  const [logTypeFilter, setLogTypeFilter] = useState<'all' | AppLogType>('all');
-  const [logSeverityFilter, setLogSeverityFilter] = useState<'all' | AppLogSeverity>('all');
-  const [logUserFilter, setLogUserFilter] = useState('');
+  const [logTypeFilter, setLogTypeFilter] = useState<AppLogType[]>([]);
+  const [logSeverityFilter, setLogSeverityFilter] = useState<AppLogSeverity[]>(['Critical', 'Error', 'Warning', 'Logging']);
+  const [logEntityGuidFilter, setLogEntityGuidFilter] = useState('');
+  const [draftInstanceId, setDraftInstanceId] = useState('');
+  const [isLogRefreshPaused, setIsLogRefreshPaused] = useState(false);
+  const [isClearingLogs, setIsClearingLogs] = useState(false);
   const [isLogsRefreshing, setIsLogsRefreshing] = useState(false);
   const [message, setMessage] = useState('');
   const [messageTone, setMessageTone] = useState<StatusTone>('success');
@@ -345,22 +409,43 @@ export function App() {
 
   async function loadLogRetention(t = token) {
     if (!t) return;
-    const res = await api<{ logRetention: LogRetentionSettings }>('/api/app-settings/log-retention', { token: t });
-    setLogRetention(res.logRetention);
+    const res = await api<{ retention: LogRetentionSettings }>('/api/app-settings/log-retention', { token: t });
+    setLogRetention(res.retention ?? { days: 90 });
   }
 
-  async function loadAppLogs(t = token) {
+  async function loadAppLogs(t = token, overrides: { type?: AppLogType[]; severity?: AppLogSeverity[]; entityGuid?: string; tenantId?: string } = {}) {
     if (!t) return;
     setIsLogsRefreshing(true);
     try {
       const params = new URLSearchParams({ limit: '250' });
-      if (logTypeFilter !== 'all') params.set('type', logTypeFilter);
-      if (logSeverityFilter !== 'all') params.set('severity', logSeverityFilter);
-      if (logUserFilter.trim()) params.set('userName', logUserFilter.trim());
+      const typeFilter = overrides.type ?? logTypeFilter;
+      const severityFilter = overrides.severity ?? logSeverityFilter;
+      const entityFilter = overrides.entityGuid ?? logEntityGuidFilter;
+      const tenantFilter = overrides.tenantId;
+      typeFilter.forEach((type) => params.append('type', type));
+      severityFilter.forEach((severity) => params.append('severity', severity));
+      if (tenantFilter) params.set('tenantId', tenantFilter);
+      if (entityFilter.trim()) params.set('entityGuid', entityFilter.trim());
       const res = await api<{ logs: AppLogEntry[] }>(`/api/logs?${params.toString()}`, { token: t });
       setAppLogs(res.logs);
     } finally {
       setIsLogsRefreshing(false);
+    }
+  }
+
+  async function handleClearLogs() {
+    if (!token || isClearingLogs) return;
+    if (!window.confirm('Clear all application logs? This cannot be undone.')) return;
+    clearStatus();
+    setIsClearingLogs(true);
+    try {
+      const res = await api<{ deleted: number }>('/api/logs', { method: 'DELETE', token });
+      setAppLogs([]);
+      showStatus(`Cleared ${res.deleted} log entr${res.deleted === 1 ? 'y' : 'ies'}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to clear logs.');
+    } finally {
+      setIsClearingLogs(false);
     }
   }
 
@@ -386,9 +471,10 @@ export function App() {
     e.preventDefault(); clearStatus();
     const f = new FormData(e.currentTarget);
     try {
-      const res = await api<{ logRetention: LogRetentionSettings }>('/api/app-settings/log-retention', { method: 'PUT', token, body: JSON.stringify({ days: Number(f.get('days')) }) });
-      setLogRetention(res.logRetention);
-      setMessage(`Log retention updated to ${res.logRetention.days} day${res.logRetention.days === 1 ? '' : 's'}.`);
+      const res = await api<{ retention: LogRetentionSettings }>('/api/app-settings/log-retention', { method: 'PUT', token, body: JSON.stringify({ days: Number(f.get('days')) }) });
+      const nextRetention = res.retention ?? { days: 90 };
+      setLogRetention(nextRetention);
+      setMessage(`Log retention updated to ${nextRetention.days} day${nextRetention.days === 1 ? '' : 's'}.`);
     } catch (err) { setError(err instanceof Error ? err.message : 'Log retention update failed.'); }
   }
 
@@ -470,22 +556,58 @@ export function App() {
     if (!token || !profile || activeSection !== 'settings-logs') return undefined;
     void loadLogRetention(token).catch((err) => setError(err instanceof Error ? err.message : 'Log retention load failed.'));
     void loadAppLogs(token).catch((err) => setError(err instanceof Error ? err.message : 'Logs refresh failed.'));
+    if (isLogRefreshPaused) return undefined;
     const refreshTimer = window.setInterval(() => {
       void loadAppLogs(token).catch((err) => setError(err instanceof Error ? err.message : 'Logs refresh failed.'));
     }, 10000);
     return () => window.clearInterval(refreshTimer);
-  }, [token, profile, activeSection, logTypeFilter, logSeverityFilter, logUserFilter]);
+  }, [token, profile, activeSection, logTypeFilter, logSeverityFilter, logEntityGuidFilter, isLogRefreshPaused]);
+
+  useEffect(() => {
+    if (!profile) return undefined;
+    function applyCurrentRoute(replace = false) {
+      const route = sectionFromPath(window.location.pathname);
+      setActiveSection(route.section);
+      if (route.section === 'settings-logs') {
+        setLogEntityGuidFilter(route.entityId || '');
+        if (route.entityId) {
+          setLogTypeFilter(['Connection', 'Service', 'CRUD']);
+          setLogSeverityFilter(['Critical', 'Error', 'Warning', 'Logging', 'Verbose']);
+        }
+      }
+      if (route.section === 'instance-dashboard') {
+        setSelectedInstanceId(route.entityId || '');
+        const matched = route.entityId ? instances.find((instance) => instance.id === route.entityId) : null;
+        setSelectedInstanceDetail(matched || null);
+      }
+      setRoute(route.section, route.entityId, replace);
+    }
+    applyCurrentRoute(true);
+    const onPopState = () => applyCurrentRoute(true);
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [profile, instances]);
 
   function clearStatus() { setError(''); setMessage(''); setMessageTone('success'); }
   function showStatus(text: string, tone: StatusTone = 'success') { setError(''); setMessage(text); setMessageTone(tone); }
   function showNotImplemented(label: string) { showStatus(`${label}: Not Implemented`, 'warning'); }
+  function setRoute(section: NavSection, instanceId?: string, replace = false) {
+    const nextPath = cmsPathFor(section, instanceId);
+    if (window.location.pathname !== nextPath) {
+      const method = replace ? 'replaceState' : 'pushState';
+      window.history[method]({}, '', nextPath);
+    }
+  }
+
   function nav(section: NavSection, implemented = true, label?: string) {
     setActiveSection(section);
+    setRoute(section);
     setIsMobileDrawerOpen(false);
     if (!implemented) showNotImplemented(label || section);
   }
 
   function closeInstanceDashboard() {
+    setRoute('instances');
     setActiveSection('instances');
     setSelectedInstanceId('');
     setSelectedInstanceDetail(null);
@@ -606,12 +728,12 @@ export function App() {
     const password = String(f.get('password') || '');
     const portValue = f.get('port');
     const username = String(f.get('username') || '').trim() || 'admin';
-    const payload: Record<string, unknown> = { name: f.get('name'), description: f.get('description') || null, tenantId: editing ? editing.tenantId : selectedTenantId || null, protocol: f.get('protocol') || 'https', host: f.get('host'), port: portValue ? Number(portValue) : null, username, pollingIntervalSeconds: Number(f.get('pollingIntervalSeconds') || 300), isEnabled: f.get('isEnabled') === 'on' };
+    const payload: Record<string, unknown> = { id: editing ? editing.id : draftInstanceId || crypto.randomUUID(), name: f.get('name'), description: f.get('description') || null, tenantId: editing ? editing.tenantId : selectedTenantId || null, protocol: f.get('protocol') || 'https', host: f.get('host'), port: portValue ? Number(portValue) : null, username, pollingIntervalSeconds: Number(f.get('pollingIntervalSeconds') || 300), isEnabled: f.get('isEnabled') === 'on' };
     if (!editing || password) payload.password = password;
     try {
       if (editing) { const res = await api<{ instance: OxyGenInstance }>(`/api/instances/${editing.id}`, { method: 'PATCH', token, body: JSON.stringify(payload) }); setMessage(`Updated instance ${res.instance.name}.`); }
       else { const res = await api<{ instance: OxyGenInstance }>('/api/instances', { method: 'POST', token, body: JSON.stringify(payload) }); setMessage(`Created instance ${res.instance.name}.`); }
-      el.reset(); setModal(null); await loadDashboard();
+      el.reset(); setDraftInstanceId(''); setModal(null); await loadDashboard();
     } catch (err) { setError(err instanceof Error ? err.message : editing ? 'Instance update failed.' : 'Instance creation failed.'); }
   }
 
@@ -621,11 +743,9 @@ export function App() {
       const res = await api<{ ok: boolean; status: string; message: string; responseTimeMs?: number | null }>(`/api/instances/${instance.id}/test-connectivity`, { method: 'POST', token });
       const tone: StatusTone = res.ok ? 'success' : res.status === 'ssl-error' ? 'warning' : 'failure';
       showStatus(`${instance.name}: ${res.message} (${res.status}${typeof res.responseTimeMs === 'number' ? `, ${res.responseTimeMs} ms response` : ''})`, tone);
-      const data = await api<{ instances: OxyGenInstance[] }>('/api/instances', { token });
-      setInstances(data.instances);
-      const refreshed = data.instances.find((entry) => entry.id === instance.id) || null;
-      if (refreshed && selectedInstanceId === instance.id) setSelectedInstanceDetail(refreshed);
-      await loadDashboard(token, 'quiet');
+      const refreshed = await api<{ instance: OxyGenInstance }>(`/api/instances/${instance.id}`, { token });
+      setInstances((current) => current.map((entry) => entry.id === refreshed.instance.id ? refreshed.instance : entry));
+      if (selectedInstanceId === instance.id) setSelectedInstanceDetail(refreshed.instance);
     }
     catch (err) { setError(err instanceof Error ? err.message : 'Connectivity test failed.'); setMessageTone('failure'); }
   }
@@ -634,6 +754,7 @@ export function App() {
     clearStatus();
     setSelectedInstanceId(instance.id);
     setSelectedInstanceDetail(instance);
+    setRoute('instance-dashboard', instance.id);
     setActiveSection('instance-dashboard');
     try {
       const res = await api<{ instance: OxyGenInstance }>(`/api/instances/${instance.id}`, { token });
@@ -642,6 +763,17 @@ export function App() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load instance dashboard.');
     }
+  }
+
+
+
+  function openInstanceLogs(instance: OxyGenInstance) {
+    setRoute('settings-logs', instance.id);
+    setLogEntityGuidFilter(instance.id);
+    setLogTypeFilter(['Connection', 'Service', 'CRUD']);
+    setLogSeverityFilter(['Critical', 'Error', 'Warning', 'Logging', 'Verbose']);
+    setActiveSection('settings-logs');
+    void loadAppLogs(token, { entityGuid: instance.id, type: ['Connection', 'Service', 'CRUD'], severity: ['Critical', 'Error', 'Warning', 'Logging', 'Verbose'] });
   }
 
   async function testInstanceFormConnectivity(form: HTMLFormElement | null) {
@@ -663,6 +795,9 @@ export function App() {
         method: 'POST',
         token,
         body: JSON.stringify({
+          instanceId: editing?.id ?? (draftInstanceId || crypto.randomUUID()),
+          name: String(f.get('name') || editing?.name || 'Unsaved instance'),
+          tenantId: editing?.tenantId ?? (selectedTenantId || null),
           protocol: f.get('protocol'),
           host: f.get('host'),
           port: Number(f.get('port') || 0),
@@ -696,10 +831,10 @@ export function App() {
   function openEditRoleModal(role: Role) { setSelectedTenantId(role.tenantId || ''); setModal({ kind: 'role', data: role }); }
   function openCreateTenantModal() { setModal({ kind: 'tenant' }); }
   function openEditTenantModal(tenant: Tenant) { setModal({ kind: 'tenant', data: tenant }); }
-  function openCreateInstanceModal() { setSelectedTenantId(''); setInstanceProtocol('https'); setInstancePort('443'); setInstancePollingEnabled(true); setModal({ kind: 'instance' }); }
-  function openEditInstanceModal(instance: OxyGenInstance) { setSelectedTenantId(instance.tenantId || ''); setInstanceProtocol(instance.protocol); setInstancePort(String(instance.port ?? (instance.protocol === 'http' ? 80 : 443))); setInstancePollingEnabled(instance.isEnabled); setModal({ kind: 'instance', data: instance }); }
+  function openCreateInstanceModal() { setSelectedTenantId(''); setDraftInstanceId(crypto.randomUUID()); setInstanceProtocol('https'); setInstancePort('443'); setInstancePollingEnabled(true); setModal({ kind: 'instance' }); }
+  function openEditInstanceModal(instance: OxyGenInstance) { setDraftInstanceId(''); setSelectedTenantId(instance.tenantId || ''); setInstanceProtocol(instance.protocol); setInstancePort(String(instance.port ?? (instance.protocol === 'http' ? 80 : 443))); setInstancePollingEnabled(instance.isEnabled); setModal({ kind: 'instance', data: instance }); }
 
-  function handleLogout() { setToken(''); setProfile(null); setDashboard(null); setGroups([]); setUsers([]); setRoles([]); setTenants([]); setInstances([]); setSelectedInstanceId(''); setSelectedInstanceDetail(null); setDashboardLastRefreshedAt(null); setActiveSection('dashboard'); setIsMobileDrawerOpen(false); setMessage('Signed out.'); }
+  function handleLogout() { setToken(''); setProfile(null); setDashboard(null); setGroups([]); setUsers([]); setRoles([]); setTenants([]); setInstances([]); setSelectedInstanceId(''); setSelectedInstanceDetail(null); setDashboardLastRefreshedAt(null); setActiveSection('dashboard'); setRoute('dashboard', undefined, true); setIsMobileDrawerOpen(false); setMessage('Signed out.'); }
   function toggleAccordion(key: string) { setOpenAccordions((prev) => { const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next; }); }
   function handleSidebarParentClick(key: 'organizations' | 'security' | 'settings') {
     if (!isDrawerExpanded && !isMobileViewport) {
@@ -721,7 +856,25 @@ export function App() {
   const roleRows = useMemo<RoleGridRow[]>(() => roles.map((role) => ({ id: role.id, name: role.name, description: role.description || '', tenant: tenantName(role.tenantId), system: role.isSystem ? 'Yes' : 'No', raw: role })), [roles, tenants]);
   const tenantRows = useMemo<TenantGridRow[]>(() => tenants.map((tenant) => ({ id: tenant.id, name: tenant.name, description: tenant.description || '', raw: tenant })), [tenants]);
   const instanceRows = useMemo<InstanceGridRow[]>(() => instances.map((instance) => ({ id: instance.id, name: instance.name, tenant: tenantName(instance.tenantId), host: instance.host, status: instance.status, ssl: instance.sslValid === null ? 'Unknown' : instance.sslValid ? 'Valid' : 'Invalid', license: instance.licenseStatus, processing: instance.processingStatus, enabled: instance.isEnabled ? 'Yes' : 'No', description: instance.description || '', protocol: instance.protocol.toUpperCase(), port: String(instance.port ?? ''), hostname: instance.hostname, baseUrl: instance.baseUrl, apiBaseUrl: instance.apiBaseUrl, username: instance.username, pollingInterval: `${instance.pollingIntervalSeconds}s`, sslExpiresAt: instance.sslExpiresAt || '', lastCheckedAt: instance.lastCheckedAt || '', uptime24h: instance.uptimePercent24h === null ? '' : `${instance.uptimePercent24h}%`, emmQueue: instance.emmQueueStatus, sms: instance.smsStatus, hangfire: instance.hangfireStatus, licenseKey: instance.licenseKey || '', lastError: instance.lastError || '', raw: instance })), [instances, tenants]);
-  const appLogRows = useMemo<AppLogGridRow[]>(() => appLogs.map((entry) => ({ id: entry.id, createdAt: formatDateTime(entry.createdAt), type: entry.type, severity: entry.severity, source: entry.source, userName: entry.userName || 'OxyGen CMS', message: entry.message, raw: entry })), [appLogs]);
+  const appLogRows = useMemo<AppLogGridRow[]>(() => appLogs.map((entry) => {
+    const details = appLogDetails(entry.details);
+    const apiCall = stringDetail(details.apiCall) || [stringDetail(details.method), stringDetail(details.url)].filter(Boolean).join(' ');
+    const responseCode = responseCodeDetail(details.responseCode) || responseCodeDetail(details.statusCode);
+    return {
+      id: entry.id,
+      createdAt: formatDateTime(entry.createdAt),
+      type: entry.type,
+      severity: entry.severity,
+      tenant: tenantName(entry.tenantId ?? (stringDetail(details.tenantId) || null)),
+      source: entry.source,
+      userName: entry.userName || 'OxyGen CMS',
+      entityGuid: entry.entityGuid || stringDetail(details.entityGuid) || '—',
+      message: entry.message,
+      apiCall: apiCall || '—',
+      responseCode: responseCode || '—',
+      raw: entry
+    };
+  }), [appLogs, tenants]);
 
   const cell = <T extends { raw: ModalEntity }>(edit: (raw: T['raw']) => void, remove?: (raw: T['raw']) => void) => ({ dataItem, tdProps }: GridCustomCellProps) => {
     const row = dataItem as T;
@@ -928,11 +1081,29 @@ export function App() {
     </div>;
   }
 
-  function renderSettingsLogs() {
-    return <div className="settings-logs-stack">
-      <article className="panel settings-panel"><div className="panel-heading"><Settings /><div><p className="eyebrow small">Application settings</p><h3>Log Retention</h3></div></div><p className="panel-copy">Configure how long CMS keeps database-backed application logs. Retention cleanup will use this value as the log maintenance job is expanded.</p><form className="settings-form compact-settings-form" onSubmit={handleSaveLogRetention}><label>Retention days<input name="days" type="number" min={1} max={3650} defaultValue={logRetention.days} required /></label><button type="submit">Save Retention</button></form></article>
-      <article className="panel logs-panel"><div className="tenant-section-heading"><div><p className="eyebrow small">Settings</p><h3>Application Logs</h3><p className="panel-copy small-copy">Inspect real-time Audit, Service, CRUD, Connection, Security, and UI activity. Background activity is written as OxyGen CMS.</p></div><Button className="compact-button" type="button" onClick={() => void loadAppLogs(token)} disabled={isLogsRefreshing}><RotateCw className={isLogsRefreshing ? 'spin-icon' : ''} /> Refresh</Button></div><div className="logs-filter-bar"><label>Type<select value={logTypeFilter} onChange={(e) => setLogTypeFilter(e.target.value as 'all' | AppLogType)}>{logTypes.map((type) => <option key={type} value={type}>{type === 'all' ? 'All types' : type}</option>)}</select></label><label>Severity<select value={logSeverityFilter} onChange={(e) => setLogSeverityFilter(e.target.value as 'all' | AppLogSeverity)}>{logSeverities.map((severity) => <option key={severity} value={severity}>{severity === 'all' ? 'All severities' : severity}</option>)}</select></label><label>User Name / Source<input value={logUserFilter} onChange={(e) => setLogUserFilter(e.target.value)} placeholder="OxyGen CMS or user email" /></label></div><ManagedGrid gridKey="application-logs" token={token!} rows={appLogRows} columns={appLogColumnDefs} /></article>
+  function renderSettingsGeneral() {
+    const retentionDays = logRetention?.days ?? 90;
+    return <div className="settings-basic-stack">
+      <article className="panel settings-panel"><div className="panel-heading"><Settings /><div><p className="eyebrow small">Application settings</p><h3>Labels</h3></div></div><p className="panel-copy">Customize display labels used by the application without changing the underlying data model.</p><form className="settings-form" onSubmit={handleSaveLabels}><label>Tenant<input name="tenant" defaultValue={tenantLabel} placeholder="Tenant" required /></label><small>Example: change this to Partner to display Partner labels throughout CMS.</small><button type="submit">Save Labels</button></form></article>
+      <article className="panel settings-panel"><div className="panel-heading"><Settings /><div><p className="eyebrow small">Application settings</p><h3>Log Retention</h3></div></div><p className="panel-copy">Configure how long CMS keeps database-backed application logs.</p><form className="settings-form compact-settings-form" onSubmit={handleSaveLogRetention}><label>Retention days<input name="days" type="number" min={1} max={3650} defaultValue={retentionDays} required /></label><button type="submit">Save Retention</button></form></article>
     </div>;
+  }
+
+  function renderSettingsLogs() {
+    return <ManagedGrid
+      gridKey="application-logs"
+      token={token!}
+      rows={appLogRows}
+      columns={appLogColumnDefs}
+      toolbar={<div className="logs-filter-bar grid-toolbar-filters">
+        <LogMultiSelectFilter label="Type" allLabel="All types" options={logTypes} selected={logTypeFilter} onChange={setLogTypeFilter} />
+        <LogMultiSelectFilter label="Severity" allLabel="All severities" options={logSeverities} selected={logSeverityFilter} onChange={setLogSeverityFilter} />
+        {logEntityGuidFilter && <Button className="compact-button" type="button" fillMode="flat" onClick={() => { setLogEntityGuidFilter(''); setRoute('settings-logs'); }}>Clear Entity Filter</Button>}
+        <Button className="compact-button" type="button" onClick={() => setIsLogRefreshPaused((paused) => !paused)} themeColor={isLogRefreshPaused ? 'warning' : undefined}>{isLogRefreshPaused ? <Play /> : <Pause />} {isLogRefreshPaused ? 'Resume Refresh' : 'Pause Refresh'}</Button>
+        <Button className="compact-button" type="button" onClick={() => void loadAppLogs(token)} disabled={isLogsRefreshing}><RotateCw className={isLogsRefreshing ? 'spin-icon' : ''} /> Refresh</Button>
+        {isSystemAdmin && <Button className="compact-button btn-danger-outline" type="button" onClick={() => void handleClearLogs()} disabled={isClearingLogs}><Trash2 /> {isClearingLogs ? 'Clearing...' : 'Clear Logs'}</Button>}
+      </div>}
+    />;
   }
 
   const sectionMeta = (() => {
@@ -1062,18 +1233,19 @@ export function App() {
           {activeSection === 'dashboard' && renderDashboard()}
           {activeSection === 'organizations' && isSystemAdmin && <ManagedGrid gridKey="tenants" token={token!} rows={tenantRows} columns={tenantColumnDefs} actionCell={TenantActionCell} mobileActions={(row) => <MobileStandardActions onEdit={() => openEditTenantModal(row.raw)} onDelete={() => deleteItem('tenant', row.raw.id, `${tenantLabelLower} ${row.raw.name}`)} />} toolbar={<Button className="btn-create" onClick={openCreateTenantModal} type="button" themeColor="primary"><Plus /> Create “{tenantLabel}”</Button>} />}
           {activeSection === 'instances' && <ManagedGrid gridKey="instances" token={token!} rows={instanceRows} columns={labeledInstanceColumnDefs} actionCell={InstanceActionCell} actionWidth={180} mobileActions={mobileInstanceActions} toolbar={isSystemAdmin ? <Button className="btn-create" onClick={openCreateInstanceModal} type="button" themeColor="primary"><Plus /> Enroll Instance</Button> : null} />}
-          {activeSection === 'instance-dashboard' && selectedInstance && <div className="instance-detail-dashboard"><div className="instance-dashboard-actions"><Button className="compact-button" type="button" fillMode="flat" onClick={closeInstanceDashboard}><ChevronLeft /> Back to Instances</Button>{isSystemAdmin && <Button className="compact-button" type="button" onClick={() => openEditInstanceModal(selectedInstance)}><Pencil /> Edit</Button>}{isSystemAdmin && <Button className="compact-button" type="button" onClick={() => testInstanceConnectivity(selectedInstance)}><RotateCw /> Test Connectivity</Button>}<Button className="compact-button" type="button" onClick={() => window.open(launchUrlForInstance(selectedInstance), '_blank', 'noopener,noreferrer')}><ExternalLink /> Launch OxyGen</Button></div><div className="instance-health-strip"><button className={`instance-health-card clickable status-${selectedInstance.status}`} type="button" onClick={() => void openInstanceHealthModal('availability')}><span>Availability</span><strong>{selectedInstance.status}</strong><small>{formatDateTime(selectedInstance.lastCheckedAt)}</small></button><button className="instance-health-card clickable" type="button" onClick={() => void openInstanceHealthModal('ssl')}><span>SSL</span><strong>{selectedInstance.sslValid === null ? 'Unknown' : selectedInstance.sslValid ? 'Valid' : 'Invalid'}</strong><small>Expires {formatDateTime(selectedInstance.sslExpiresAt)}</small></button><button className="instance-health-card clickable" type="button" onClick={() => void openInstanceHealthModal('license')}><span>License</span><strong>{selectedInstance.licenseStatus}</strong><small>{formatNullable(selectedInstance.licenseKey, 'No license key collected')}</small></button><button className="instance-health-card clickable" type="button" onClick={() => void openInstanceHealthModal('response')}><span>Response</span><strong>{selectedInstance.responseTimeMs === null ? '—' : `${selectedInstance.responseTimeMs} ms`}</strong><small>Polling every {selectedInstance.pollingIntervalSeconds}s</small></button></div><div className="instance-detail-grid"><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('endpoint')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'endpoint')}><div className="panel-heading"><Server /><div><p className="eyebrow small">Endpoint</p><h3>Connection Details</h3></div></div><dl className="detail-list"><dt>{tenantLabel}</dt><dd>{tenantName(selectedInstance.tenantId)}</dd><dt>Host</dt><dd>{selectedInstance.host}</dd><dt>Port</dt><dd>{formatNullable(selectedInstance.port)}</dd><dt>Base URL</dt><dd>{selectedInstance.baseUrl}</dd><dt>API Base URL</dt><dd>{selectedInstance.apiBaseUrl}</dd><dt>Launch URL</dt><dd>{selectedInstance.launchUrl}</dd><dt>Username</dt><dd>{selectedInstance.username}</dd></dl></article><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('monitoring')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'monitoring')}><div className="panel-heading"><Activity /><div><p className="eyebrow small">Monitoring</p><h3>Health Status</h3></div></div><dl className="detail-list"><dt>Enabled</dt><dd>{selectedInstance.isEnabled ? 'Yes' : 'No'}</dd><dt>Last Success</dt><dd>{formatDateTime(selectedInstance.lastSuccessAt)}</dd><dt>Last Failure</dt><dd>{formatDateTime(selectedInstance.lastFailureAt)}</dd><dt>Uptime 24h</dt><dd>{selectedInstance.uptimePercent24h === null ? 'Unknown' : `${selectedInstance.uptimePercent24h}%`}</dd><dt>Uptime 7d</dt><dd>{selectedInstance.uptimePercent7d === null ? 'Unknown' : `${selectedInstance.uptimePercent7d}%`}</dd><dt>Last Error</dt><dd>{formatNullable(selectedInstance.lastError, 'None')}</dd></dl></article><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('workflow')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'workflow')}><div className="panel-heading"><Database /><div><p className="eyebrow small">OxyGen BPM</p><h3>Workflow & Components</h3></div></div><dl className="detail-list"><dt>Processing</dt><dd>{selectedInstance.processingStatus}</dd><dt>EMM Queue</dt><dd>{selectedInstance.emmQueueStatus}</dd><dt>SMS</dt><dd>{selectedInstance.smsStatus}</dd><dt>Hangfire</dt><dd>{selectedInstance.hangfireStatus}</dd><dt>Workflow Summary</dt><dd>{selectedInstance.workflowSummaryJson ? 'Collected' : 'Not collected yet'}</dd><dt>Global Settings</dt><dd>{selectedInstance.settingsJson ? 'Collected' : 'Not collected yet'}</dd></dl></article><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('record')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'record')}><div className="panel-heading"><ShieldCheck /><div><p className="eyebrow small">Record</p><h3>Metadata</h3></div></div><dl className="detail-list"><dt>Description</dt><dd>{formatNullable(selectedInstance.description, 'No description')}</dd><dt>Created</dt><dd>{formatDateTime(selectedInstance.createdAt)}</dd><dt>Updated</dt><dd>{formatDateTime(selectedInstance.updatedAt)}</dd><dt>Instance ID</dt><dd>{selectedInstance.id}</dd></dl></article></div></div>}
+          {activeSection === 'instance-dashboard' && selectedInstance && <div className="instance-detail-dashboard"><div className="instance-dashboard-actions"><Button className="compact-button" type="button" fillMode="flat" onClick={closeInstanceDashboard}><ChevronLeft /> Back to Instances</Button>{isSystemAdmin && <Button className="compact-button" type="button" onClick={() => openEditInstanceModal(selectedInstance)}><Pencil /> Edit</Button>}{isSystemAdmin && <Button className="compact-button" type="button" onClick={() => testInstanceConnectivity(selectedInstance)}><RotateCw /> Test Connectivity</Button>}<Button className="compact-button" type="button" onClick={() => openInstanceLogs(selectedInstance)}><ClipboardList /> View Logs</Button><Button className="compact-button" type="button" onClick={() => window.open(launchUrlForInstance(selectedInstance), '_blank', 'noopener,noreferrer')}><ExternalLink /> Launch OxyGen</Button></div><div className="instance-health-strip"><button className={`instance-health-card clickable status-${selectedInstance.status}`} type="button" onClick={() => void openInstanceHealthModal('availability')}><span>Availability</span><strong>{selectedInstance.status}</strong><small>{formatDateTime(selectedInstance.lastCheckedAt)}</small></button><button className="instance-health-card clickable" type="button" onClick={() => void openInstanceHealthModal('ssl')}><span>SSL</span><strong>{selectedInstance.sslValid === null ? 'Unknown' : selectedInstance.sslValid ? 'Valid' : 'Invalid'}</strong><small>Expires {formatDateTime(selectedInstance.sslExpiresAt)}</small></button><button className="instance-health-card clickable" type="button" onClick={() => void openInstanceHealthModal('license')}><span>License</span><strong>{selectedInstance.licenseStatus}</strong><small>{formatNullable(selectedInstance.licenseKey, 'No license key collected')}</small></button><button className="instance-health-card clickable" type="button" onClick={() => void openInstanceHealthModal('response')}><span>Response</span><strong>{selectedInstance.responseTimeMs === null ? '—' : `${selectedInstance.responseTimeMs} ms`}</strong><small>Polling every {selectedInstance.pollingIntervalSeconds}s</small></button></div><div className="instance-detail-grid"><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('endpoint')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'endpoint')}><div className="panel-heading"><Server /><div><p className="eyebrow small">Endpoint</p><h3>Connection Details</h3></div></div><dl className="detail-list"><dt>{tenantLabel}</dt><dd>{tenantName(selectedInstance.tenantId)}</dd><dt>Host</dt><dd>{selectedInstance.host}</dd><dt>Port</dt><dd>{formatNullable(selectedInstance.port)}</dd><dt>Base URL</dt><dd>{selectedInstance.baseUrl}</dd><dt>API Base URL</dt><dd>{selectedInstance.apiBaseUrl}</dd><dt>Launch URL</dt><dd>{selectedInstance.launchUrl}</dd><dt>Username</dt><dd>{selectedInstance.username}</dd></dl></article><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('monitoring')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'monitoring')}><div className="panel-heading"><Activity /><div><p className="eyebrow small">Monitoring</p><h3>Health Status</h3></div></div><dl className="detail-list"><dt>Enabled</dt><dd>{selectedInstance.isEnabled ? 'Yes' : 'No'}</dd><dt>Last Success</dt><dd>{formatDateTime(selectedInstance.lastSuccessAt)}</dd><dt>Last Failure</dt><dd>{formatDateTime(selectedInstance.lastFailureAt)}</dd><dt>Uptime 24h</dt><dd>{selectedInstance.uptimePercent24h === null ? 'Unknown' : `${selectedInstance.uptimePercent24h}%`}</dd><dt>Uptime 7d</dt><dd>{selectedInstance.uptimePercent7d === null ? 'Unknown' : `${selectedInstance.uptimePercent7d}%`}</dd><dt>Last Error</dt><dd>{formatNullable(selectedInstance.lastError, 'None')}</dd></dl></article><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('workflow')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'workflow')}><div className="panel-heading"><Database /><div><p className="eyebrow small">OxyGen BPM</p><h3>Workflow & Components</h3></div></div><dl className="detail-list"><dt>Processing</dt><dd>{selectedInstance.processingStatus}</dd><dt>EMM Queue</dt><dd>{selectedInstance.emmQueueStatus}</dd><dt>SMS</dt><dd>{selectedInstance.smsStatus}</dd><dt>Hangfire</dt><dd>{selectedInstance.hangfireStatus}</dd><dt>Workflow Summary</dt><dd>{selectedInstance.workflowSummaryJson ? 'Collected' : 'Not collected yet'}</dd><dt>Global Settings</dt><dd>{selectedInstance.settingsJson ? 'Collected' : 'Not collected yet'}</dd></dl></article><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('record')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'record')}><div className="panel-heading"><ShieldCheck /><div><p className="eyebrow small">Record</p><h3>Metadata</h3></div></div><dl className="detail-list"><dt>Description</dt><dd>{formatNullable(selectedInstance.description, 'No description')}</dd><dt>Created</dt><dd>{formatDateTime(selectedInstance.createdAt)}</dd><dt>Updated</dt><dd>{formatDateTime(selectedInstance.updatedAt)}</dd><dt>Instance ID</dt><dd>{selectedInstance.id}</dd></dl></article></div></div>}
           {activeSection === 'instance-dashboard' && !selectedInstance && <article className="panel"><p className="panel-copy">Select an instance from the grid to open its dashboard.</p><Button className="compact-button" type="button" onClick={() => setActiveSection('instances')}><ChevronLeft /> Back to Instances</Button></article>}
           {activeSection === 'user-groups' && isSystemAdmin && <ManagedGrid gridKey="user-groups" token={token!} rows={groupRows} columns={labeledGroupColumnDefs} actionCell={GroupActionCell} mobileActions={(row) => <MobileStandardActions onEdit={() => openEditGroupModal(row.raw)} onDelete={() => deleteItem('group', row.raw.id, `group ${row.raw.name}`)} />} toolbar={<Button className="btn-create" onClick={openCreateGroupModal} type="button" themeColor="primary"><Plus /> Create &quot;Group&quot;</Button>} />}
           {activeSection === 'users' && isSystemAdmin && <ManagedGrid gridKey="users" token={token!} rows={userRows} columns={labeledUserColumnDefs} actionCell={UserActionCell} mobileActions={(row) => <MobileStandardActions onEdit={() => openEditUserModal(row.raw)} onDelete={() => deleteItem('user', row.raw.user.id, `user ${row.raw.user.email}`)} />} toolbar={<Button className="btn-create" onClick={openCreateUserModal} type="button" themeColor="primary"><Plus /> Create &quot;User&quot;</Button>} />}
           {activeSection === 'roles' && isSystemAdmin && <ManagedGrid gridKey="roles" token={token!} rows={roleRows} columns={labeledRoleColumnDefs} actionCell={RoleActionCell} mobileActions={(row) => row.raw.isSystem ? <MobileStandardActions protectedOnly onEdit={() => setMessage(`${row.raw.name} is a protected global role and cannot be modified/deleted.`)} /> : <MobileStandardActions onEdit={() => openEditRoleModal(row.raw)} onDelete={() => deleteItem('role', row.raw.id, `role ${row.raw.name}`)} />} toolbar={<Button className="btn-create" onClick={openCreateRoleModal} type="button" themeColor="primary"><Plus /> Create &quot;Role&quot;</Button>} />}
-          {activeSection === 'settings-general' && <article className="panel settings-panel"><div className="panel-heading"><Settings /><div><p className="eyebrow small">Application settings</p><h3>Labels</h3></div></div><p className="panel-copy">Customize display labels used by the application without changing the underlying data model.</p><form className="settings-form" onSubmit={handleSaveLabels}><label>Tenant<input name="tenant" defaultValue={tenantLabel} placeholder="Tenant" required /></label><small>Example: change this to Partner to display Partner labels throughout CMS.</small><button type="submit">Save Labels</button></form></article>}{activeSection === 'settings-logs' && renderSettingsLogs()}{activeSection === 'settings-advanced' && <article className="panel"><p className="panel-copy">Advanced settings: Not Implemented.</p></article>}
+          {activeSection === 'settings-general' && renderSettingsGeneral()}{activeSection === 'settings-logs' && renderSettingsLogs()}{activeSection === 'settings-advanced' && <article className="panel"><p className="panel-copy">Advanced settings: Not Implemented.</p></article>}
         </section></div>)}
 
       {profile && !modal && !healthModal && <nav className="mobile-bottom-bar" aria-label="Mobile actions">
         {activeSection === 'instance-dashboard' && selectedInstance ? <>
           {isSystemAdmin && <button type="button" onClick={() => openEditInstanceModal(selectedInstance)}><Pencil /><span>Edit</span></button>}
           {isSystemAdmin && <button type="button" onClick={() => testInstanceConnectivity(selectedInstance)}><RotateCw /><span>Test</span></button>}
+          <button type="button" onClick={() => openInstanceLogs(selectedInstance)}><ClipboardList /><span>Logs</span></button>
           <button type="button" className="primary" onClick={() => window.open(launchUrlForInstance(selectedInstance), '_blank', 'noopener,noreferrer')}><ExternalLink /><span>Launch</span></button>
         </> : <>
           <button type="button" className={activeSection === 'dashboard' ? 'active' : ''} onClick={() => nav('dashboard')}><LayoutDashboard /><span>Home</span></button>

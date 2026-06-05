@@ -1,5 +1,5 @@
 -- OxyGen CMS canonical current schema snapshot
--- Schema version: 0.07
+-- Schema version: 0.09
 -- Runtime source of truth: apps/api/src/db/migrations/index.ts
 
 CREATE TABLE IF NOT EXISTS cms_schema_versions (
@@ -191,4 +191,23 @@ CREATE TABLE IF NOT EXISTS application_settings (
   value_json JSON NOT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+
+CREATE TABLE IF NOT EXISTS application_logs (
+  id CHAR(36) NOT NULL PRIMARY KEY,
+  log_type ENUM('Audit', 'Service', 'CRUD', 'Connection', 'Security', 'UI') NOT NULL,
+  severity ENUM('Critical', 'Error', 'Warning', 'Logging', 'Verbose') NOT NULL,
+  source VARCHAR(255) NOT NULL,
+  user_name VARCHAR(255) NULL,
+  entity_guid CHAR(36) NULL,
+  message TEXT NOT NULL,
+  details_json JSON NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_application_logs_created_at (created_at),
+  KEY idx_application_logs_type (log_type),
+  KEY idx_application_logs_severity (severity),
+  KEY idx_application_logs_source (source),
+  KEY idx_application_logs_user_name (user_name),
+  KEY idx_application_logs_entity_guid (entity_guid)
 );

@@ -1,10 +1,11 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { AppLogRepository } from '../appLogs/types.js';
 import { requireAuth, requireRole } from '../auth/registerAuthRoutes.js';
 import type { AuthProfile, AuthRepository } from '../auth/types.js';
 import { normalizeOxyGenEndpoint } from './inMemoryInstanceRepository.js';
 import { testOxyGenConnectivity } from './oxygenConnectivity.js';
 import { createInstanceSchema, testConnectivitySchema, updateInstanceSchema } from './schemas.js';
-import type { InstanceRepository } from './types.js';
+import type { ConnectivityResult, InstanceRepository } from './types.js';
 
 type AuthenticatedRequest = FastifyRequest & { authProfile: AuthProfile };
 
@@ -47,7 +48,60 @@ async function testConnectivityFromInput(input: ReturnType<typeof testConnectivi
   });
 }
 
-export async function registerInstanceRoutes(app: FastifyInstance, authRepository: AuthRepository, instanceRepository: InstanceRepository) {
+function connectivitySeverity(result: ConnectivityResult) {
+  if (result.ok) return 'Logging' as const;
+  if (result.status === 'ssl-error') return 'Warning' as const;
+  return 'Error' as const;
+}
+
+function connectivityMessage(result: ConnectivityResult) {
+  if (result.ok) return 'Manual connectivity check passed.';
+  if (result.status === 'ssl-error') return 'Manual connectivity check failed: SSL error.';
+  if (result.status === 'auth-error') return 'Manual connectivity check failed: authentication error.';
+  return 'Manual connectivity check failed: unreachable.';
+}
+
+function connectivityErrorCode(result: ConnectivityResult) {
+  return result.dns.errorCode ?? result.ssl.errorCode ?? result.authentication.errorCode ?? result.api.errorCode ?? result.license.step.errorCode ?? null;
+}
+
+async function appendConnectivityLog(app: FastifyInstance, repository: AppLogRepository, request: FastifyRequest, result: ConnectivityResult, entityGuid: string | null, instanceName: string | null, tenantId: string | null) {
+  const profile = (request as Partial<AuthenticatedRequest>).authProfile;
+  await repository.append({
+    type: 'Connection',
+    severity: connectivitySeverity(result),
+    source: profile?.user.email ?? 'UI',
+    userName: profile?.user.email ?? null,
+    entityGuid,
+    tenantId,
+    message: connectivityMessage(result),
+    details: {
+      apiCall: entityGuid ? 'POST /api/instances/{Entity_Guid}/test-connectivity' : 'POST /api/instances/test-connectivity',
+      method: 'POST',
+      url: entityGuid ? `/api/instances/${entityGuid}/test-connectivity` : '/api/instances/test-connectivity',
+      responseCode: 200,
+      statusCode: 200,
+      entityGuid,
+      tenantId,
+      instanceName,
+      connectivityStatus: result.status,
+      ok: result.ok,
+      message: result.message,
+      error: result.ok ? null : result.message,
+      errorCode: connectivityErrorCode(result),
+      httpStatusCode: result.httpStatusCode,
+      responseTimeMs: result.responseTimeMs,
+      durationMs: result.durationMs,
+      dns: result.dns,
+      ssl: result.ssl,
+      authentication: result.authentication,
+      api: result.api,
+      license: result.license.step
+    }
+  }).catch((error) => app.log.warn({ error }, 'Failed to persist manual connectivity log'));
+}
+
+export async function registerInstanceRoutes(app: FastifyInstance, authRepository: AuthRepository, instanceRepository: InstanceRepository, appLogRepository?: AppLogRepository) {
   const requireSignedIn = requireAuth(authRepository);
   const adminPreHandler = [requireSignedIn, requireRole('SystemAdmin')];
 
@@ -95,13 +149,22 @@ export async function registerInstanceRoutes(app: FastifyInstance, authRepositor
 
   app.post('/api/instances/test-connectivity', { preHandler: adminPreHandler }, async (request, reply) => {
     const input = testConnectivitySchema.parse(request.body);
-    try { return reply.code(200).send(await testConnectivityFromInput(input)); }
+    try {
+      const result = await testConnectivityFromInput(input);
+      if (appLogRepository) await appendConnectivityLog(app, appLogRepository, request, result, input.instanceId ?? null, input.name ?? null, input.tenantId ?? null);
+      return reply.code(200).send(result);
+    }
     catch (error) { return errorReply(reply, error, 'Unable to test instance connectivity.'); }
   });
 
   app.post('/api/instances/:instanceId/test-connectivity', { preHandler: adminPreHandler }, async (request, reply) => {
     const { instanceId } = request.params as { instanceId: string };
-    try { return reply.code(200).send(await instanceRepository.testConnectivity(instanceId)); }
+    try {
+      const instance = await instanceRepository.getInstance(instanceId);
+      const result = await instanceRepository.testConnectivity(instanceId);
+      if (appLogRepository) await appendConnectivityLog(app, appLogRepository, request, result, instanceId, instance?.name ?? null, instance?.tenantId ?? null);
+      return reply.code(200).send(result);
+    }
     catch (error) { return errorReply(reply, error, 'Unable to test instance connectivity.', 'Instance not found.'); }
   });
 }

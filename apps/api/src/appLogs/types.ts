@@ -7,6 +7,8 @@ export type AppLogEntry = {
   severity: AppLogSeverity;
   source: string;
   userName: string | null;
+  entityGuid: string | null;
+  tenantId: string | null;
   message: string;
   details: unknown | null;
   createdAt: string;
@@ -17,15 +19,19 @@ export type CreateAppLogEntry = {
   severity: AppLogSeverity;
   source: string;
   userName?: string | null;
+  entityGuid?: string | null;
+  tenantId?: string | null;
   message: string;
   details?: unknown | null;
 };
 
 export type AppLogQuery = {
-  type?: AppLogType;
-  severity?: AppLogSeverity;
+  type?: AppLogType[];
+  severity?: AppLogSeverity[];
   source?: string;
   userName?: string;
+  entityGuid?: string;
+  tenantId?: string;
   search?: string;
   limit?: number;
   offset?: number;
@@ -40,4 +46,5 @@ export type AppLogRepository = {
   append(entry: CreateAppLogEntry): Promise<AppLogEntry>;
   list(query?: AppLogQuery): Promise<AppLogListResult>;
   pruneOlderThan(days: number): Promise<number>;
+  clear(): Promise<number>;
 };

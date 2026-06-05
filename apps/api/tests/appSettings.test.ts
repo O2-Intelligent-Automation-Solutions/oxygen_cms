@@ -29,6 +29,20 @@ describe('application settings API', () => {
     await app.close();
   });
 
+  it('returns and updates log retention settings using the frontend contract', async () => {
+    const { app, token } = await loginAdmin();
+
+    const defaults = await app.inject({ method: 'GET', url: '/api/app-settings/log-retention', headers: { authorization: `Bearer ${token}` } });
+    expect(defaults.statusCode).toBe(200);
+    expect(defaults.json()).toEqual({ retention: { days: 90 } });
+
+    const updated = await app.inject({ method: 'PUT', url: '/api/app-settings/log-retention', headers: { authorization: `Bearer ${token}` }, payload: { days: 120 } });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json()).toEqual({ retention: { days: 120 } });
+
+    await app.close();
+  });
+
   it('requires authentication and validates label values', async () => {
     const app = await buildApp({ logger: false, authRepository: createInMemoryAuthRepository(), appSettingsRepository: createInMemoryAppSettingsRepository() });
 

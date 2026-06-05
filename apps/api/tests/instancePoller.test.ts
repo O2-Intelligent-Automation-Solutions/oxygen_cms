@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { createInMemoryAppLogRepository } from '../src/appLogs/inMemoryAppLogRepository.js';
 import { createInstancePoller } from '../src/instances/instancePoller.js';
 import type { ConnectivityResult, InstanceRepository, OxyGenInstance } from '../src/instances/types.js';
 
@@ -60,6 +61,22 @@ function connectivityResult(): ConnectivityResult {
   };
 }
 
+function failedConnectivityResult(): ConnectivityResult {
+  return {
+    ...connectivityResult(),
+    ok: false,
+    status: 'unreachable',
+    message: 'DNS Error: ENOTFOUND oxygen.example.com',
+    responseTimeMs: null,
+    httpStatusCode: null,
+    dns: { ok: false, message: 'DNS Error: ENOTFOUND oxygen.example.com', errorCode: 'ENOTFOUND' },
+    ssl: { ok: false, skipped: true, message: 'Skipped because DNS failed.' },
+    authentication: { ok: false, skipped: true, message: 'Skipped because DNS failed.' },
+    api: { ok: false, skipped: true, message: 'Skipped because DNS failed.' },
+    license: { step: { ok: false, skipped: true, message: 'Skipped because DNS failed.' }, status: 'unknown', key: null, payload: null }
+  };
+}
+
 function repository(instances: OxyGenInstance[], testConnectivity = vi.fn(async () => connectivityResult())): InstanceRepository {
   return {
     createInstance: vi.fn(),
@@ -118,5 +135,39 @@ describe('background instance poller', () => {
     expect(slowTest).toHaveBeenCalledTimes(1);
     expect(secondPoll).toEqual({ checked: 0, skipped: 1, failed: 0 });
     expect(firstSummary).toEqual({ checked: 1, skipped: 0, failed: 0 });
+  });
+
+  it('writes routine completed summaries as verbose service logs', async () => {
+    const appLogRepository = createInMemoryAppLogRepository();
+    const repo = repository([instance({ id: 'disabled', isEnabled: false, lastCheckedAt: null })]);
+    const poller = createInstancePoller({ repository: repo, appLogRepository, now: () => new Date('2026-06-04T00:05:00.000Z') });
+
+    const summary = await poller.pollDueInstances();
+
+    expect(summary).toEqual({ checked: 0, skipped: 1, failed: 0 });
+    const { logs, total } = await appLogRepository.list({ type: ['Service'] });
+    expect(total).toBe(1);
+    expect(logs[0]).toMatchObject({ severity: 'Verbose', message: 'Background poller completed: 0 checked, 1 skipped, 0 failed' });
+  });
+
+  it('writes verbose per-instance checks, logs repeated issues once, and logs nominal resolution once', async () => {
+    const appLogRepository = createInMemoryAppLogRepository();
+    const testConnectivity = vi.fn()
+      .mockResolvedValueOnce(failedConnectivityResult())
+      .mockResolvedValueOnce(failedConnectivityResult())
+      .mockResolvedValueOnce(connectivityResult());
+    const repo = repository([instance({ id: 'instance-1', lastCheckedAt: null })], testConnectivity);
+    const poller = createInstancePoller({ repository: repo, appLogRepository, now: () => new Date('2026-06-04T00:05:00.000Z') });
+
+    await poller.pollDueInstances();
+    await poller.pollDueInstances();
+    await poller.pollDueInstances();
+
+    const { logs } = await appLogRepository.list({ type: ['Connection'], entityGuid: 'instance-1' });
+    const messages = logs.map((log) => `${log.severity}:${log.message}`);
+    expect(messages.filter((message) => message.startsWith('Verbose:'))).toHaveLength(3);
+    expect(messages.filter((message) => message.includes('connectivity failed'))).toHaveLength(1);
+    expect(messages.filter((message) => message.includes('is now nominal'))).toHaveLength(1);
+    expect(logs.every((log) => log.entityGuid === 'instance-1')).toBe(true);
   });
 });

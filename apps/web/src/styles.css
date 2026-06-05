@@ -348,6 +348,19 @@ select:-webkit-autofill {
   color: var(--brand-primary) !important;
 }
 
+.compact-button.btn-danger-outline,
+.compact-button.btn-danger-outline.k-button {
+  border-color: rgba(248, 113, 113, 0.42) !important;
+  color: #fecaca !important;
+}
+
+.compact-button.btn-danger-outline:hover,
+.compact-button.btn-danger-outline.k-button:hover {
+  border-color: rgba(248, 113, 113, 0.72) !important;
+  background: rgba(239, 68, 68, 0.14) !important;
+  color: #fecaca !important;
+}
+
 .compact-button svg,
 .compact-button.k-button svg {
   width: 15px;
@@ -765,6 +778,10 @@ button.secondary {
 .instance-grid-toolbar {
   position: relative;
   flex-wrap: wrap;
+  width: 100%;
+  min-width: 0;
+  align-items: flex-end;
+  justify-content: flex-end;
 }
 
 .column-selector-wrap {
@@ -868,6 +885,31 @@ button.secondary {
 
 .instance-grid-wrap {
   min-height: 0;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-color: rgba(32, 214, 210, 0.5) rgba(3, 12, 22, 0.72);
+  scrollbar-width: thin;
+}
+
+.instance-grid-wrap::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.instance-grid-wrap::-webkit-scrollbar-track {
+  background: rgba(3, 12, 22, 0.72);
+  border-radius: 999px;
+}
+
+.instance-grid-wrap::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(32, 214, 210, 0.72), rgba(29, 155, 215, 0.58));
+  border: 2px solid rgba(3, 12, 22, 0.72);
+  border-radius: 999px;
+}
+
+.instance-grid-wrap::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(32, 214, 210, 0.92), rgba(29, 155, 215, 0.76));
 }
 
 .grid-header-context-menu {
@@ -966,6 +1008,13 @@ button.secondary {
   --kendo-color-base-hover: rgba(32, 214, 210, 0.08);
   --kendo-color-border: rgba(125, 160, 188, 0.22);
   --kendo-color-primary: var(--brand-primary);
+}
+
+.cms-kendo-grid .k-grid-header table,
+.cms-kendo-grid .k-grid-content table,
+.cms-kendo-grid .k-grid-table,
+.cms-kendo-grid .k-table {
+  min-width: var(--cms-grid-min-width, 100%);
 }
 
 .cms-kendo-grid .k-grid-aria-root,
@@ -4532,9 +4581,10 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
   overflow-wrap: anywhere;
 }
 
-.settings-logs-stack {
+.settings-basic-stack {
   display: grid;
   gap: 16px;
+  max-width: 920px;
 }
 
 .compact-settings-form {
@@ -4542,37 +4592,142 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
   align-items: end;
 }
 
-.logs-panel {
-  display: grid;
-  gap: 14px;
+.logs-filter-bar {
+  display: flex;
+  align-items: end;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
-.logs-filter-bar {
-  justify-content: flex-start;
-  padding: 12px;
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  border-radius: 16px;
-  background: rgba(3, 12, 22, 0.45);
+.grid-toolbar-filters {
+  flex: 0 1 auto;
+  max-width: 100%;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .logs-filter-bar label {
   display: grid;
-  gap: 6px;
-  min-width: 180px;
+  gap: 4px;
+  min-width: 150px;
   color: var(--brand-muted);
-  font-size: 0.75rem;
+  font-size: 0.68rem;
+  font-weight: 750;
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
 
-.logs-filter-bar input,
-.logs-filter-bar select {
-  min-height: 36px;
+.logs-filter-control {
+  display: grid;
+  gap: 4px;
+  min-width: 300px;
+  color: var(--brand-muted);
+  font-size: 0.68rem;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  position: relative;
+}
+
+.logs-filter-label {
+  color: var(--brand-muted);
+}
+
+.logs-multiselect {
+  position: relative;
+}
+
+.logs-multiselect summary {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   color: var(--brand-text);
   background: rgba(8, 18, 35, 0.96);
   border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 9px;
+  padding: 7px 10px;
+  list-style: none;
+  cursor: pointer;
+  text-transform: none;
+  letter-spacing: 0.01em;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.logs-multiselect summary::-webkit-details-marker {
+  display: none;
+}
+
+.logs-multiselect[open] summary {
+  border-color: rgba(118, 214, 255, 0.45);
+  box-shadow: 0 0 0 2px rgba(32, 214, 210, 0.08);
+}
+
+.logs-multiselect-menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  left: 0;
+  width: 100%;
+  min-width: 300px;
+  display: grid;
+  gap: 2px;
+  padding: 8px;
+  background: rgba(8, 18, 35, 0.98);
+  border: 1px solid rgba(148, 163, 184, 0.28);
   border-radius: 10px;
-  padding: 8px 10px;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.38), 0 0 22px rgba(32, 214, 210, 0.08);
+}
+
+.logs-filter-bar .logs-multiselect-menu label.checkbox-label {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  width: 100%;
+  margin: 0;
+  padding: 7px 9px;
+  border-radius: 8px;
+  color: var(--brand-text);
+  background: transparent;
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+}
+
+.logs-filter-bar .logs-multiselect-menu label.checkbox-label:hover {
+  background: rgba(118, 214, 255, 0.10);
+}
+
+.logs-filter-bar .logs-multiselect-menu input[type="checkbox"] {
+  min-height: auto;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--brand-cyan);
+}
+
+.logs-filter-bar input,
+.logs-filter-bar select {
+  min-height: 34px;
+  color: var(--brand-text);
+  background: rgba(8, 18, 35, 0.96);
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 9px;
+  padding: 7px 10px;
+}
+
+.logs-filter-bar .compact-button.k-button {
+  min-height: 34px;
+  white-space: nowrap;
 }
 
 @media (max-width: 1480px) {
@@ -4606,9 +4761,15 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
 
 @media (max-width: 860px) {
   .compact-settings-form,
-  .logs-filter-bar label {
+  .logs-filter-bar label,
+  .logs-filter-control {
     grid-template-columns: 1fr;
     width: 100%;
+    max-width: none;
+  }
+
+  .logs-multiselect-menu {
+    min-width: 100%;
   }
 }
 

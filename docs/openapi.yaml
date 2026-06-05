@@ -6,7 +6,7 @@ info:
   description: |
     API contract for OxyGen Central Management Server Phase 1.
 
-    Current CMS schema version: 0.08.
+    Current CMS schema version: 0.10.
 
     Phase 1 APIs cover first-run setup, local authentication/RBAC, tenant/user/group/role administration,
     manual OxyGen instance enrollment, dashboard background poller status/controls, application logs, grid preferences, and application settings.
@@ -181,7 +181,7 @@ paths:
                 properties:
                   ok: { type: boolean, const: true }
                   database: { type: string }
-                  targetSchemaVersion: { type: string, example: '0.08' }
+                  targetSchemaVersion: { type: string, example: '0.09' }
                   appliedVersions:
                     type: array
                     items: { type: string }
@@ -693,18 +693,40 @@ paths:
     get:
       tags: [Application Logs]
       summary: List persisted CMS application logs
-      description: Returns database-backed Audit, Service, CRUD, Connection, Security, and UI log entries, newest first.
+      description: Returns database-backed Audit, Service, CRUD, Connection, Security, and UI log entries, newest first. CRUD entries are reserved for user-initiated entity mutations. API activity details include structured `apiCall`, `responseCode`, nullable `entityGuid`, and nullable `tenantId` fields. Tenant-scoped users are automatically limited to their tenant; SystemAdmin can query all tenant/global rows.
       parameters:
         - in: query
           name: type
-          schema: { $ref: '#/components/schemas/AppLogType' }
+          description: Filter to one or more log types. May be repeated (`type=Service&type=CRUD`) or comma-separated.
+          style: form
+          explode: true
+          schema:
+            type: array
+            items: { $ref: '#/components/schemas/AppLogType' }
         - in: query
           name: severity
-          schema: { $ref: '#/components/schemas/AppLogSeverity' }
+          description: Filter to one or more severity levels. May be repeated (`severity=Error&severity=Warning`) or comma-separated.
+          style: form
+          explode: true
+          schema:
+            type: array
+            items: { $ref: '#/components/schemas/AppLogSeverity' }
         - in: query
           name: userName
           schema: { type: string }
-          description: Exact user/source filter used by the Settings → Logs UI.
+          description: Exact user/source filter used by the Settings → Logs grid.
+        - in: query
+          name: entityGuid
+          schema: { type: string, format: uuid }
+          description: Filter logs associated with a specific instance/entity GUID.
+        - in: query
+          name: tenantId
+          schema:
+            type:
+              - string
+              - 'null'
+            format: uuid
+          description: Filter logs associated with a tenant. Tenant-scoped users are forced to their own tenant.
         - in: query
           name: source
           schema: { type: string }
@@ -724,6 +746,21 @@ paths:
                     type: array
                     items: { $ref: '#/components/schemas/AppLogEntry' }
                   total: { type: integer, minimum: 0 }
+        '401': { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Application Logs]
+      summary: Clear persisted CMS application logs
+      description: Deletes all persisted application log entries. The clear operation itself is excluded from application log auto-capture to avoid immediately recreating a log row.
+      responses:
+        '200':
+          description: Clear result.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deleted]
+                properties:
+                  deleted: { type: integer, minimum: 0 }
         '401': { $ref: '#/components/responses/Error' }
   /api/grid-preferences/{gridKey}:
     parameters:
@@ -812,9 +849,9 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [logRetention]
+                required: [retention]
                 properties:
-                  logRetention: { $ref: '#/components/schemas/LogRetentionSettings' }
+                  retention: { $ref: '#/components/schemas/LogRetentionSettings' }
         '401': { $ref: '#/components/responses/Error' }
     put:
       tags: [Application Settings]
@@ -831,9 +868,9 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [logRetention]
+                required: [retention]
                 properties:
-                  logRetention: { $ref: '#/components/schemas/LogRetentionSettings' }
+                  retention: { $ref: '#/components/schemas/LogRetentionSettings' }
         '400': { $ref: '#/components/responses/Error' }
         '401': { $ref: '#/components/responses/Error' }
 components:
@@ -913,7 +950,7 @@ components:
       properties:
         databaseConfigured: { type: boolean }
         schemaCurrent: { type: boolean }
-        targetSchemaVersion: { type: string, example: '0.08' }
+        targetSchemaVersion: { type: string, example: '0.09' }
         adminConfigured: { type: boolean }
         ready: { type: boolean }
     PublicDeploymentConfig:
@@ -1278,15 +1315,21 @@ components:
       enum: [Critical, Error, Warning, Logging, Verbose]
     AppLogEntry:
       type: object
-      required: [id, type, severity, source, userName, message, details, createdAt]
+      required: [id, type, severity, source, userName, entityGuid, tenantId, message, details, createdAt]
       properties:
         id: { type: string, format: uuid }
         type: { $ref: '#/components/schemas/AppLogType' }
         severity: { $ref: '#/components/schemas/AppLogSeverity' }
         source: { type: string }
         userName: { type: [string, 'null'] }
+        entityGuid: { type: [string, 'null'], format: uuid }
+        tenantId: { type: [string, 'null'], format: uuid }
         message: { type: string }
-        details: {}
+        details:
+          type: object
+          nullable: true
+          additionalProperties: true
+          description: Structured log context. User API activity includes `apiCall`, `responseCode`, nullable `entityGuid`, and nullable `tenantId`; legacy-compatible fields may also include `method`, `url`, and `statusCode`.
         createdAt: { type: string, format: date-time }
     LogRetentionSettings:
       type: object

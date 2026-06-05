@@ -266,14 +266,29 @@ const applicationLogsSchemaSql = `CREATE TABLE IF NOT EXISTS application_logs (
   severity ENUM('Critical', 'Error', 'Warning', 'Logging', 'Verbose') NOT NULL,
   source VARCHAR(255) NOT NULL,
   user_name VARCHAR(320) NULL,
+  entity_guid CHAR(36) NULL,
+  tenant_id CHAR(36) NULL,
   message TEXT NOT NULL,
   details_json JSON NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY idx_application_logs_created_at (created_at),
   KEY idx_application_logs_type_severity (log_type, severity),
   KEY idx_application_logs_source (source),
-  KEY idx_application_logs_user_name (user_name)
+  KEY idx_application_logs_user_name (user_name),
+  KEY idx_application_logs_entity_guid (entity_guid),
+  KEY idx_application_logs_tenant_id (tenant_id),
+  KEY idx_application_logs_tenant_entity (tenant_id, entity_guid)
 );`;
+
+
+const applicationLogsEntityGuidSql = `ALTER TABLE application_logs
+  ADD COLUMN entity_guid CHAR(36) NULL AFTER user_name,
+  ADD KEY idx_application_logs_entity_guid (entity_guid);`;
+
+const applicationLogsTenantIdSql = `ALTER TABLE application_logs
+  ADD COLUMN tenant_id CHAR(36) NULL AFTER entity_guid,
+  ADD KEY idx_application_logs_tenant_id (tenant_id),
+  ADD KEY idx_application_logs_tenant_entity (tenant_id, entity_guid);`;
 
 export const schemaMigrations: SchemaMigration[] = [
   {
@@ -323,5 +338,17 @@ export const schemaMigrations: SchemaMigration[] = [
     name: 'application logs schema',
     checksum: 'e36e7aa435bf2784666bc601f827a0a6f0c9117c183ae3cbc9c60ad51bb1e882',
     upSql: applicationLogsSchemaSql
+  },
+  {
+    version: '0.09',
+    name: 'application log entity guid index',
+    checksum: 'd3d8c20df5df27af58090d7e0e5750cd3e2e8a46b9a64f470e495eb64065fa25',
+    upSql: applicationLogsEntityGuidSql
+  },
+  {
+    version: '0.10',
+    name: 'application log tenant metadata',
+    checksum: '4f1a5d930c5c51d0de7a0b7b5d066e7f26843d137b4eb8e3dc3b24ef2e37f9cb',
+    upSql: applicationLogsTenantIdSql
   }
 ];

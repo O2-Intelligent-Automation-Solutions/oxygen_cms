@@ -7,6 +7,7 @@ const portSchema = z.coerce.number().int().min(1).max(65535).optional().nullable
 const usernameSchema = z.string().trim().min(1).optional().default('admin');
 
 export const createInstanceSchema = z.object({
+  id: z.string().uuid().optional(),
   name: z.string().trim().min(1),
   description: optionalText,
   tenantId: optionalTenantId,
@@ -21,6 +22,9 @@ export const createInstanceSchema = z.object({
 }).refine((value) => Boolean(value.host || value.hostname), { message: 'Host or URL is required.', path: ['host'] });
 
 export const testConnectivitySchema = z.object({
+  instanceId: z.string().uuid().optional(),
+  name: z.string().trim().optional(),
+  tenantId: optionalTenantId,
   protocol: protocolSchema,
   host: z.string().trim().min(1).optional(),
   port: portSchema,

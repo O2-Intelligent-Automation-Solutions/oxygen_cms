@@ -11,6 +11,8 @@ type AppLogRow = RowDataPacket & {
   severity: AppLogEntry['severity'];
   source: string;
   user_name: string | null;
+  entity_guid: string | null;
+  tenant_id: string | null;
   message: string;
   details_json: string | object | null;
   created_at: Date | string;
@@ -31,6 +33,8 @@ function mapRow(row: AppLogRow): AppLogEntry {
     severity: row.severity,
     source: row.source,
     userName: row.user_name,
+    entityGuid: row.entity_guid,
+    tenantId: row.tenant_id,
     message: row.message,
     details: parseDetails(row.details_json),
     createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : new Date(row.created_at).toISOString()
@@ -40,14 +44,16 @@ function mapRow(row: AppLogRow): AppLogEntry {
 function whereClause(query: AppLogQuery) {
   const clauses: string[] = [];
   const values: unknown[] = [];
-  if (query.type) { clauses.push('log_type = ?'); values.push(query.type); }
-  if (query.severity) { clauses.push('severity = ?'); values.push(query.severity); }
+  if (query.type?.length) { clauses.push(`log_type IN (${query.type.map(() => '?').join(', ')})`); values.push(...query.type); }
+  if (query.severity?.length) { clauses.push(`severity IN (${query.severity.map(() => '?').join(', ')})`); values.push(...query.severity); }
   if (query.source) { clauses.push('source = ?'); values.push(query.source); }
   if (query.userName) { clauses.push('user_name = ?'); values.push(query.userName); }
+  if (query.entityGuid) { clauses.push('entity_guid = ?'); values.push(query.entityGuid); }
+  if (query.tenantId) { clauses.push('tenant_id = ?'); values.push(query.tenantId); }
   if (query.search) {
-    clauses.push('(message LIKE ? OR source LIKE ? OR user_name LIKE ? OR CAST(details_json AS CHAR) LIKE ?)');
+    clauses.push('(message LIKE ? OR source LIKE ? OR user_name LIKE ? OR entity_guid LIKE ? OR tenant_id LIKE ? OR CAST(details_json AS CHAR) LIKE ?)');
     const needle = `%${query.search}%`;
-    values.push(needle, needle, needle, needle);
+    values.push(needle, needle, needle, needle, needle, needle);
   }
   return { sql: clauses.length ? `WHERE ${clauses.join(' AND ')}` : '', values };
 }
@@ -57,9 +63,9 @@ export function createMysqlAppLogRepository(pool: Pool): AppLogRepository {
     async append(entry: CreateAppLogEntry) {
       const id = randomUUID();
       await pool.query(
-        `INSERT INTO application_logs (id, log_type, severity, source, user_name, message, details_json)
-         VALUES (?, ?, ?, ?, ?, ?, CAST(? AS JSON))`,
-        [id, entry.type, entry.severity, entry.source, entry.userName ?? null, entry.message, JSON.stringify(entry.details ?? null)]
+        `INSERT INTO application_logs (id, log_type, severity, source, user_name, entity_guid, tenant_id, message, details_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON))`,
+        [id, entry.type, entry.severity, entry.source, entry.userName ?? null, entry.entityGuid ?? null, entry.tenantId ?? null, entry.message, JSON.stringify(entry.details ?? null)]
       );
       const [rows] = await pool.query<AppLogRow[]>('SELECT * FROM application_logs WHERE id = ? LIMIT 1', [id]);
       return mapRow(rows[0]);
@@ -74,6 +80,10 @@ export function createMysqlAppLogRepository(pool: Pool): AppLogRepository {
     },
     async pruneOlderThan(days: number) {
       const [result] = await pool.query<ResultSetHeader>('DELETE FROM application_logs WHERE created_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)', [days]);
+      return result.affectedRows;
+    },
+    async clear() {
+      const [result] = await pool.query<ResultSetHeader>('DELETE FROM application_logs');
       return result.affectedRows;
     }
   };
@@ -105,6 +115,7 @@ export function createSetupAwareAppLogRepository(setupSettingsStore: SetupSettin
   return {
     async append(entry) { return (await currentRepository()).append(entry); },
     async list(query) { return (await currentRepository()).list(query); },
-    async pruneOlderThan(days) { return (await currentRepository()).pruneOlderThan(days); }
+    async pruneOlderThan(days) { return (await currentRepository()).pruneOlderThan(days); },
+    async clear() { return (await currentRepository()).clear(); }
   };
 }

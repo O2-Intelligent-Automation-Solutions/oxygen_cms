@@ -41,6 +41,44 @@ type InstancePollerOptions = {
 const DEFAULT_TICK_INTERVAL_MS = 30_000;
 const CMS_SERVICE_SOURCE = 'OxyGen CMS';
 
+function issueSignature(result: Awaited<ReturnType<InstanceRepository['testConnectivity']>>) {
+  return result.ok ? null : `${result.status}:${result.message}:${result.dns.errorCode ?? ''}:${result.ssl.errorCode ?? ''}:${result.authentication.errorCode ?? ''}:${result.api.errorCode ?? ''}:${result.license.step.errorCode ?? ''}`;
+}
+
+function issueSeverity(result: Awaited<ReturnType<InstanceRepository['testConnectivity']>>) {
+  if (result.ok) return 'Logging' as const;
+  if (result.status === 'ssl-error') return 'Warning' as const;
+  return 'Error' as const;
+}
+
+function issueMessage(instance: OxyGenInstance, result: Awaited<ReturnType<InstanceRepository['testConnectivity']>>) {
+  if (result.ok) return `${instance.name} is now nominal.`;
+  if (result.status === 'ssl-error') return `${instance.name} reported an SSL warning: ${result.message}`;
+  if (result.status === 'auth-error') return `${instance.name} authentication failed: ${result.message}`;
+  return `${instance.name} connectivity failed: ${result.message}`;
+}
+
+function checkDetails(instance: OxyGenInstance, result: Awaited<ReturnType<InstanceRepository['testConnectivity']>>) {
+  return {
+    entityGuid: instance.id,
+    tenantId: instance.tenantId,
+    instanceName: instance.name,
+    connectivityStatus: result.status,
+    ok: result.ok,
+    message: result.message,
+    error: result.ok ? null : result.message,
+    errorCode: result.dns.errorCode ?? result.ssl.errorCode ?? result.authentication.errorCode ?? result.api.errorCode ?? result.license.step.errorCode ?? null,
+    httpStatusCode: result.httpStatusCode,
+    responseTimeMs: result.responseTimeMs,
+    durationMs: result.durationMs,
+    dns: result.dns,
+    ssl: result.ssl,
+    authentication: result.authentication,
+    api: result.api,
+    license: result.license.step
+  };
+}
+
 function isDue(instance: OxyGenInstance, now: Date) {
   if (!instance.isEnabled) return false;
   if (!instance.lastCheckedAt) return true;
@@ -60,6 +98,7 @@ export function createInstancePoller(options: InstancePollerOptions): InstancePo
   let lastSummary: InstancePollerSummary | null = null;
   let lastError: string | null = null;
   let nextRunAt: string | null = null;
+  const activeIssueSignatures = new Map<string, string>();
 
   function setNextRun(from: Date = now()) {
     nextRunAt = timer && !paused ? new Date(from.getTime() + tickIntervalMs).toISOString() : null;
@@ -67,7 +106,7 @@ export function createInstancePoller(options: InstancePollerOptions): InstancePo
 
   async function appendServiceLog(entry: Parameters<AppLogRepository['append']>[0]) {
     try {
-      await options.appLogRepository?.append(entry);
+      await options.appLogRepository?.append({ entityGuid: null, tenantId: null, ...entry });
     } catch (error) {
       options.logger?.warn({ error }, 'Failed to persist background poller service log');
     }
@@ -76,10 +115,12 @@ export function createInstancePoller(options: InstancePollerOptions): InstancePo
   async function writeServiceLog(summary: InstancePollerSummary) {
     await appendServiceLog({
       type: 'Service',
-      severity: summary.failed > 0 ? 'Warning' : 'Logging',
+      severity: summary.failed > 0 ? 'Warning' : 'Verbose',
       source: CMS_SERVICE_SOURCE,
       userName: null,
       message: `Background poller completed: ${summary.checked} checked, ${summary.skipped} skipped, ${summary.failed} failed`,
+      entityGuid: null,
+      tenantId: null,
       details: summary
     });
   }
@@ -101,11 +142,61 @@ export function createInstancePoller(options: InstancePollerOptions): InstancePo
 
       runningInstanceIds.add(instance.id);
       try {
-        await options.repository.testConnectivity(instance.id);
+        const result = await options.repository.testConnectivity(instance.id);
         summary.checked += 1;
+        await appendServiceLog({
+          type: 'Connection',
+          severity: 'Verbose',
+          source: CMS_SERVICE_SOURCE,
+          userName: null,
+          entityGuid: instance.id,
+          tenantId: instance.tenantId,
+          message: `${instance.name} poller check completed: ${result.message}`,
+          details: checkDetails(instance, result)
+        });
+        const signature = issueSignature(result);
+        const previousSignature = activeIssueSignatures.get(instance.id);
+        if (signature) {
+          if (signature !== previousSignature) {
+            activeIssueSignatures.set(instance.id, signature);
+            await appendServiceLog({
+              type: 'Connection',
+              severity: issueSeverity(result),
+              source: CMS_SERVICE_SOURCE,
+              userName: null,
+              entityGuid: instance.id,
+              tenantId: instance.tenantId,
+              message: issueMessage(instance, result),
+              details: checkDetails(instance, result)
+            });
+          }
+        } else if (previousSignature || instance.status !== 'up' || instance.lastError) {
+          activeIssueSignatures.delete(instance.id);
+          await appendServiceLog({
+            type: 'Connection',
+            severity: 'Logging',
+            source: CMS_SERVICE_SOURCE,
+            userName: null,
+            entityGuid: instance.id,
+            tenantId: instance.tenantId,
+            message: issueMessage(instance, result),
+            details: checkDetails(instance, result)
+          });
+        }
       } catch (error) {
         summary.failed += 1;
+        const errorMessage = error instanceof Error ? error.message : 'Background instance poll failed.';
         options.logger?.warn({ error, instanceId: instance.id }, 'Background instance poll failed');
+        await appendServiceLog({
+          type: 'Connection',
+          severity: 'Error',
+          source: CMS_SERVICE_SOURCE,
+          userName: null,
+          entityGuid: instance.id,
+          tenantId: instance.tenantId,
+          message: `${instance.name} poller check failed: ${errorMessage}`,
+          details: { entityGuid: instance.id, tenantId: instance.tenantId, instanceName: instance.name, error: errorMessage }
+        });
       } finally {
         runningInstanceIds.delete(instance.id);
       }
@@ -130,7 +221,7 @@ export function createInstancePoller(options: InstancePollerOptions): InstancePo
       } catch (error) {
         lastError = error instanceof Error ? error.message : 'Background instance polling tick failed.';
         options.logger?.error({ error }, 'Background instance polling tick failed');
-        await appendServiceLog({ type: 'Service', severity: 'Error', source: CMS_SERVICE_SOURCE, userName: null, message: 'Background instance polling tick failed', details: { error: lastError } });
+        await appendServiceLog({ type: 'Service', severity: 'Error', source: CMS_SERVICE_SOURCE, userName: null, tenantId: null, message: 'Background instance polling tick failed', details: { error: lastError } });
       } finally {
         tickRunning = false;
         setNextRun();
@@ -152,13 +243,13 @@ export function createInstancePoller(options: InstancePollerOptions): InstancePo
   function pause() {
     paused = true;
     setNextRun();
-    void appendServiceLog({ type: 'Service', severity: 'Warning', source: CMS_SERVICE_SOURCE, userName: null, message: 'Background poller paused', details: null });
+    void appendServiceLog({ type: 'Service', severity: 'Warning', source: CMS_SERVICE_SOURCE, userName: null, tenantId: null, message: 'Background poller paused', details: null });
   }
 
   function resume() {
     paused = false;
     setNextRun();
-    void appendServiceLog({ type: 'Service', severity: 'Logging', source: CMS_SERVICE_SOURCE, userName: null, message: 'Background poller resumed', details: null });
+    void appendServiceLog({ type: 'Service', severity: 'Logging', source: CMS_SERVICE_SOURCE, userName: null, tenantId: null, message: 'Background poller resumed', details: null });
   }
 
   async function runNow(): Promise<InstancePollerSummary> {
@@ -171,12 +262,12 @@ export function createInstancePoller(options: InstancePollerOptions): InstancePo
     try {
       const summary = await pollDueInstances({ force: true });
       options.logger?.info({ summary }, 'Background instance polling run requested by operator');
-      await appendServiceLog({ type: 'Service', severity: summary.failed > 0 ? 'Warning' : 'Logging', source: CMS_SERVICE_SOURCE, userName: null, message: 'Background poller run requested now', details: summary });
+      await appendServiceLog({ type: 'Service', severity: summary.failed > 0 ? 'Warning' : 'Logging', source: CMS_SERVICE_SOURCE, userName: null, tenantId: null, message: 'Background poller run requested now', details: summary });
       return summary;
     } catch (error) {
       lastError = error instanceof Error ? error.message : 'Background instance polling run failed.';
       options.logger?.error({ error }, 'Background instance polling run failed');
-      await appendServiceLog({ type: 'Service', severity: 'Error', source: CMS_SERVICE_SOURCE, userName: null, message: 'Background poller run requested now failed', details: { error: lastError } });
+      await appendServiceLog({ type: 'Service', severity: 'Error', source: CMS_SERVICE_SOURCE, userName: null, tenantId: null, message: 'Background poller run requested now failed', details: { error: lastError } });
       throw error;
     } finally {
       tickRunning = false;

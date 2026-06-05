@@ -42,6 +42,7 @@ export type OxyGenInstance = {
 };
 
 export type CreateInstanceInput = {
+  id?: string;
   name: string;
   description?: string | null;
   tenantId?: string | null;
