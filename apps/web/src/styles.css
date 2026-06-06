@@ -368,6 +368,36 @@ select:-webkit-autofill {
   flex: 0 0 auto;
 }
 
+
+/* Global button content alignment: icons stay left of text and never stack above labels. */
+button svg,
+.k-button svg,
+.k-button .k-svg-icon,
+.k-button .k-icon {
+  order: -1;
+  flex: 0 0 auto;
+}
+
+.k-button,
+.k-button .k-button-text,
+.compact-button,
+.compact-button.k-button,
+.btn-grid-tool.k-button,
+.btn-create.k-button,
+.instance-toolbar-button.k-button {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: center;
+  gap: 7px;
+  white-space: nowrap !important;
+}
+
+.k-button .k-button-text {
+  min-width: 0;
+  line-height: 1.05;
+}
+
 label small {
   color: var(--brand-muted-2);
   line-height: 1.45;
@@ -636,6 +666,44 @@ button.secondary {
   width: 14px;
   height: 14px;
 }
+
+
+/* Sidebar nav owns its own icon layout; global app button icon rules must not move accordion chevrons. */
+.sidebar-nav .nav-link,
+.sidebar-nav .nav-accordion-toggle {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+}
+
+.sidebar-nav .nav-link > svg,
+.sidebar-nav .nav-accordion-toggle > svg {
+  order: 0;
+}
+
+.sidebar-nav .nav-link > span,
+.sidebar-nav .nav-accordion-toggle > span {
+  order: 1;
+}
+
+.sidebar-nav .nav-accordion-toggle > svg:last-child {
+  order: 2;
+  margin-left: auto;
+}
+
+.admin-sidebar.collapsed .sidebar-nav .nav-link,
+.admin-sidebar.collapsed .sidebar-nav .nav-accordion-toggle {
+  justify-content: center !important;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.admin-sidebar.collapsed .sidebar-nav .nav-link > svg,
+.admin-sidebar.collapsed .sidebar-nav .nav-accordion-toggle > svg:first-child {
+  margin: 0 auto;
+}
+
 
 .nav-accordion-children {
   display: grid;
@@ -1151,8 +1219,19 @@ button.secondary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  margin: 0 2px;
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
+  margin: 0 1px;
+  padding: 0;
+  border-radius: 5px;
   color: #d4e4f3 !important;
+}
+
+.cms-kendo-grid .k-command-cell .btn-icon-info svg,
+.cms-kendo-grid .k-command-cell .btn-icon-danger svg {
+  width: 14px;
+  height: 14px;
 }
 
 .cms-kendo-grid .k-command-cell .btn-icon-info:hover {
@@ -1726,24 +1805,59 @@ button.secondary {
 
 
 /* Review fixes: compact Kendo action buttons */
+.cms-dialog .k-dialog-actions .k-button,
+.k-button.btn-dialog-cancel,
+.k-button.btn-dialog-primary,
 .k-button.btn-dialog-test {
   display: inline-flex !important;
+  flex-direction: row !important;
   align-items: center !important;
   justify-content: center !important;
-  gap: 7px !important;
-  min-width: 132px !important;
-  height: 34px !important;
-  min-height: 34px !important;
-  padding: 0 14px !important;
+  gap: 8px !important;
+  min-width: 126px !important;
+  width: auto !important;
+  height: 38px !important;
+  min-height: 38px !important;
+  padding: 0 18px !important;
   border-radius: 10px !important;
-  font-size: 0.78rem !important;
+  font-size: 0.82rem !important;
   font-weight: 800 !important;
   line-height: 1 !important;
   white-space: nowrap !important;
-  color: var(--brand-primary) !important;
-  border-color: rgba(32, 214, 210, 0.42) !important;
-  background: rgba(32, 214, 210, 0.08) !important;
   box-shadow: none !important;
+}
+
+.k-button.btn-dialog-cancel,
+.cms-dialog .k-dialog-actions .k-button-flat,
+.cms-dialog .k-dialog-actions .k-button-flat.k-button {
+  border: 1px solid rgba(125, 160, 188, 0.34) !important;
+  background: rgba(8, 18, 35, 0.82) !important;
+  background-image: none !important;
+  color: var(--brand-text) !important;
+}
+
+.k-button.btn-dialog-cancel:hover,
+.cms-dialog .k-dialog-actions .k-button-flat:hover {
+  border-color: rgba(32, 214, 210, 0.62) !important;
+  background: rgba(32, 214, 210, 0.10) !important;
+  color: var(--brand-primary) !important;
+}
+
+.k-button.btn-dialog-primary,
+.cms-dialog .k-dialog-actions .k-button-solid-primary {
+  border: 1px solid rgba(32, 214, 210, 0.58) !important;
+  background: linear-gradient(135deg, #2b82bd, #3f7fb7) !important;
+  background-color: #357fb9 !important;
+  background-image: linear-gradient(135deg, #2b82bd, #3f7fb7) !important;
+  color: #ffffff !important;
+}
+
+.k-button.btn-dialog-test {
+  min-width: 188px !important;
+  border: 1px solid rgba(32, 214, 210, 0.42) !important;
+  background: rgba(8, 18, 35, 0.82) !important;
+  background-image: none !important;
+  color: var(--brand-primary) !important;
 }
 
 .k-button.btn-dialog-test:hover {
@@ -1752,20 +1866,28 @@ button.secondary {
   background: linear-gradient(135deg, var(--brand-primary), var(--brand-primary-2)) !important;
 }
 
-.k-button.btn-dialog-test svg {
-  width: 15px !important;
-  height: 15px !important;
-  flex: 0 0 15px !important;
+.k-button.btn-dialog-test svg,
+.k-button.btn-dialog-cancel svg,
+.k-button.btn-dialog-primary svg,
+.cms-dialog .k-dialog-actions .k-button svg {
+  width: 16px !important;
+  height: 16px !important;
+  flex: 0 0 16px !important;
   display: block !important;
   margin: 0 !important;
-  stroke-width: 2.4 !important;
+  stroke-width: 2.35 !important;
 }
 
-.k-button.btn-dialog-test span {
+.k-button.btn-dialog-test .k-button-text,
+.k-button.btn-dialog-cancel .k-button-text,
+.k-button.btn-dialog-primary .k-button-text,
+.cms-dialog .k-dialog-actions .k-button .k-button-text {
   display: inline-flex !important;
+  flex-direction: row !important;
   align-items: center !important;
-  line-height: 1 !important;
-  margin-left: 4px !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  white-space: nowrap !important;
 }
 
 /* Final global placeholder override: must beat WebKit text-fill color used for dark autofill protection. */
@@ -2238,12 +2360,12 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  width: 34px !important;
-  min-width: 34px !important;
-  height: 34px !important;
+  width: 28px !important;
+  min-width: 28px !important;
+  height: 28px !important;
   padding: 0 !important;
   border: 1px solid rgba(125, 160, 188, 0.24) !important;
-  border-radius: 10px !important;
+  border-radius: 8px !important;
   background: rgba(8, 18, 35, 0.72) !important;
   color: var(--brand-muted) !important;
   box-shadow: none !important;
@@ -2262,8 +2384,8 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
 }
 
 .mobile-card-action svg {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
 }
 
 @media (max-width: 900px) {
@@ -4523,6 +4645,34 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
   white-space: nowrap;
 }
 
+
+.logs-toolbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+.logs-toolbar-left {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-start;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.logs-toolbar-left .logs-back-button.k-button {
+  justify-content: flex-start !important;
+  max-width: 360px;
+}
+
+.logs-toolbar-left .logs-back-button .k-button-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .logs-filter-bar {
   display: flex;
   align-items: center;
@@ -4670,7 +4820,7 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
 .logs-filter-control {
   display: grid;
   gap: 4px;
-  min-width: 300px;
+  min-width: 220px;
   color: var(--brand-muted);
   font-size: 0.68rem;
   font-weight: 750;
@@ -4828,4 +4978,618 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
   .service-actions {
     width: 100%;
   }
+}
+
+
+/* Instance action context menus */
+.instance-action-menu {
+  position: relative;
+  display: inline-flex;
+  justify-content: center;
+}
+
+.instance-action-menu summary {
+  list-style: none;
+}
+
+.instance-action-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.k-button.instance-action-menu-trigger,
+.instance-action-menu-trigger {
+  width: 26px !important;
+  min-width: 26px !important;
+  height: 26px !important;
+  border-radius: 7px !important;
+}
+
+.instance-action-menu-trigger svg {
+  width: 16px;
+  height: 16px;
+}
+
+.instance-action-menu-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 1200;
+  min-width: 190px;
+  padding: 6px;
+  border: 1px solid rgba(32, 214, 210, 0.36);
+  border-radius: 12px;
+  background: rgba(3, 12, 22, 0.98);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.42), 0 0 22px rgba(32, 214, 210, 0.10);
+}
+
+.instance-action-menu.mobile .instance-action-menu-panel {
+  right: 0;
+  left: auto;
+}
+
+.instance-action-menu-panel button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--brand-text);
+  font-family: var(--brand-font-body);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-align: left;
+  cursor: pointer;
+}
+
+.instance-action-menu-panel button svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
+.instance-action-menu-panel button:hover {
+  background: rgba(32, 214, 210, 0.12);
+  color: #b9ffff;
+}
+
+.instance-action-menu-panel button.danger {
+  color: #fecaca;
+}
+
+.instance-action-menu-panel button.danger:hover {
+  background: rgba(248, 113, 113, 0.13);
+  color: #fee2e2;
+}
+
+.cms-kendo-grid .k-command-cell {
+  overflow: visible;
+}
+
+.editable-json-editor,
+.editable-json-editor.jse-theme-dark {
+  border-color: rgba(32, 214, 210, 0.32);
+  background: #020b14;
+}
+
+.editable-json-editor.jse-theme-dark .jse-main,
+.editable-json-editor.jse-theme-dark .jse-contents,
+.editable-json-editor.jse-theme-dark .jse-tree-mode,
+.editable-json-editor.jse-theme-dark .jse-text-mode {
+  background: #020b14 !important;
+}
+
+.instance-notes-editor .k-editor,
+.instance-health-dialog .k-editor {
+  border: 1px solid rgba(32, 214, 210, 0.34) !important;
+  border-radius: 12px !important;
+  background: #020b14 !important;
+  color: var(--brand-text) !important;
+  overflow: hidden;
+}
+
+.instance-health-dialog .k-editor-toolbar,
+.instance-health-dialog .k-toolbar {
+  border-color: rgba(32, 214, 210, 0.24) !important;
+  background: linear-gradient(180deg, rgba(8, 24, 39, 0.98), rgba(3, 12, 22, 0.98)) !important;
+  color: var(--brand-text) !important;
+}
+
+.instance-health-dialog .k-toolbar .k-toolbar-separator {
+  border-color: rgba(125, 160, 188, 0.22) !important;
+}
+
+.instance-health-dialog .k-editor .k-button,
+.instance-health-dialog .k-editor .k-toolbar-button,
+.instance-health-dialog .k-editor .k-icon-button {
+  border-color: rgba(125, 160, 188, 0.22) !important;
+  background: rgba(3, 12, 22, 0.72) !important;
+  background-image: none !important;
+  color: #dbeafe !important;
+  box-shadow: none !important;
+}
+
+.instance-health-dialog .k-editor .k-button:hover,
+.instance-health-dialog .k-editor .k-button:focus,
+.instance-health-dialog .k-editor .k-button.k-hover,
+.instance-health-dialog .k-editor .k-button.k-focus,
+.instance-health-dialog .k-editor .k-button.k-selected,
+.instance-health-dialog .k-editor .k-button.k-active {
+  border-color: rgba(32, 214, 210, 0.68) !important;
+  background: rgba(32, 214, 210, 0.16) !important;
+  color: #b9ffff !important;
+}
+
+.instance-health-dialog .k-editor .k-button .k-icon,
+.instance-health-dialog .k-editor .k-button .k-svg-icon,
+.instance-health-dialog .k-editor .k-button svg {
+  color: inherit !important;
+  fill: currentColor !important;
+}
+
+.instance-health-dialog .k-editor .k-picker,
+.instance-health-dialog .k-editor .k-dropdownlist,
+.instance-health-dialog .k-editor .k-input,
+.instance-health-dialog .k-editor .k-input-inner,
+.instance-health-dialog .k-editor .k-select,
+.instance-health-dialog .k-editor .k-colorpicker {
+  border-color: rgba(125, 160, 188, 0.28) !important;
+  background-color: rgba(3, 12, 22, 0.78) !important;
+  background-image: none !important;
+  color: #dbeafe !important;
+}
+
+.instance-health-dialog .k-editor .k-picker:hover,
+.instance-health-dialog .k-editor .k-picker.k-hover,
+.instance-health-dialog .k-editor .k-picker.k-focus,
+.instance-health-dialog .k-editor .k-input:focus,
+.instance-health-dialog .k-editor .k-input.k-focus {
+  border-color: rgba(32, 214, 210, 0.58) !important;
+  box-shadow: 0 0 0 2px rgba(32, 214, 210, 0.08) !important;
+}
+
+.instance-health-dialog .k-editor .k-editor-content,
+.instance-health-dialog .k-editor-content,
+.instance-health-dialog .k-editor iframe,
+.instance-health-dialog .k-editor .k-content {
+  background: #020b14 !important;
+  color: #dbeafe !important;
+}
+
+.logs-back-button {
+  flex: 0 0 auto;
+}
+
+.logs-filter-bar .logs-filter-control {
+  min-width: 220px;
+  max-width: 260px;
+}
+
+.logs-filter-bar .compact-button {
+  min-height: 34px;
+}
+
+
+
+/* Regression fixes: keep app-owned dialogs/forms/toolbars stable while editor child dialogs are scoped below. */
+.cms-dialog .k-dialog-content,
+.cms-dialog.k-dialog .k-dialog-content,
+.k-dialog.cms-dialog .k-dialog-content,
+.instance-health-dialog .k-dialog-content,
+.modal-form {
+  scrollbar-color: rgba(32, 214, 210, 0.72) rgba(3, 12, 22, 0.78);
+  scrollbar-width: thin;
+}
+
+.cms-dialog .k-dialog-content::-webkit-scrollbar,
+.cms-dialog.k-dialog .k-dialog-content::-webkit-scrollbar,
+.k-dialog.cms-dialog .k-dialog-content::-webkit-scrollbar,
+.instance-health-dialog .k-dialog-content::-webkit-scrollbar,
+.modal-form::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.cms-dialog .k-dialog-content::-webkit-scrollbar-track,
+.cms-dialog.k-dialog .k-dialog-content::-webkit-scrollbar-track,
+.k-dialog.cms-dialog .k-dialog-content::-webkit-scrollbar-track,
+.instance-health-dialog .k-dialog-content::-webkit-scrollbar-track,
+.modal-form::-webkit-scrollbar-track {
+  background: rgba(3, 12, 22, 0.78);
+  border-radius: 999px;
+}
+
+.cms-dialog .k-dialog-content::-webkit-scrollbar-thumb,
+.cms-dialog.k-dialog .k-dialog-content::-webkit-scrollbar-thumb,
+.k-dialog.cms-dialog .k-dialog-content::-webkit-scrollbar-thumb,
+.instance-health-dialog .k-dialog-content::-webkit-scrollbar-thumb,
+.modal-form::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(32, 214, 210, 0.72), rgba(29, 155, 215, 0.58));
+  border: 2px solid rgba(3, 12, 22, 0.78);
+  border-radius: 999px;
+}
+
+.modal-form textarea,
+.instance-form textarea[name="description"] {
+  min-height: 78px;
+  max-height: 180px;
+  resize: vertical;
+  line-height: 1.35;
+}
+
+.instance-form textarea[name="description"] {
+  height: auto;
+}
+
+.dp-head.instance-grid-toolbar > .column-selector-wrap,
+.dp-head.instance-grid-toolbar > .btn-grid-tool.k-button,
+.dp-head.instance-grid-toolbar > .k-button,
+.grid-toolbar-filters > .compact-button.k-button {
+  align-self: flex-end;
+}
+
+.column-selector-wrap > .btn-grid-tool.k-button,
+.dp-head.instance-grid-toolbar > .btn-grid-tool.k-button {
+  min-height: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.compact-button.k-button,
+.instance-toolbar-button.k-button,
+.logs-filter-bar .compact-button.k-button {
+  min-height: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.compact-button.k-button svg,
+.instance-toolbar-button.k-button svg,
+.logs-filter-bar .compact-button.k-button svg,
+.instance-dashboard-actions .compact-button.k-button svg {
+  display: block;
+  width: 15px !important;
+  height: 15px !important;
+  min-width: 15px;
+  color: currentColor !important;
+  fill: none !important;
+  stroke: currentColor !important;
+  stroke-width: 2.2;
+}
+
+.response-step.ok {
+  border-color: rgba(120, 242, 174, 0.46);
+  background: linear-gradient(90deg, rgba(120, 242, 174, 0.13), rgba(3, 12, 22, 0.5));
+}
+
+.response-step.issue {
+  border-color: rgba(251, 113, 133, 0.52);
+  background: linear-gradient(90deg, rgba(251, 113, 133, 0.14), rgba(3, 12, 22, 0.5));
+}
+
+.response-step.future,
+.response-step.unknown {
+  border-color: rgba(251, 191, 36, 0.48);
+  background: linear-gradient(90deg, rgba(251, 191, 36, 0.12), rgba(3, 12, 22, 0.5));
+}
+
+.response-step.ok span { color: #9af5c3; }
+.response-step.issue span { color: #fecdd3; }
+.response-step.future span,
+.response-step.unknown span { color: #fde68a; }
+
+/* Kendo Editor dark document + child popups/dialogs */
+.instance-notes-editor .k-editor-content,
+.instance-notes-editor .k-content,
+.instance-notes-editor .ProseMirror,
+.instance-notes-editor [contenteditable='true'] {
+  background: #020b14 !important;
+  color: #f8fafc !important;
+  caret-color: #f8fafc !important;
+}
+
+.instance-notes-editor .ProseMirror *,
+.instance-notes-editor [contenteditable='true'] * {
+  color: inherit;
+}
+
+.instance-notes-editor .ProseMirror a,
+.instance-notes-editor [contenteditable='true'] a {
+  color: #76d6ff !important;
+}
+
+.instance-notes-editor .ProseMirror code,
+.instance-notes-editor [contenteditable='true'] code,
+.instance-notes-editor .ProseMirror pre,
+.instance-notes-editor [contenteditable='true'] pre {
+  background: rgba(125, 160, 188, 0.12) !important;
+  color: #e0f2fe !important;
+}
+
+.instance-notes-editor .ProseMirror table,
+.instance-notes-editor [contenteditable='true'] table,
+.instance-notes-editor .ProseMirror td,
+.instance-notes-editor .ProseMirror th,
+.instance-notes-editor [contenteditable='true'] td,
+.instance-notes-editor [contenteditable='true'] th {
+  border-color: rgba(125, 160, 188, 0.36) !important;
+  color: #f8fafc !important;
+}
+
+.instance-notes-editor .ProseMirror ::selection,
+.instance-notes-editor [contenteditable='true'] ::selection {
+  background: rgba(125, 160, 188, 0.42) !important;
+  color: #ffffff !important;
+}
+
+/* Kendo Editor child popups/dialogs mount at document level. Scope them to the active Notes editor only. */
+body.cms-notes-editor-active .k-animation-container .k-popup,
+body.cms-notes-editor-active .k-animation-container .k-menu-popup,
+body.cms-notes-editor-active .k-animation-container .k-list-container,
+body.cms-notes-editor-active .k-popup.k-editor-popup,
+body.cms-notes-editor-active .k-popup.k-list-container {
+  border-color: rgba(32, 214, 210, 0.34) !important;
+  background: #06111f !important;
+  color: #f8fafc !important;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.48), 0 0 24px rgba(32, 214, 210, 0.10) !important;
+}
+
+body.cms-notes-editor-active .k-animation-container .k-list,
+body.cms-notes-editor-active .k-animation-container .k-list-content,
+body.cms-notes-editor-active .k-animation-container .k-menu,
+body.cms-notes-editor-active .k-animation-container .k-menu-group,
+body.cms-notes-editor-active .k-animation-container .k-list-ul,
+body.cms-notes-editor-active .k-animation-container .k-colorpalette,
+body.cms-notes-editor-active .k-animation-container .k-coloreditor {
+  background: #06111f !important;
+  color: #f8fafc !important;
+}
+
+body.cms-notes-editor-active .k-animation-container .k-list-item,
+body.cms-notes-editor-active .k-animation-container .k-menu-link,
+body.cms-notes-editor-active .k-animation-container .k-list-optionlabel,
+body.cms-notes-editor-active .k-animation-container .k-list-item-text,
+body.cms-notes-editor-active .k-animation-container .k-colorpalette .k-color-box {
+  color: #f8fafc !important;
+}
+
+body.cms-notes-editor-active .k-animation-container .k-list-item:hover,
+body.cms-notes-editor-active .k-animation-container .k-list-item.k-hover,
+body.cms-notes-editor-active .k-animation-container .k-list-item.k-focus,
+body.cms-notes-editor-active .k-animation-container .k-list-item.k-selected,
+body.cms-notes-editor-active .k-animation-container .k-menu-link:hover,
+body.cms-notes-editor-active .k-animation-container .k-menu-link.k-hover,
+body.cms-notes-editor-active .k-animation-container .k-list-optionlabel:hover {
+  background: rgba(32, 214, 210, 0.16) !important;
+  color: #b9ffff !important;
+}
+
+body.cms-notes-editor-active .k-dialog-wrapper:has(.k-dialog) {
+  background: rgba(2, 11, 20, 0.62) !important;
+  backdrop-filter: blur(2px);
+}
+
+body.cms-notes-editor-active .k-dialog-wrapper .k-dialog,
+body.cms-notes-editor-active .k-dialog-wrapper .k-window,
+body.cms-notes-editor-active .k-window.k-dialog,
+body.cms-notes-editor-active .k-window.k-editor-dialog {
+  border: 1px solid rgba(32, 214, 210, 0.34) !important;
+  border-radius: 14px !important;
+  background: #06111f !important;
+  background-color: #06111f !important;
+  color: #f8fafc !important;
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.55), 0 0 26px rgba(32, 214, 210, 0.10) !important;
+  overflow: hidden !important;
+}
+
+body.cms-notes-editor-active .k-dialog-wrapper .k-dialog-titlebar,
+body.cms-notes-editor-active .k-dialog-wrapper .k-window-titlebar,
+body.cms-notes-editor-active .k-window.k-dialog .k-window-titlebar,
+body.cms-notes-editor-active .k-window.k-editor-dialog .k-window-titlebar {
+  border-color: rgba(32, 214, 210, 0.24) !important;
+  background: linear-gradient(180deg, rgba(8, 24, 39, 0.98), rgba(3, 12, 22, 0.98)) !important;
+  color: #f8fafc !important;
+}
+
+body.cms-notes-editor-active .k-dialog-wrapper .k-dialog-title,
+body.cms-notes-editor-active .k-dialog-wrapper .k-window-title,
+body.cms-notes-editor-active .k-dialog-wrapper .k-dialog-titlebar .k-button,
+body.cms-notes-editor-active .k-dialog-wrapper .k-window-titlebar .k-button,
+body.cms-notes-editor-active .k-dialog-wrapper .k-dialog-titlebar .k-icon,
+body.cms-notes-editor-active .k-dialog-wrapper .k-window-titlebar .k-icon,
+body.cms-notes-editor-active .k-dialog-wrapper .k-dialog-titlebar .k-svg-icon,
+body.cms-notes-editor-active .k-dialog-wrapper .k-window-titlebar .k-svg-icon {
+  color: #f8fafc !important;
+  fill: currentColor !important;
+}
+
+body.cms-notes-editor-active .k-dialog-wrapper .k-dialog-content,
+body.cms-notes-editor-active .k-dialog-wrapper .k-window-content,
+body.cms-notes-editor-active .k-window.k-dialog .k-window-content,
+body.cms-notes-editor-active .k-window.k-editor-dialog .k-window-content,
+body.cms-notes-editor-active .k-dialog-wrapper .k-form {
+  border-color: rgba(125, 160, 188, 0.18) !important;
+  background: #06111f !important;
+  background-color: #06111f !important;
+  color: #f8fafc !important;
+}
+
+body.cms-notes-editor-active .k-dialog-wrapper .k-dialog-actions,
+body.cms-notes-editor-active .k-dialog-wrapper .k-actions,
+body.cms-notes-editor-active .k-dialog-wrapper .k-window-actions,
+body.cms-notes-editor-active .k-window-actions {
+  border-color: rgba(125, 160, 188, 0.18) !important;
+  background: #06111f !important;
+  background-color: #06111f !important;
+  color: #f8fafc !important;
+}
+
+body.cms-notes-editor-active .k-dialog-wrapper label,
+body.cms-notes-editor-active .k-dialog-wrapper .k-label,
+body.cms-notes-editor-active .k-dialog-wrapper .k-form-label {
+  color: #dbeafe !important;
+}
+
+body.cms-notes-editor-active .k-dialog-wrapper input,
+body.cms-notes-editor-active .k-dialog-wrapper textarea,
+body.cms-notes-editor-active .k-dialog-wrapper select,
+body.cms-notes-editor-active .k-dialog-wrapper .k-input,
+body.cms-notes-editor-active .k-dialog-wrapper .k-input-inner,
+body.cms-notes-editor-active .k-dialog-wrapper .k-textarea,
+body.cms-notes-editor-active .k-dialog-wrapper .k-picker,
+body.cms-notes-editor-active .k-dialog-wrapper .k-dropdownlist {
+  border-color: rgba(125, 160, 188, 0.34) !important;
+  background: #020b14 !important;
+  background-color: #020b14 !important;
+  background-image: none !important;
+  color: #f8fafc !important;
+  caret-color: #f8fafc !important;
+}
+
+body.cms-notes-editor-active .k-dialog-wrapper input::placeholder,
+body.cms-notes-editor-active .k-dialog-wrapper textarea::placeholder {
+  color: rgba(219, 234, 254, 0.52) !important;
+}
+
+body.cms-notes-editor-active .k-dialog-wrapper .k-button,
+body.cms-notes-editor-active .k-window-actions .k-button {
+  border-color: rgba(125, 160, 188, 0.32) !important;
+  background: rgba(3, 12, 22, 0.86) !important;
+  background-color: rgba(3, 12, 22, 0.86) !important;
+  background-image: none !important;
+  color: #f8fafc !important;
+  box-shadow: none !important;
+}
+
+body.cms-notes-editor-active .k-dialog-wrapper .k-button:hover,
+body.cms-notes-editor-active .k-dialog-wrapper .k-button:focus,
+body.cms-notes-editor-active .k-dialog-wrapper .k-button.k-hover,
+body.cms-notes-editor-active .k-dialog-wrapper .k-button.k-focus {
+  border-color: rgba(32, 214, 210, 0.68) !important;
+  background: rgba(32, 214, 210, 0.16) !important;
+  background-color: rgba(32, 214, 210, 0.16) !important;
+  color: #b9ffff !important;
+}
+
+body.cms-notes-editor-active .k-dialog-wrapper .k-button-solid-primary,
+body.cms-notes-editor-active .k-dialog-wrapper .k-button.k-primary {
+  border-color: rgba(32, 214, 210, 0.78) !important;
+  background: linear-gradient(180deg, #1b9bd4, #156f9c) !important;
+  background-color: #1788c2 !important;
+  color: #ffffff !important;
+}
+
+body.cms-notes-editor-active .k-dialog-wrapper .k-textarea,
+body.cms-notes-editor-active .k-dialog-wrapper textarea.k-input-inner {
+  min-height: 220px;
+  font-family: 'Lucida Console', Monaco, monospace;
+  line-height: 1.45;
+}
+
+
+/* Stronger active Notes editor child-dialog theme: Kendo View HTML and table/image dialogs mount as top-level windows. */
+body.cms-notes-editor-active .k-window,
+body.cms-notes-editor-active .k-dialog,
+body.cms-notes-editor-active .k-window.k-dialog,
+body.cms-notes-editor-active .k-window.k-editor-dialog,
+body.cms-notes-editor-active .k-dialog-wrapper .k-window,
+body.cms-notes-editor-active .k-dialog-wrapper .k-dialog {
+  border: 1px solid rgba(32, 214, 210, 0.34) !important;
+  border-radius: 14px !important;
+  background: #06111f !important;
+  background-color: #06111f !important;
+  color: #f8fafc !important;
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.55), 0 0 26px rgba(32, 214, 210, 0.10) !important;
+  overflow: hidden !important;
+}
+
+body.cms-notes-editor-active .k-window-titlebar,
+body.cms-notes-editor-active .k-dialog-titlebar,
+body.cms-notes-editor-active .k-window .k-window-titlebar,
+body.cms-notes-editor-active .k-dialog .k-dialog-titlebar {
+  border-color: rgba(32, 214, 210, 0.24) !important;
+  background: linear-gradient(180deg, rgba(8, 24, 39, 0.98), rgba(3, 12, 22, 0.98)) !important;
+  background-color: #06111f !important;
+  color: #f8fafc !important;
+}
+
+body.cms-notes-editor-active .k-window-title,
+body.cms-notes-editor-active .k-dialog-title,
+body.cms-notes-editor-active .k-window-titlebar .k-button,
+body.cms-notes-editor-active .k-dialog-titlebar .k-button,
+body.cms-notes-editor-active .k-window-titlebar .k-svg-icon,
+body.cms-notes-editor-active .k-dialog-titlebar .k-svg-icon,
+body.cms-notes-editor-active .k-window-titlebar .k-icon,
+body.cms-notes-editor-active .k-dialog-titlebar .k-icon {
+  color: #f8fafc !important;
+  fill: currentColor !important;
+}
+
+body.cms-notes-editor-active .k-window-content,
+body.cms-notes-editor-active .k-dialog-content,
+body.cms-notes-editor-active .k-window .k-window-content,
+body.cms-notes-editor-active .k-dialog .k-dialog-content,
+body.cms-notes-editor-active .k-window .k-form,
+body.cms-notes-editor-active .k-dialog .k-form {
+  border-color: rgba(125, 160, 188, 0.18) !important;
+  background: #06111f !important;
+  background-color: #06111f !important;
+  color: #f8fafc !important;
+}
+
+body.cms-notes-editor-active .k-window-content textarea,
+body.cms-notes-editor-active .k-dialog-content textarea,
+body.cms-notes-editor-active .k-window-content .k-textarea,
+body.cms-notes-editor-active .k-dialog-content .k-textarea,
+body.cms-notes-editor-active .k-window-content .k-input,
+body.cms-notes-editor-active .k-dialog-content .k-input,
+body.cms-notes-editor-active .k-window-content .k-input-inner,
+body.cms-notes-editor-active .k-dialog-content .k-input-inner {
+  border-color: rgba(125, 160, 188, 0.34) !important;
+  background: #020b14 !important;
+  background-color: #020b14 !important;
+  background-image: none !important;
+  color: #f8fafc !important;
+  caret-color: #f8fafc !important;
+}
+
+body.cms-notes-editor-active .k-window-content textarea,
+body.cms-notes-editor-active .k-dialog-content textarea,
+body.cms-notes-editor-active .k-window-content .k-textarea {
+  min-height: 220px;
+  font-family: 'Lucida Console', Monaco, monospace;
+  line-height: 1.45;
+}
+
+body.cms-notes-editor-active .k-window-actions,
+body.cms-notes-editor-active .k-dialog-actions,
+body.cms-notes-editor-active .k-actions {
+  border-color: rgba(125, 160, 188, 0.18) !important;
+  background: #06111f !important;
+  background-color: #06111f !important;
+  color: #f8fafc !important;
+}
+
+body.cms-notes-editor-active .k-window-actions .k-button,
+body.cms-notes-editor-active .k-dialog-actions .k-button,
+body.cms-notes-editor-active .k-actions .k-button {
+  border-color: rgba(125, 160, 188, 0.32) !important;
+  background: rgba(3, 12, 22, 0.86) !important;
+  background-color: rgba(3, 12, 22, 0.86) !important;
+  background-image: none !important;
+  color: #f8fafc !important;
+  box-shadow: none !important;
+}
+
+body.cms-notes-editor-active .k-window-actions .k-button-solid-primary,
+body.cms-notes-editor-active .k-dialog-actions .k-button-solid-primary,
+body.cms-notes-editor-active .k-actions .k-button-solid-primary {
+  border-color: rgba(32, 214, 210, 0.78) !important;
+  background: linear-gradient(180deg, #1b9bd4, #156f9c) !important;
+  background-color: #1788c2 !important;
+  color: #ffffff !important;
 }

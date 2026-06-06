@@ -5,12 +5,49 @@ import {
 import { type GridCustomCellProps } from '@progress/kendo-react-grid';
 import { Button } from '@progress/kendo-react-buttons';
 import { Dialog, DialogActionsBar } from '@progress/kendo-react-dialogs';
+import { Editor, EditorTools, type EditorChangeEvent } from '@progress/kendo-react-editor';
 import { createJSONEditor, Mode, type Content } from 'vanilla-jsoneditor';
-import { FormEvent, KeyboardEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { type MouseEvent, FormEvent, KeyboardEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { ManagedGrid, type ManagedGridColumn } from './ManagedGrid';
 import o2Logo from '../brand/assets/o2-ias-logo-dark.png';
 import oxygenLogo from '../brand/assets/oxygen-logo-inline-dark.png';
 import oxygenFullLogo from '../brand/assets/oxygen-logo-full-dark.png';
+
+const {
+  Bold, Italic, Underline, Strikethrough, Subscript, Superscript,
+  ForeColor, BackColor, CleanFormatting,
+  AlignLeft, AlignCenter, AlignRight, AlignJustify,
+  Indent, Outdent, OrderedList, UnorderedList, NumberedList, BulletedList,
+  Undo, Redo, FontSize, FontName, FormatBlock,
+  Link, Unlink, InsertImage, ViewHtml, InsertTable, InsertFile,
+  SelectAll, Print, Pdf,
+  TableProperties, TableCellProperties,
+  AddRowBefore, AddRowAfter, AddColumnBefore, AddColumnAfter,
+  DeleteRow, DeleteColumn, DeleteTable, MergeCells, SplitCell
+} = EditorTools;
+const notesEditorTools = [
+  [Bold, Italic, Underline, Strikethrough],
+  [Subscript, Superscript],
+  ForeColor,
+  BackColor,
+  [CleanFormatting],
+  [AlignLeft, AlignCenter, AlignRight, AlignJustify],
+  [Indent, Outdent],
+  [OrderedList, UnorderedList],
+  [NumberedList, BulletedList],
+  FontSize,
+  FontName,
+  FormatBlock,
+  [SelectAll],
+  [Undo, Redo],
+  [Link, Unlink, InsertImage, ViewHtml],
+  [InsertTable, InsertFile],
+  [Pdf, Print],
+  [TableProperties, TableCellProperties],
+  [AddRowBefore, AddRowAfter, AddColumnBefore, AddColumnAfter],
+  [DeleteRow, DeleteColumn, DeleteTable],
+  [MergeCells, SplitCell]
+];
 
 type TenantId = string | null;
 type RoleName = string;
@@ -86,6 +123,10 @@ function sectionFromPath(pathname: string): { section: NavSection; entityId?: st
   return { section: 'dashboard' };
 }
 
+function escapeHtmlValue(value: string) {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 function ReadOnlyJsonEditor({ value }: { value: unknown }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<ReturnType<typeof createJSONEditor> | null>(null);
@@ -110,6 +151,93 @@ function ReadOnlyJsonEditor({ value }: { value: unknown }) {
   return <div className="license-json-editor jse-theme-dark" ref={containerRef} />;
 }
 type GroupGridRow = { id: string; name: string; description: string; tenant: string; instanceAccess: string; raw: Group };
+
+function EditableJsonEditor({ value, onChange }: { value: unknown; onChange: (value: unknown) => void }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const editorRef = useRef<ReturnType<typeof createJSONEditor> | null>(null);
+  const content: Content = { json: value ?? null };
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    editorRef.current = createJSONEditor({
+      target: containerRef.current,
+      props: {
+        content,
+        readOnly: false,
+        mode: Mode.tree,
+        mainMenuBar: true,
+        navigationBar: true,
+        statusBar: true,
+        onChange: (nextContent: Content) => {
+          if ('json' in nextContent) onChange(nextContent.json);
+        }
+      }
+    });
+    return () => { void editorRef.current?.destroy(); editorRef.current = null; };
+  }, []);
+
+  useEffect(() => {
+    editorRef.current?.update({ json: value ?? null });
+  }, [value]);
+
+  return <div className="license-json-editor editable-json-editor jse-theme-dark" ref={containerRef} />;
+}
+
+function detectNotesFormatValue(value: string | null | undefined) {
+  const trimmed = (value || '').trim();
+  if (!trimmed) return 'empty';
+  if (/^\{\\rtf/i.test(trimmed)) return 'rtf';
+  if (/<[a-z][\s\S]*>/i.test(trimmed)) return 'html';
+  if (/^#{1,6}\s|\*\*[^*]+\*\*|\[[^\]]+\]\([^\)]+\)|^\s*[-*+]\s+/m.test(trimmed)) return 'markdown';
+  return 'text';
+}
+
+function markdownToEditorHtml(value: string) {
+  const lines = value.split(/\r?\n/);
+  return lines.map((line) => {
+    if (!line.trim()) return '<p><br /></p>';
+    const escaped = escapeHtmlValue(line)
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+      .replace(/`([^`]+)`/g, '<code>$1</code>');
+    if (/^#{1,3}\s+/.test(line)) {
+      const level = Math.min(3, line.match(/^#+/)?.[0].length || 1);
+      return `<h${level}>${escaped.replace(/^#{1,3}\s+/, '')}</h${level}>`;
+    }
+    return `<p>${escaped}</p>`;
+  }).join('');
+}
+
+function editorHtmlToMarkdown(value: string) {
+  return value
+    .replace(/<h1[^>]*>(.*?)<\/h1>/gis, '# $1\n\n')
+    .replace(/<h2[^>]*>(.*?)<\/h2>/gis, '## $1\n\n')
+    .replace(/<h3[^>]*>(.*?)<\/h3>/gis, '### $1\n\n')
+    .replace(/<strong[^>]*>(.*?)<\/strong>/gis, '**$1**')
+    .replace(/<b[^>]*>(.*?)<\/b>/gis, '**$1**')
+    .replace(/<em[^>]*>(.*?)<\/em>/gis, '*$1*')
+    .replace(/<i[^>]*>(.*?)<\/i>/gis, '*$1*')
+    .replace(/<code[^>]*>(.*?)<\/code>/gis, '`$1`')
+    .replace(/<br\s*\/?\s*>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function notesToEditorHtml(value: string | null | undefined) {
+  const notes = value || '';
+  const format = detectNotesFormatValue(notes);
+  if (format === 'markdown') return markdownToEditorHtml(notes);
+  if (format === 'html') return notes;
+  if (format === 'empty') return '';
+  return `<p>${escapeHtmlValue(notes).replace(/\r?\n/g, '<br />')}</p>`;
+}
+
 type RoleGridRow = { id: string; name: string; description: string; tenant: string; system: string; raw: Role };
 type TenantGridRow = { id: string; name: string; description: string; raw: Tenant };
 type UserGridRow = { id: string; displayName: string; email: string; role: string; groups: string; tenant: string; instanceAccess: string; raw: UserProfile };
@@ -254,6 +382,12 @@ async function apiBlob(path: string, options: RequestInit & { token?: string } =
   return { blob: await response.blob(), headers: response.headers };
 }
 
+function createClientId() {
+  const randomUuid = globalThis.crypto?.randomUUID;
+  if (typeof randomUuid === 'function') return randomUuid.call(globalThis.crypto);
+  return `id-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
 export function App() {
   const [token, setToken] = useState(() => localStorage.getItem(AUTH_STORAGE_KEY) || '');
   const [requiresBootstrap, setRequiresBootstrap] = useState<boolean | null>(null);
@@ -319,6 +453,10 @@ export function App() {
   const [healthModal, setHealthModal] = useState<InstanceHealthModalKind | null>(null);
   const [healthDetails, setHealthDetails] = useState<InstanceHealthDetails | null>(null);
   const [isHealthDetailsLoading, setIsHealthDetailsLoading] = useState(false);
+  const [metadataDraft, setMetadataDraft] = useState<unknown | null>(null);
+  const [notesDraft, setNotesDraft] = useState('');
+  const [isSavingHealthDetail, setIsSavingHealthDetail] = useState(false);
+  const [logsBackTarget, setLogsBackTarget] = useState<{ section: NavSection; label: string; entityId?: string } | null>(null);
   const [isDrawerExpanded, setIsDrawerExpanded] = useState(false);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
@@ -587,6 +725,11 @@ export function App() {
   }, [token, profile, activeSection, logTypeFilter, logSeverityFilter, logEntityGuidFilter, isLogRefreshPaused]);
 
   useEffect(() => {
+    document.body.classList.toggle('cms-notes-editor-active', healthModal === 'notes');
+    return () => document.body.classList.remove('cms-notes-editor-active');
+  }, [healthModal]);
+
+  useEffect(() => {
     if (!profile) return undefined;
     function applyCurrentRoute(replace = false) {
       const route = sectionFromPath(window.location.pathname);
@@ -624,6 +767,7 @@ export function App() {
 
   function nav(section: NavSection, implemented = true, label?: string) {
     setActiveSection(section);
+    if (section === 'settings-logs') setLogsBackTarget(null);
     setRoute(section);
     setIsMobileDrawerOpen(false);
     if (!implemented) showNotImplemented(label || section);
@@ -761,10 +905,7 @@ export function App() {
     const password = String(f.get('password') || '');
     const portValue = f.get('port');
     const username = String(f.get('username') || '').trim() || 'admin';
-    let metadata: unknown | null = null;
-    try { metadata = parseInstanceMetadataInput(String(f.get('metadata') || '')); }
-    catch { setError('Metadata must be valid JSON.'); setMessageTone('failure'); return; }
-    const payload: Record<string, unknown> = { id: editing ? editing.id : draftInstanceId || crypto.randomUUID(), name: f.get('name'), description: f.get('description') || null, tenantId: editing ? editing.tenantId : selectedTenantId || null, protocol: f.get('protocol') || 'https', host: f.get('host'), port: portValue ? Number(portValue) : null, username, pollingIntervalSeconds: Number(f.get('pollingIntervalSeconds') || 300), isEnabled: f.get('isEnabled') === 'on', checkLicense: f.get('checkLicense') === 'on', archived: f.get('archived') === 'on', metadata, notes: f.get('notes') || null };
+    const payload: Record<string, unknown> = { id: editing ? editing.id : draftInstanceId || createClientId(), name: f.get('name'), description: f.get('description') || null, tenantId: editing ? editing.tenantId : selectedTenantId || null, protocol: f.get('protocol') || 'https', host: f.get('host'), port: portValue ? Number(portValue) : null, username, pollingIntervalSeconds: Number(f.get('pollingIntervalSeconds') || 300), isEnabled: f.get('isEnabled') === 'on', checkLicense: f.get('checkLicense') === 'on', archived: f.get('archived') === 'on', metadata: editing?.metadata ?? null, notes: editing?.notes ?? null };
     if (!editing || password) payload.password = password;
     try {
       if (editing) { const res = await api<{ instance: OxyGenInstance }>(`/api/instances/${editing.id}`, { method: 'PATCH', token, body: JSON.stringify(payload) }); setMessage(`Updated instance ${res.instance.name}.`); }
@@ -877,6 +1018,7 @@ export function App() {
 
 
   function openInstanceLogs(instance: OxyGenInstance) {
+    setLogsBackTarget({ section: 'instance-dashboard', label: `Instance Dashboard - ${instance.name}`, entityId: instance.id });
     setRoute('settings-logs', instance.id);
     setLogEntityGuidFilter(instance.id);
     setLogTypeFilter(['Connection', 'Service', 'CRUD']);
@@ -904,7 +1046,7 @@ export function App() {
         method: 'POST',
         token,
         body: JSON.stringify({
-          instanceId: editing?.id ?? (draftInstanceId || crypto.randomUUID()),
+          instanceId: editing?.id ?? (draftInstanceId || createClientId()),
           name: String(f.get('name') || editing?.name || 'Unsaved instance'),
           tenantId: editing?.tenantId ?? (selectedTenantId || null),
           protocol: f.get('protocol'),
@@ -940,7 +1082,7 @@ export function App() {
   function openEditRoleModal(role: Role) { setSelectedTenantId(role.tenantId || ''); setModal({ kind: 'role', data: role }); }
   function openCreateTenantModal() { setModal({ kind: 'tenant' }); }
   function openEditTenantModal(tenant: Tenant) { setModal({ kind: 'tenant', data: tenant }); }
-  function openCreateInstanceModal() { setSelectedTenantId(''); setDraftInstanceId(crypto.randomUUID()); setInstanceProtocol('https'); setInstancePort('443'); setInstancePollingEnabled(true); setInstanceLicenseCheckEnabled(true); setModal({ kind: 'instance' }); }
+  function openCreateInstanceModal() { setSelectedTenantId(''); setDraftInstanceId(createClientId()); setInstanceProtocol('https'); setInstancePort('443'); setInstancePollingEnabled(true); setInstanceLicenseCheckEnabled(true); setModal({ kind: 'instance' }); }
   function openEditInstanceModal(instance: OxyGenInstance) { setDraftInstanceId(''); setSelectedTenantId(instance.tenantId || ''); setInstanceProtocol(instance.protocol); setInstancePort(String(instance.port ?? (instance.protocol === 'http' ? 80 : 443))); setInstancePollingEnabled(instance.isEnabled); setInstanceLicenseCheckEnabled(instance.checkLicense); setModal({ kind: 'instance', data: instance }); }
 
   function handleLogout() { setToken(''); setProfile(null); setDashboard(null); setGroups([]); setUsers([]); setRoles([]); setTenants([]); setInstances([]); setSelectedInstanceId(''); setSelectedInstanceDetail(null); setDashboardLastRefreshedAt(null); setActiveSection('dashboard'); setRoute('dashboard', undefined, true); setIsMobileDrawerOpen(false); setMessage('Signed out.'); }
@@ -999,14 +1141,27 @@ export function App() {
     return <td {...tdProps} className="k-command-cell"><Button className="btn-icon-info" onClick={() => openEditRoleModal(row.raw)} title="Edit" type="button" fillMode="flat"><Pencil /></Button><Button className="btn-icon-danger" onClick={() => deleteItem('role', row.raw.id, `role ${row.raw.name}`)} title="Delete" type="button" fillMode="flat"><Trash2 /></Button></td>;
   }
   const TenantActionCell = cell<TenantGridRow>((raw) => openEditTenantModal(raw as Tenant), (raw) => deleteItem('tenant', (raw as Tenant).id, `${tenantLabelLower} ${(raw as Tenant).name}`));
+  function InstanceActionMenu({ instance, mobile = false }: { instance: OxyGenInstance; mobile?: boolean }) {
+    const buttonClass = mobile ? 'mobile-card-action instance-action-menu-trigger' : 'btn-icon-info instance-action-menu-trigger';
+    const closeMenu = (event: MouseEvent<HTMLButtonElement>) => {
+      event.currentTarget.closest('details')?.removeAttribute('open');
+    };
+    return <details className={`instance-action-menu${mobile ? ' mobile' : ''}`}>
+      <summary className={buttonClass} title="Actions" aria-label={`Actions for ${instance.name}`}><Menu /></summary>
+      <div className="instance-action-menu-panel" role="menu">
+        <button type="button" role="menuitem" onClick={(event) => { closeMenu(event); openInstanceDashboard(instance); }}><LayoutDashboard /> Open Dashboard</button>
+        {isSystemAdmin && <button type="button" role="menuitem" onClick={(event) => { closeMenu(event); openEditInstanceModal(instance); }}><Pencil /> Edit</button>}
+        {isSystemAdmin && <button type="button" role="menuitem" onClick={(event) => { closeMenu(event); void testInstanceConnectivity(instance); }}><RotateCw /> Test Connectivity</button>}
+        <button type="button" role="menuitem" onClick={(event) => { closeMenu(event); window.open(launchUrlForInstance(instance), '_blank', 'noopener,noreferrer'); }}><ExternalLink /> Launch OxyGen</button>
+        {isSystemAdmin && <button type="button" role="menuitem" onClick={(event) => { closeMenu(event); void setInstanceArchived(instance, !instance.archived); }}>{instance.archived ? <ArchiveRestore /> : <Archive />} {instance.archived ? 'Unarchive' : 'Archive'}</button>}
+        {isSystemAdmin && <button className="danger" type="button" role="menuitem" onClick={(event) => { closeMenu(event); void deleteItem('instance', instance.id, `instance ${instance.name}`); }}><Trash2 /> Delete</button>}
+      </div>
+    </details>;
+  }
+
   function InstanceActionCell({ dataItem, tdProps }: GridCustomCellProps) {
     const row = dataItem as InstanceGridRow;
-    return <td {...tdProps} className="k-command-cell">
-      <Button className="btn-icon-info" onClick={() => openInstanceDashboard(row.raw)} title="Open dashboard" aria-label={`Open dashboard for ${row.raw.name}`} type="button" fillMode="flat"><LayoutDashboard /></Button>
-      {isSystemAdmin && <Button className="btn-icon-info" onClick={() => openEditInstanceModal(row.raw)} title="Edit" aria-label={`Edit ${row.raw.name}`} type="button" fillMode="flat"><Pencil /></Button>}
-      <Button className="btn-icon-info" onClick={() => window.open(launchUrlForInstance(row.raw), '_blank', 'noopener,noreferrer')} title="Launch OxyGen" aria-label={`Launch ${row.raw.name} in OxyGen`} type="button" fillMode="flat"><ExternalLink /></Button>
-      {isSystemAdmin && <Button className={row.raw.archived ? "btn-icon-info" : "btn-icon-danger"} onClick={() => void setInstanceArchived(row.raw, !row.raw.archived)} title={row.raw.archived ? 'Unarchive' : 'Archive'} aria-label={`${row.raw.archived ? 'Unarchive' : 'Archive'} ${row.raw.name}`} type="button" fillMode="flat">{row.raw.archived ? <ArchiveRestore /> : <Archive />}</Button>}
-    </td>;
+    return <td {...tdProps} className="k-command-cell"><InstanceActionMenu instance={row.raw} /></td>;
   }
 
   function MobileStandardActions({ onEdit, onDelete, protectedOnly = false }: { onEdit: () => void; onDelete?: () => void; protectedOnly?: boolean }) {
@@ -1018,13 +1173,9 @@ export function App() {
   }
 
   function mobileInstanceActions(row: InstanceGridRow) {
-    return <>
-      <Button className="mobile-card-action" onClick={() => openInstanceDashboard(row.raw)} title="Open dashboard" aria-label={`Open dashboard for ${row.raw.name}`} type="button" fillMode="flat"><LayoutDashboard /></Button>
-      {isSystemAdmin && <Button className="mobile-card-action" onClick={() => openEditInstanceModal(row.raw)} title="Edit" aria-label={`Edit ${row.raw.name}`} type="button" fillMode="flat"><Pencil /></Button>}
-      <Button className="mobile-card-action" onClick={() => window.open(launchUrlForInstance(row.raw), '_blank', 'noopener,noreferrer')} title="Launch OxyGen" aria-label={`Launch ${row.raw.name} in OxyGen`} type="button" fillMode="flat"><ExternalLink /></Button>
-      {isSystemAdmin && <Button className={row.raw.archived ? "mobile-card-action" : "mobile-card-action danger"} onClick={() => void setInstanceArchived(row.raw, !row.raw.archived)} title={row.raw.archived ? 'Unarchive' : 'Archive'} aria-label={`${row.raw.archived ? 'Unarchive' : 'Archive'} ${row.raw.name}`} type="button" fillMode="flat">{row.raw.archived ? <ArchiveRestore /> : <Archive />}</Button>}
-    </>;
+    return <InstanceActionMenu instance={row.raw} mobile />;
   }
+
 
   const dashboardTitle = 'CMS Dashboard';
   const dashboardTenantMatches = (tenantId: TenantId) => dashboardTenantFilter === 'all' || (dashboardTenantFilter === 'global' ? tenantId === null : tenantId === dashboardTenantFilter);
@@ -1039,10 +1190,7 @@ export function App() {
   const dashboardEnabledInstances = useMemo(() => (dashboard?.instances || []).filter((instance) => instance.isEnabled), [dashboard]);
   const dashboardTenantScopedInstances = useMemo(() => dashboardEnabledInstances.filter((instance) => dashboardTenantMatches(instance.tenantId)), [dashboardEnabledInstances, dashboardTenantFilter]);
   const dashboardFilteredInstances = useMemo(() => dashboardTenantScopedInstances.filter((instance) => dashboardIssueFilter === 'all' || instance.hasIssue), [dashboardTenantScopedInstances, dashboardIssueFilter]);
-  const dashboardTenantOptions = useMemo(() => {
-    const visibleTenantIds = new Set(dashboardEnabledInstances.map((instance) => instance.tenantId).filter((id): id is string => Boolean(id)));
-    return tenants.filter((tenant) => visibleTenantIds.has(tenant.id));
-  }, [dashboardEnabledInstances, tenants]);
+  const dashboardTenantOptions = tenants;
   const dashboardScopedCounts = useMemo(() => {
     const visibleInstances = dashboardTenantScopedInstances;
     const totalInstances = visibleInstances.length;
@@ -1085,6 +1233,8 @@ export function App() {
     if (!selectedInstance || !token) return;
     setHealthModal(kind);
     setHealthDetails(null);
+    if (kind === 'metadata') setMetadataDraft(selectedInstance.metadata ?? null);
+    if (kind === 'notes') setNotesDraft(notesToEditorHtml(selectedInstance.notes));
     setIsHealthDetailsLoading(true);
     clearStatus();
     try {
@@ -1130,6 +1280,43 @@ export function App() {
     return <pre className="instance-notes-block text-notes">{value}</pre>;
   }
 
+  async function saveInstanceMetadata() {
+    if (!selectedInstance || !token) return;
+    clearStatus();
+    setIsSavingHealthDetail(true);
+    try {
+      const res = await api<{ instance: OxyGenInstance }>(`/api/instances/${selectedInstance.id}`, { method: 'PATCH', token, body: JSON.stringify(instanceMutationPayload(selectedInstance, { metadata: metadataDraft })) });
+      setSelectedInstanceDetail(res.instance);
+      setInstances((prev) => prev.map((instance) => instance.id === res.instance.id ? res.instance : instance));
+      setHealthDetails((prev) => prev ? { ...prev, instance: res.instance } : prev);
+      showStatus(`Saved metadata for ${res.instance.name}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Metadata save failed.');
+    } finally {
+      setIsSavingHealthDetail(false);
+    }
+  }
+
+  async function saveInstanceNotes() {
+    if (!selectedInstance || !token) return;
+    clearStatus();
+    const originalFormat = detectNotesFormat(selectedInstance.notes);
+    const notesValue = originalFormat === 'markdown' ? editorHtmlToMarkdown(notesDraft) : notesDraft;
+    setIsSavingHealthDetail(true);
+    try {
+      const res = await api<{ instance: OxyGenInstance }>(`/api/instances/${selectedInstance.id}`, { method: 'PATCH', token, body: JSON.stringify(instanceMutationPayload(selectedInstance, { notes: notesValue || null })) });
+      setSelectedInstanceDetail(res.instance);
+      setInstances((prev) => prev.map((instance) => instance.id === res.instance.id ? res.instance : instance));
+      setHealthDetails((prev) => prev ? { ...prev, instance: res.instance } : prev);
+      setNotesDraft(notesToEditorHtml(res.instance.notes));
+      showStatus(`Saved notes for ${res.instance.name}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Notes save failed.');
+    } finally {
+      setIsSavingHealthDetail(false);
+    }
+  }
+
   function renderInstanceHealthModal() {
     if (!healthModal || !selectedInstance) return null;
     const titleMap: Record<InstanceHealthModalKind, string> = {
@@ -1159,16 +1346,16 @@ export function App() {
       {!isHealthDetailsLoading && healthModal === 'endpoint' && <div className="health-detail-panel"><dl className="detail-list"><dt>{tenantLabel}</dt><dd>{tenantName(instance.tenantId)}</dd><dt>Host</dt><dd>{instance.host}</dd><dt>Port</dt><dd>{formatNullable(instance.port)}</dd><dt>Base URL</dt><dd>{instance.baseUrl}</dd><dt>API Base URL</dt><dd>{instance.apiBaseUrl}</dd><dt>Launch URL</dt><dd>{instance.launchUrl}</dd><dt>Username</dt><dd>{instance.username}</dd></dl></div>}
       {!isHealthDetailsLoading && healthModal === 'monitoring' && <div className="health-detail-panel"><dl className="detail-list"><dt>Enabled</dt><dd>{instance.isEnabled ? 'Yes' : 'No'}</dd><dt>Check License</dt><dd>{instance.checkLicense ? 'Yes' : 'No'}</dd><dt>Archived</dt><dd>{instance.archived ? 'Yes' : 'No'}</dd><dt>Last success</dt><dd>{formatDateTime(instance.lastSuccessAt)}</dd><dt>Last failure</dt><dd>{formatDateTime(instance.lastFailureAt)}</dd><dt>Uptime 24h</dt><dd>{instance.uptimePercent24h === null ? 'Unknown' : `${instance.uptimePercent24h}%`}</dd><dt>Uptime 7d</dt><dd>{instance.uptimePercent7d === null ? 'Unknown' : `${instance.uptimePercent7d}%`}</dd><dt>Last error</dt><dd>{formatNullable(instance.lastError, 'None')}</dd></dl></div>}
       {!isHealthDetailsLoading && healthModal === 'workflow' && <div className="health-detail-panel"><dl className="detail-list"><dt>Processing</dt><dd>{instance.processingStatus}</dd><dt>EMM Queue</dt><dd>{instance.emmQueueStatus}</dd><dt>SMS</dt><dd>{instance.smsStatus}</dd><dt>Hangfire</dt><dd>{instance.hangfireStatus}</dd><dt>Workflow summary</dt><dd>{instance.workflowSummaryJson ? 'Collected' : 'Not collected yet'}</dd><dt>Global settings</dt><dd>{instance.settingsJson ? 'Collected' : 'Not collected yet'}</dd></dl>{Boolean(instance.workflowSummaryJson) && <ReadOnlyJsonEditor value={instance.workflowSummaryJson} />}{Boolean(instance.settingsJson) && <ReadOnlyJsonEditor value={instance.settingsJson} />}</div>}
-      {!isHealthDetailsLoading && healthModal === 'metadata' && <div className="health-detail-panel"><p className="panel-copy small-copy">Custom instance metadata captured during enrollment or CSV import.</p><ReadOnlyJsonEditor value={instance.metadata ?? { message: 'No custom metadata has been added.' }} /></div>}
-      {!isHealthDetailsLoading && healthModal === 'notes' && <div className="health-detail-panel"><dl className="detail-list"><dt>Detected format</dt><dd>{detectNotesFormat(instance.notes).toUpperCase()}</dd></dl>{renderNotesContent(instance.notes)}</div>}
+      {!isHealthDetailsLoading && healthModal === 'metadata' && <div className="health-detail-panel"><p className="panel-copy small-copy">Edit custom instance metadata stored with this instance.</p><EditableJsonEditor value={metadataDraft ?? {}} onChange={setMetadataDraft} /></div>}
+      {!isHealthDetailsLoading && healthModal === 'notes' && <div className="health-detail-panel"><dl className="detail-list"><dt>Detected format</dt><dd>{detectNotesFormat(instance.notes).toUpperCase()}</dd><dt>Editor mode</dt><dd>{detectNotesFormat(instance.notes) === 'markdown' ? 'Markdown rendered through Kendo Editor' : 'Rich text HTML'}</dd></dl><Editor className="instance-notes-editor" defaultEditMode="div" value={notesDraft} onChange={(event: EditorChangeEvent) => setNotesDraft(event.html)} tools={notesEditorTools} contentStyle={{ height: 360, backgroundColor: '#020b14', color: '#f8fafc' }} /></div>}
       {!isHealthDetailsLoading && healthModal === 'record' && <div className="health-detail-panel"><dl className="detail-list"><dt>Description</dt><dd>{formatNullable(instance.description, 'No description')}</dd><dt>Created</dt><dd>{formatDateTime(instance.createdAt)}</dd><dt>Updated</dt><dd>{formatDateTime(instance.updatedAt)}</dd><dt>Instance ID</dt><dd>{instance.id}</dd></dl></div>}
     </>;
     if (isMobileViewport) {
-      return <section className="mobile-health-screen" aria-labelledby="mobile-health-title"><header className="mobile-health-screen-header"><button className="mobile-editor-back" type="button" onClick={() => setHealthModal(null)} aria-label="Back"><ChevronLeft /></button><div><p className="eyebrow small">Instance health</p><h2 id="mobile-health-title">{title}</h2></div></header><div className="mobile-health-screen-body">{body}</div></section>;
+      return <section className="mobile-health-screen" aria-labelledby="mobile-health-title"><header className="mobile-health-screen-header"><button className="mobile-editor-back" type="button" onClick={() => setHealthModal(null)} aria-label="Back"><ChevronLeft /></button><div><p className="eyebrow small">Instance health</p><h2 id="mobile-health-title">{title}</h2></div></header><div className="mobile-health-screen-body">{body}<div className="mobile-editor-actions">{healthModal === 'metadata' && <Button className="compact-button" type="button" themeColor="primary" onClick={() => void saveInstanceMetadata()} disabled={isSavingHealthDetail}>Save Metadata</Button>}{healthModal === 'notes' && <Button className="compact-button" type="button" themeColor="primary" onClick={() => void saveInstanceNotes()} disabled={isSavingHealthDetail}>Save Notes</Button>}</div></div></section>;
     }
     return <Dialog className="cms-dialog instance-health-dialog" title={title} onClose={() => setHealthModal(null)} width={healthModal === 'license' || healthModal === 'metadata' || healthModal === 'notes' ? 920 : 760}>
       {body}
-      <DialogActionsBar><Button className="compact-button instance-health-dialog-close" type="button" fillMode="flat" onClick={() => setHealthModal(null)}>Close</Button></DialogActionsBar>
+      <DialogActionsBar>{healthModal === 'metadata' && <Button className="compact-button" type="button" themeColor="primary" onClick={() => void saveInstanceMetadata()} disabled={isSavingHealthDetail}>Save Metadata</Button>}{healthModal === 'notes' && <Button className="compact-button" type="button" themeColor="primary" onClick={() => void saveInstanceNotes()} disabled={isSavingHealthDetail}>Save Notes</Button>}<Button className="compact-button instance-health-dialog-close" type="button" fillMode="flat" onClick={() => setHealthModal(null)}>Close</Button></DialogActionsBar>
     </Dialog>;
   }
 
@@ -1229,13 +1416,16 @@ export function App() {
       token={token!}
       rows={appLogRows}
       columns={appLogColumnDefs}
-      toolbar={<div className="logs-filter-bar grid-toolbar-filters">
+      toolbar={<div className="logs-toolbar">
+        <div className="logs-toolbar-left">{logsBackTarget && <Button className="compact-button logs-back-button" type="button" fillMode="flat" onClick={() => { const target = logsBackTarget; setLogsBackTarget(null); setLogEntityGuidFilter(''); setRoute(target.section, target.entityId); setActiveSection(target.section); }}><ChevronLeft /> Back to {logsBackTarget.label}</Button>}</div>
+        <div className="logs-filter-bar grid-toolbar-filters">
         <LogMultiSelectFilter label="Type" allLabel="All types" options={logTypes} selected={logTypeFilter} onChange={setLogTypeFilter} />
         <LogMultiSelectFilter label="Severity" allLabel="All severities" options={logSeverities} selected={logSeverityFilter} onChange={setLogSeverityFilter} />
-        {logEntityGuidFilter && <Button className="compact-button" type="button" fillMode="flat" onClick={() => { setLogEntityGuidFilter(''); setRoute('settings-logs'); }}>Clear Entity Filter</Button>}
+        {logEntityGuidFilter && <Button className="compact-button" type="button" fillMode="flat" onClick={() => { setLogEntityGuidFilter(''); setLogsBackTarget(null); setRoute('settings-logs'); }}>Clear Entity Filter</Button>}
         <Button className="compact-button" type="button" onClick={() => setIsLogRefreshPaused((paused) => !paused)} themeColor={isLogRefreshPaused ? 'warning' : undefined}>{isLogRefreshPaused ? <Play /> : <Pause />} {isLogRefreshPaused ? 'Resume Refresh' : 'Pause Refresh'}</Button>
         <Button className="compact-button" type="button" onClick={() => void loadAppLogs(token)} disabled={isLogsRefreshing}><RotateCw className={isLogsRefreshing ? 'spin-icon' : ''} /> Refresh</Button>
         {isSystemAdmin && <Button className="compact-button btn-danger-outline" type="button" onClick={() => void handleClearLogs()} disabled={isClearingLogs}><Trash2 /> {isClearingLogs ? 'Clearing...' : 'Clear Logs'}</Button>}
+        </div>
       </div>}
     />;
   }
@@ -1274,11 +1464,11 @@ export function App() {
   function renderModalForm() {
     if (!modal) return null;
     return <>
-        {modal.kind === 'user' && <form className="modal-form" onSubmit={handleSaveUser}><label>Email<input name="email" type="email" placeholder="operator@example.com" defaultValue={(modal.data as UserProfile)?.user.email || ''} required /></label><label>Display name<input name="displayName" placeholder="Operator" defaultValue={(modal.data as UserProfile)?.user.displayName || ''} required /></label><label>Password<input name="password" type="password" minLength={12} placeholder={modal.data ? 'Leave blank to keep current password' : '12+ characters'} required={!modal.data} /></label><TenantSelect disabled={Boolean(modal.data)} /><label>Role<select value={selectedRole} onChange={(e) => setSelectedRole(e.target.value)}>{availableRoles.map((r) => <option key={r.id} value={r.name}>{r.name}{r.tenantId ? ` (${tenantName(r.tenantId)})` : ''}</option>)}</select></label><label>Group<select value={selectedGroupId} onChange={(e) => setSelectedGroupId(e.target.value)}><option value="">None</option>{groups.map((g) => <option key={g.id} value={g.id}>{groupOptionLabel(g)}{g.tenantId ? ` (${tenantName(g.tenantId)})` : ''}</option>)}</select></label><label>Instance access<select name="instanceAccessMode" defaultValue={(modal.data as UserProfile)?.user.instanceAccessMode || 'inherit'}><option value="inherit">Inherited from assigned groups</option><option value="none">No instances</option><option value="all">All instances</option><option value="specific">Specific instances</option></select></label><label>Specific instances<InstanceAccessCheckboxes selected={(modal.data as UserProfile)?.user.instanceIds || []} /></label><FormActions><Button type="button" fillMode="flat" onClick={() => setModal(null)}>Cancel</Button><Button type="submit" themeColor="primary">{modal.data ? 'Save' : 'Create'}</Button></FormActions></form>}
-        {modal.kind === 'group' && <form className="modal-form" onSubmit={handleSaveGroup}><label>Name<input name="name" placeholder="Customer Group A" defaultValue={(modal.data as Group)?.name || ''} required /></label><label>Description<textarea name="description" rows={3} placeholder="Optional" defaultValue={(modal.data as Group)?.description || ''} /></label><TenantSelect disabled={Boolean(modal.data)} /><label>Instance access<select name="instanceAccessMode" defaultValue={(modal.data as Group)?.instanceAccessMode || 'none'}><option value="none">No instances</option><option value="all">All instances</option><option value="specific">Specific instances</option></select></label><label>Specific instances<InstanceAccessCheckboxes selected={(modal.data as Group)?.instanceIds || []} /></label><FormActions><Button type="button" fillMode="flat" onClick={() => setModal(null)}>Cancel</Button><Button type="submit" themeColor="primary">{modal.data ? 'Save' : 'Create'}</Button></FormActions></form>}
-        {modal.kind === 'role' && <form className="modal-form" onSubmit={handleSaveRole}><label>Name<input name="name" placeholder="WorkflowReviewer" defaultValue={(modal.data as Role)?.name || ''} required /></label><label>Description<textarea name="description" rows={3} placeholder="Optional" defaultValue={(modal.data as Role)?.description || ''} /></label><TenantSelect disabled={Boolean(modal.data)} /><FormActions><Button type="button" fillMode="flat" onClick={() => setModal(null)}>Cancel</Button><Button type="submit" themeColor="primary">{modal.data ? 'Save' : 'Create'}</Button></FormActions></form>}
-        {modal.kind === 'tenant' && <form className="modal-form" onSubmit={handleSaveTenant}><label>Name<input name="name" placeholder={`${tenantLabel} A`} defaultValue={(modal.data as Tenant)?.name || ''} required /></label><label>Description<textarea name="description" rows={3} placeholder="Optional" defaultValue={(modal.data as Tenant)?.description || ''} /></label><FormActions><Button type="button" fillMode="flat" onClick={() => setModal(null)}>Cancel</Button><Button type="submit" themeColor="primary">{modal.data ? 'Save' : 'Create'}</Button></FormActions></form>}
-        {modal.kind === 'instance' && <form className="modal-form instance-form" onSubmit={handleSaveInstance}><TenantSelect disabled={Boolean(modal.data)} /><label>Name<input name="name" placeholder="Instance display name, e.g. Development" defaultValue={(modal.data as OxyGenInstance)?.name || ''} required /></label><label>Description<textarea name="description" rows={3} placeholder="Short optional description" defaultValue={(modal.data as OxyGenInstance)?.description || ''} /></label><fieldset className="form-section"><legend>Connection</legend><div className="form-row three"><label>Protocol<select name="protocol" value={instanceProtocol} onChange={(e) => handleInstanceProtocolChange(e.target.value as 'http' | 'https')}><option value="https">HTTPS</option><option value="http">HTTP</option></select></label><label>Host / URL<input name="host" placeholder="customer.example.com" defaultValue={(modal.data as OxyGenInstance)?.host || ''} required /></label><label>Port<input name="port" type="number" min={1} max={65535} value={instancePort} onChange={(e) => setInstancePort(e.target.value)} required /></label></div></fieldset><fieldset className="form-section"><legend>Authentication</legend><div className="form-row two"><label>Username<input name="username" placeholder="admin (default)" defaultValue={(modal.data as OxyGenInstance)?.username || ''} /></label><label>Password<input name="password" type="password" placeholder={modal.data ? 'Leave blank to keep current password' : 'Remote OxyGen password'} required={!modal.data} /></label></div></fieldset><fieldset className="form-section"><legend>Monitoring</legend><label className="checkbox-label inline-checkbox"><input name="isEnabled" type="checkbox" checked={instancePollingEnabled} onChange={(e) => setInstancePollingEnabled(e.target.checked)} /> Enabled for polling</label><label className="checkbox-label inline-checkbox"><input name="checkLicense" type="checkbox" checked={instanceLicenseCheckEnabled} onChange={(e) => setInstanceLicenseCheckEnabled(e.target.checked)} /> Check OxyGen license/settings API</label><label className="checkbox-label inline-checkbox"><input name="archived" type="checkbox" defaultChecked={(modal.data as OxyGenInstance)?.archived || false} /> Archived / hidden from default instance list</label>{instancePollingEnabled && <div className="form-row one"><label>Polling interval seconds<input name="pollingIntervalSeconds" type="number" min={60} max={86400} defaultValue={(modal.data as OxyGenInstance)?.pollingIntervalSeconds || 300} required /></label></div>}</fieldset><fieldset className="form-section"><legend>Custom Data</legend><label>Metadata JSON<textarea name="metadata" rows={6} placeholder={'{\n  "environment": "production"\n}'} defaultValue={(modal.data as OxyGenInstance)?.metadata ? JSON.stringify((modal.data as OxyGenInstance).metadata, null, 2) : ''} /></label><small>Metadata is stored as JSON and shown as a JSON card on the Instance Dashboard.</small><label>Notes<textarea name="notes" rows={8} placeholder="HTML, Markdown, RTF, or plain-text notes" defaultValue={(modal.data as OxyGenInstance)?.notes || ''} /></label><small>Notes are stored as text and displayed on the Instance Dashboard with detected format.</small></fieldset><FormActions><Button type="button" fillMode="flat" onClick={() => setModal(null)}>Cancel</Button><Button className="btn-dialog-test" type="button" fillMode="outline" onClick={(e) => testInstanceFormConnectivity((e.currentTarget as HTMLButtonElement).form)}><RotateCw aria-hidden="true" /> <span>Test Connection</span></Button><Button type="submit" themeColor="primary">{modal.data ? 'Save' : 'Create'}</Button></FormActions></form>}
+        {modal.kind === 'user' && <form className="modal-form" onSubmit={handleSaveUser}><label>Email<input name="email" type="email" placeholder="operator@example.com" defaultValue={(modal.data as UserProfile)?.user.email || ''} required /></label><label>Display name<input name="displayName" placeholder="Operator" defaultValue={(modal.data as UserProfile)?.user.displayName || ''} required /></label><label>Password<input name="password" type="password" minLength={12} placeholder={modal.data ? 'Leave blank to keep current password' : '12+ characters'} required={!modal.data} /></label><TenantSelect disabled={Boolean(modal.data)} /><label>Role<select value={selectedRole} onChange={(e) => setSelectedRole(e.target.value)}>{availableRoles.map((r) => <option key={r.id} value={r.name}>{r.name}{r.tenantId ? ` (${tenantName(r.tenantId)})` : ''}</option>)}</select></label><label>Group<select value={selectedGroupId} onChange={(e) => setSelectedGroupId(e.target.value)}><option value="">None</option>{groups.map((g) => <option key={g.id} value={g.id}>{groupOptionLabel(g)}{g.tenantId ? ` (${tenantName(g.tenantId)})` : ''}</option>)}</select></label><label>Instance access<select name="instanceAccessMode" defaultValue={(modal.data as UserProfile)?.user.instanceAccessMode || 'inherit'}><option value="inherit">Inherited from assigned groups</option><option value="none">No instances</option><option value="all">All instances</option><option value="specific">Specific instances</option></select></label><label>Specific instances<InstanceAccessCheckboxes selected={(modal.data as UserProfile)?.user.instanceIds || []} /></label><FormActions><Button className="compact-button btn-dialog-cancel" type="button" fillMode="flat" onClick={() => setModal(null)}>Cancel</Button><Button className="compact-button btn-dialog-primary" type="submit" themeColor="primary">{modal.data ? 'Save' : 'Create'}</Button></FormActions></form>}
+        {modal.kind === 'group' && <form className="modal-form" onSubmit={handleSaveGroup}><label>Name<input name="name" placeholder="Customer Group A" defaultValue={(modal.data as Group)?.name || ''} required /></label><label>Description<textarea name="description" rows={3} placeholder="Optional" defaultValue={(modal.data as Group)?.description || ''} /></label><TenantSelect disabled={Boolean(modal.data)} /><label>Instance access<select name="instanceAccessMode" defaultValue={(modal.data as Group)?.instanceAccessMode || 'none'}><option value="none">No instances</option><option value="all">All instances</option><option value="specific">Specific instances</option></select></label><label>Specific instances<InstanceAccessCheckboxes selected={(modal.data as Group)?.instanceIds || []} /></label><FormActions><Button className="compact-button btn-dialog-cancel" type="button" fillMode="flat" onClick={() => setModal(null)}>Cancel</Button><Button className="compact-button btn-dialog-primary" type="submit" themeColor="primary">{modal.data ? 'Save' : 'Create'}</Button></FormActions></form>}
+        {modal.kind === 'role' && <form className="modal-form" onSubmit={handleSaveRole}><label>Name<input name="name" placeholder="WorkflowReviewer" defaultValue={(modal.data as Role)?.name || ''} required /></label><label>Description<textarea name="description" rows={3} placeholder="Optional" defaultValue={(modal.data as Role)?.description || ''} /></label><TenantSelect disabled={Boolean(modal.data)} /><FormActions><Button className="compact-button btn-dialog-cancel" type="button" fillMode="flat" onClick={() => setModal(null)}>Cancel</Button><Button className="compact-button btn-dialog-primary" type="submit" themeColor="primary">{modal.data ? 'Save' : 'Create'}</Button></FormActions></form>}
+        {modal.kind === 'tenant' && <form className="modal-form" onSubmit={handleSaveTenant}><label>Name<input name="name" placeholder={`${tenantLabel} A`} defaultValue={(modal.data as Tenant)?.name || ''} required /></label><label>Description<textarea name="description" rows={3} placeholder="Optional" defaultValue={(modal.data as Tenant)?.description || ''} /></label><FormActions><Button className="compact-button btn-dialog-cancel" type="button" fillMode="flat" onClick={() => setModal(null)}>Cancel</Button><Button className="compact-button btn-dialog-primary" type="submit" themeColor="primary">{modal.data ? 'Save' : 'Create'}</Button></FormActions></form>}
+        {modal.kind === 'instance' && <form className="modal-form instance-form" onSubmit={handleSaveInstance}><TenantSelect disabled={Boolean(modal.data)} /><label>Name<input name="name" placeholder="Instance display name, e.g. Development" defaultValue={(modal.data as OxyGenInstance)?.name || ''} required /></label><label>Description<textarea name="description" rows={3} placeholder="Short optional description" defaultValue={(modal.data as OxyGenInstance)?.description || ''} /></label><fieldset className="form-section"><legend>Connection</legend><div className="form-row three"><label>Protocol<select name="protocol" value={instanceProtocol} onChange={(e) => handleInstanceProtocolChange(e.target.value as 'http' | 'https')}><option value="https">HTTPS</option><option value="http">HTTP</option></select></label><label>Host / URL<input name="host" placeholder="customer.example.com" defaultValue={(modal.data as OxyGenInstance)?.host || ''} required /></label><label>Port<input name="port" type="number" min={1} max={65535} value={instancePort} onChange={(e) => setInstancePort(e.target.value)} required /></label></div></fieldset><fieldset className="form-section"><legend>Authentication</legend><div className="form-row two"><label>Username<input name="username" placeholder="admin (default)" defaultValue={(modal.data as OxyGenInstance)?.username || ''} /></label><label>Password<input name="password" type="password" placeholder={modal.data ? 'Leave blank to keep current password' : 'Remote OxyGen password'} required={!modal.data} /></label></div></fieldset><fieldset className="form-section"><legend>Monitoring</legend><label className="checkbox-label inline-checkbox"><input name="isEnabled" type="checkbox" checked={instancePollingEnabled} onChange={(e) => setInstancePollingEnabled(e.target.checked)} /> Enabled for polling</label><label className="checkbox-label inline-checkbox"><input name="checkLicense" type="checkbox" checked={instanceLicenseCheckEnabled} onChange={(e) => setInstanceLicenseCheckEnabled(e.target.checked)} /> Check OxyGen license/settings API</label><label className="checkbox-label inline-checkbox"><input name="archived" type="checkbox" defaultChecked={(modal.data as OxyGenInstance)?.archived || false} /> Archived / hidden from default instance list</label><label>Polling interval seconds<input name="pollingIntervalSeconds" type="number" min={30} defaultValue={(modal.data as OxyGenInstance)?.pollingIntervalSeconds || 300} required /></label></fieldset><FormActions><Button className="compact-button btn-dialog-cancel" type="button" fillMode="flat" onClick={() => setModal(null)}>Cancel</Button><Button type="button" onClick={(event) => void testInstanceFormConnectivity(event.currentTarget.closest('form'))}><RotateCw /> Test Connection</Button><Button className="compact-button btn-dialog-primary" type="submit" themeColor="primary">{modal.data ? 'Save' : 'Create'}</Button></FormActions></form>}
     </>;
   }
 
@@ -1366,7 +1556,7 @@ export function App() {
         <section className={`admin-content ${gridSection ? 'grid-section' : ''}`}>{activeSection !== 'dashboard' && <div className="page-header"><p className="eyebrow small">{sectionMeta.eyebrow}</p><h2>{sectionMeta.heading}</h2></div>}
           {activeSection === 'dashboard' && renderDashboard()}
           {activeSection === 'organizations' && isSystemAdmin && <ManagedGrid gridKey="tenants" token={token!} rows={tenantRows} columns={tenantColumnDefs} actionCell={TenantActionCell} mobileActions={(row) => <MobileStandardActions onEdit={() => openEditTenantModal(row.raw)} onDelete={() => deleteItem('tenant', row.raw.id, `${tenantLabelLower} ${row.raw.name}`)} />} toolbar={<Button className="btn-create" onClick={openCreateTenantModal} type="button" themeColor="primary"><Plus /> Create “{tenantLabel}”</Button>} />}
-          {activeSection === 'instances' && <ManagedGrid gridKey="instances" token={token!} rows={instanceRows} columns={labeledInstanceColumnDefs} actionCell={InstanceActionCell} actionWidth={132} mobileActions={mobileInstanceActions} toolbar={canImportExportInstances || isSystemAdmin ? renderInstanceToolbar() : null} />}
+          {activeSection === 'instances' && <ManagedGrid gridKey="instances" token={token!} rows={instanceRows} columns={labeledInstanceColumnDefs} actionCell={InstanceActionCell} actionWidth={58} mobileActions={mobileInstanceActions} toolbar={canImportExportInstances || isSystemAdmin ? renderInstanceToolbar() : null} />}
           {activeSection === 'instance-dashboard' && selectedInstance && <div className="instance-detail-dashboard"><div className="instance-dashboard-actions"><Button className="compact-button" type="button" fillMode="flat" onClick={closeInstanceDashboard}><ChevronLeft /> Back to Instances</Button>{isSystemAdmin && <Button className="compact-button" type="button" onClick={() => openEditInstanceModal(selectedInstance)}><Pencil /> Edit</Button>}{isSystemAdmin && <Button className="compact-button" type="button" onClick={() => testInstanceConnectivity(selectedInstance)}><RotateCw /> Test Connectivity</Button>}{isSystemAdmin && <Button className="compact-button" type="button" onClick={() => void setInstanceArchived(selectedInstance, !selectedInstance.archived)}>{selectedInstance.archived ? <ArchiveRestore /> : <Archive />} {selectedInstance.archived ? 'Unarchive' : 'Archive'}</Button>}<Button className="compact-button" type="button" onClick={() => openInstanceLogs(selectedInstance)}><ClipboardList /> View Logs</Button><Button className="compact-button" type="button" onClick={() => window.open(launchUrlForInstance(selectedInstance), '_blank', 'noopener,noreferrer')}><ExternalLink /> Launch OxyGen</Button></div><div className="instance-health-strip"><button className={`instance-health-card clickable status-${selectedInstance.status}`} type="button" onClick={() => void openInstanceHealthModal('availability')}><span>Availability</span><strong>{selectedInstance.status}</strong><small>{formatDateTime(selectedInstance.lastCheckedAt)}</small></button><button className="instance-health-card clickable" type="button" onClick={() => void openInstanceHealthModal('ssl')}><span>SSL</span><strong>{selectedInstance.sslValid === null ? 'Unknown' : selectedInstance.sslValid ? 'Valid' : 'Invalid'}</strong><small>Expires {formatDateTime(selectedInstance.sslExpiresAt)}</small></button><button className="instance-health-card clickable" type="button" onClick={() => void openInstanceHealthModal('license')}><span>License</span><strong>{selectedInstance.licenseStatus}</strong><small>{formatNullable(selectedInstance.licenseKey, 'No license key collected')}</small></button><button className="instance-health-card clickable" type="button" onClick={() => void openInstanceHealthModal('response')}><span>Response</span><strong>{selectedInstance.responseTimeMs === null ? '—' : `${selectedInstance.responseTimeMs} ms`}</strong><small>Polling every {selectedInstance.pollingIntervalSeconds}s</small></button></div><div className="instance-detail-grid"><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('endpoint')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'endpoint')}><div className="panel-heading"><Server /><div><p className="eyebrow small">Endpoint</p><h3>Connection Details</h3></div></div><dl className="detail-list"><dt>{tenantLabel}</dt><dd>{tenantName(selectedInstance.tenantId)}</dd><dt>Host</dt><dd>{selectedInstance.host}</dd><dt>Port</dt><dd>{formatNullable(selectedInstance.port)}</dd><dt>Base URL</dt><dd>{selectedInstance.baseUrl}</dd><dt>API Base URL</dt><dd>{selectedInstance.apiBaseUrl}</dd><dt>Launch URL</dt><dd>{selectedInstance.launchUrl}</dd><dt>Username</dt><dd>{selectedInstance.username}</dd></dl></article><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('monitoring')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'monitoring')}><div className="panel-heading"><Activity /><div><p className="eyebrow small">Monitoring</p><h3>Health Status</h3></div></div><dl className="detail-list"><dt>Enabled</dt><dd>{selectedInstance.isEnabled ? 'Yes' : 'No'}</dd><dt>Last Success</dt><dd>{formatDateTime(selectedInstance.lastSuccessAt)}</dd><dt>Last Failure</dt><dd>{formatDateTime(selectedInstance.lastFailureAt)}</dd><dt>Uptime 24h</dt><dd>{selectedInstance.uptimePercent24h === null ? 'Unknown' : `${selectedInstance.uptimePercent24h}%`}</dd><dt>Uptime 7d</dt><dd>{selectedInstance.uptimePercent7d === null ? 'Unknown' : `${selectedInstance.uptimePercent7d}%`}</dd><dt>Check License</dt><dd>{selectedInstance.checkLicense ? 'Yes' : 'No'}</dd><dt>Archived</dt><dd>{selectedInstance.archived ? 'Yes' : 'No'}</dd><dt>Last Error</dt><dd>{formatNullable(selectedInstance.lastError, 'None')}</dd></dl></article><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('workflow')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'workflow')}><div className="panel-heading"><Database /><div><p className="eyebrow small">OxyGen BPM</p><h3>Workflow & Components</h3></div></div><dl className="detail-list"><dt>Processing</dt><dd>{selectedInstance.processingStatus}</dd><dt>EMM Queue</dt><dd>{selectedInstance.emmQueueStatus}</dd><dt>SMS</dt><dd>{selectedInstance.smsStatus}</dd><dt>Hangfire</dt><dd>{selectedInstance.hangfireStatus}</dd><dt>Workflow Summary</dt><dd>{selectedInstance.workflowSummaryJson ? 'Collected' : 'Not collected yet'}</dd><dt>Global Settings</dt><dd>{selectedInstance.settingsJson ? 'Collected' : 'Not collected yet'}</dd></dl></article><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('metadata')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'metadata')}><div className="panel-heading"><Database /><div><p className="eyebrow small">Custom Data</p><h3>Metadata</h3></div></div><dl className="detail-list"><dt>Status</dt><dd>{selectedInstance.metadata ? 'Custom metadata added' : 'No metadata'}</dd><dt>Type</dt><dd>{selectedInstance.metadata === null ? 'None' : Array.isArray(selectedInstance.metadata) ? 'Array' : typeof selectedInstance.metadata}</dd></dl></article><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('notes')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'notes')}><div className="panel-heading"><ClipboardList /><div><p className="eyebrow small">Knowledge</p><h3>Notes</h3></div></div><dl className="detail-list"><dt>Detected format</dt><dd>{detectNotesFormat(selectedInstance.notes).toUpperCase()}</dd><dt>Status</dt><dd>{selectedInstance.notes ? 'Notes added' : 'No notes'}</dd></dl></article><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('record')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'record')}><div className="panel-heading"><ShieldCheck /><div><p className="eyebrow small">Record</p><h3>Metadata</h3></div></div><dl className="detail-list"><dt>Description</dt><dd>{formatNullable(selectedInstance.description, 'No description')}</dd><dt>Created</dt><dd>{formatDateTime(selectedInstance.createdAt)}</dd><dt>Updated</dt><dd>{formatDateTime(selectedInstance.updatedAt)}</dd><dt>Instance ID</dt><dd>{selectedInstance.id}</dd></dl></article></div></div>}
           {activeSection === 'instance-dashboard' && !selectedInstance && <article className="panel"><p className="panel-copy">Select an instance from the grid to open its dashboard.</p><Button className="compact-button" type="button" onClick={() => setActiveSection('instances')}><ChevronLeft /> Back to Instances</Button></article>}
           {activeSection === 'user-groups' && isSystemAdmin && <ManagedGrid gridKey="user-groups" token={token!} rows={groupRows} columns={labeledGroupColumnDefs} actionCell={GroupActionCell} mobileActions={(row) => <MobileStandardActions onEdit={() => openEditGroupModal(row.raw)} onDelete={() => deleteItem('group', row.raw.id, `group ${row.raw.name}`)} />} toolbar={<Button className="btn-create" onClick={openCreateGroupModal} type="button" themeColor="primary"><Plus /> Create &quot;Group&quot;</Button>} />}
