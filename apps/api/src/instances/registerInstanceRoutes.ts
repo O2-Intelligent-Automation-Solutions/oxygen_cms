@@ -61,7 +61,8 @@ async function testConnectivityFromInput(input: ReturnType<typeof testConnectivi
       host: normalized.host,
       port: normalized.port,
       apiBaseUrl: normalized.apiBaseUrl,
-      username: input.username.trim()
+      username: input.username.trim(),
+      checkLicense: input.checkLicense
     },
     password: input.password
   });

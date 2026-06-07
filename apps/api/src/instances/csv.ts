@@ -154,6 +154,7 @@ export function parseInstanceCsv(csv: string): ParsedInstanceCsv {
   const [rawHeaders, ...rawRows] = records;
   if (!rawHeaders) return { headers: [], rows: [], errors: ['CSV must include a header row.'] };
   const headers = rawHeaders.map((header) => header.trim().toLowerCase());
+  while (headers.length > 0 && headers[headers.length - 1] === '') headers.pop();
   const rows: ParsedInstanceCsvRow[] = [];
   rawRows.forEach((raw, index) => {
     if (raw.every((value) => value.trim() === '')) return;

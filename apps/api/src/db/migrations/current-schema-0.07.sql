@@ -1,5 +1,5 @@
 -- OxyGen CMS canonical current schema snapshot
--- Schema version: 0.11
+-- Schema version: 0.12
 -- Runtime source of truth: apps/api/src/db/migrations/index.ts
 
 CREATE TABLE IF NOT EXISTS cms_schema_versions (
@@ -108,7 +108,6 @@ CREATE TABLE IF NOT EXISTS oxygen_instances (
   last_error TEXT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  UNIQUE KEY uq_oxygen_instances_name (name),
   KEY idx_oxygen_instances_status (status),
   KEY idx_oxygen_instances_tenant (tenant_id),
   KEY idx_oxygen_instances_archived (archived),

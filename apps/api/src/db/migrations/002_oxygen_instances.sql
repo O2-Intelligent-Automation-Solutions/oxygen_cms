@@ -17,7 +17,6 @@ CREATE TABLE IF NOT EXISTS oxygen_instances (
   last_error TEXT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  UNIQUE KEY uq_oxygen_instances_name (name),
   KEY idx_oxygen_instances_group (group_id),
   KEY idx_oxygen_instances_status (status),
   CONSTRAINT fk_oxygen_instances_group FOREIGN KEY (group_id) REFERENCES user_groups(id) ON DELETE RESTRICT

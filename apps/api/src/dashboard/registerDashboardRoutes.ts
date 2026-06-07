@@ -47,10 +47,12 @@ function connectivityIssue(instance: OxyGenInstance) {
 }
 
 function licenseFailure(instance: OxyGenInstance) {
+  if (!instance.checkLicense) return false;
   return instance.licenseStatus === 'expired' || instance.licenseStatus === 'error' || (!instance.licenseKey && instance.licenseStatus !== 'unknown' && instance.licenseStatus !== 'warning');
 }
 
 function licenseWarning(instance: OxyGenInstance) {
+  if (!instance.checkLicense) return false;
   return instance.licenseStatus === 'warning' || (!instance.licenseKey && instance.licenseStatus === 'unknown');
 }
 
@@ -78,6 +80,15 @@ function licenseIssueLabel(instance: OxyGenInstance) {
   return `License ${instance.licenseStatus}`;
 }
 
+function normalizeIssueLabel(label: string) {
+  const trimmed = label.trim();
+  const networkMatch = trimmed.match(/\b(getaddrinfo\s+ENOTFOUND|ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket\s+hang\s+up|fetch\s+failed)\b/i);
+  if (networkMatch) return networkMatch[1].replace(/\s+/g, ' ').trim();
+  const httpMatch = trimmed.match(/\bHTTP\s+(\d{3})\b/i);
+  if (httpMatch) return `HTTP ${httpMatch[1]}`;
+  return trimmed.replace(/\s+https?:\/\/\S+/gi, '').replace(/\s+[a-z0-9.-]+\.[a-z]{2,}(?::\d+)?\b/gi, '').replace(/\s+/g, ' ').trim();
+}
+
 function instanceIssueDetails(instance: OxyGenInstance): DashboardIssue[] {
   const issues: DashboardIssue[] = [];
   if (connectivityIssue(instance)) issues.push({ label: instance.status === 'auth-error' ? 'Authentication failure' : `Availability ${instance.status}`, severity: 'failure' });
@@ -89,7 +100,7 @@ function instanceIssueDetails(instance: OxyGenInstance): DashboardIssue[] {
   if (componentWarning(instance.emmQueueStatus)) issues.push({ label: 'EMM disabled/warning', severity: 'warning' });
   if (componentWarning(instance.smsStatus)) issues.push({ label: 'SMS disabled/warning', severity: 'warning' });
   if (componentWarning(instance.hangfireStatus)) issues.push({ label: 'BUS disabled/warning', severity: 'warning' });
-  if (instance.lastError && connectivityIssue(instance)) issues.push({ label: instance.lastError, severity: 'failure' });
+  if (instance.lastError && connectivityIssue(instance)) issues.push({ label: normalizeIssueLabel(instance.lastError), severity: 'failure' });
 
   const seen = new Set<string>();
   return issues.filter((issue) => {

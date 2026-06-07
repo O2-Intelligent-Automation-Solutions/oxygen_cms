@@ -84,7 +84,7 @@ export function createInMemoryInstanceRepository(): InstanceRepository {
   function appendConnectivityHistory(instanceId: string, result: ConnectivityResult) {
     const checkedAt = new Date(result.checkedAt);
     const startedAt = new Date(Math.max(0, checkedAt.getTime() - result.durationMs)).toISOString();
-    const availability = result.ok ? 'up' : result.status === 'auth-error' ? 'auth-error' : result.status === 'ssl-error' ? 'ssl-error' : 'down';
+    const availability = result.status === 'reachable' ? 'up' : result.status === 'auth-error' ? 'auth-error' : result.status === 'ssl-error' ? 'ssl-error' : 'down';
     const entries = history.get(instanceId) ?? [];
     entries.unshift({
       checkType: 'connectivity',
@@ -93,9 +93,9 @@ export function createInMemoryInstanceRepository(): InstanceRepository {
       finishedAt: result.checkedAt,
       durationMs: result.durationMs,
       httpStatusCode: result.httpStatusCode,
-      errorCode: result.ok ? null : (result.authentication.errorCode ?? result.api.errorCode ?? result.ssl.errorCode ?? result.dns.errorCode ?? 'CONNECTIVITY_ERROR'),
+      errorCode: result.ok ? null : (result.authentication.errorCode ?? result.api.errorCode ?? result.ssl.errorCode ?? result.connect.errorCode ?? result.dns.errorCode ?? 'CONNECTIVITY_ERROR'),
       errorMessage: result.ok ? null : result.message,
-      detailsJson: { dns: result.dns, ssl: result.ssl, authentication: result.authentication, api: result.api, license: result.license.step }
+      detailsJson: { dns: result.dns, connect: result.connect, ssl: result.ssl, authentication: result.authentication, api: result.api, license: result.license.step }
     });
     entries.unshift({
       checkType: 'license',
@@ -201,7 +201,7 @@ export function createInMemoryInstanceRepository(): InstanceRepository {
       const instance = instances.get(instanceId);
       if (!instance) throw new Error('Instance not found.');
       const result = await testOxyGenConnectivity({ instance, password: instance.passwordSecret });
-      instance.status = result.ok ? 'up' : result.status === 'auth-error' ? 'auth-error' : result.status === 'ssl-error' ? 'ssl-error' : 'down';
+      instance.status = result.status === 'reachable' ? 'up' : result.status === 'auth-error' ? 'auth-error' : result.status === 'ssl-error' ? 'ssl-error' : 'down';
       instance.lastCheckedAt = result.checkedAt;
       instance.responseTimeMs = result.responseTimeMs;
       instance.sslValid = result.ssl.valid ?? null;
@@ -210,7 +210,8 @@ export function createInMemoryInstanceRepository(): InstanceRepository {
       instance.licenseKey = result.license.key;
       instance.licenseStatus = result.license.status;
       instance.licenseJson = result.license.payload;
-      if (result.ok) instance.lastSuccessAt = result.checkedAt;
+      instance.settingsJson = result.settingsJson;
+      if (instance.status === 'up') instance.lastSuccessAt = result.checkedAt;
       else instance.lastFailureAt = result.checkedAt;
       instance.updatedAt = nowIso();
       appendConnectivityHistory(instanceId, result);

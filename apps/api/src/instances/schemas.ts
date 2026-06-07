@@ -36,7 +36,8 @@ export const testConnectivitySchema = z.object({
   port: portSchema,
   hostname: z.string().trim().min(1).optional(),
   username: usernameSchema,
-  password: z.string().min(1)
+  password: z.string().min(1),
+  checkLicense: z.boolean().optional().default(true)
 }).refine((value) => Boolean(value.host || value.hostname), { message: 'Host or URL is required.', path: ['host'] });
 
 export const updateInstanceSchema = z.object({

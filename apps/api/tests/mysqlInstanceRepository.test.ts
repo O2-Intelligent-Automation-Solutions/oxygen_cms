@@ -30,7 +30,7 @@ async function startMockOxyGenServer(password: string) {
       const form = new URLSearchParams(body);
       if (form.get('Username') === 'admin' && form.get('Password') === password) {
         response.statusCode = 200;
-        response.setHeader('set-cookie', 'ASP.NET_SessionId=mock-session; Path=/; HttpOnly');
+        response.setHeader('set-cookie', ['ASP.NET_SessionId=mock-session; Path=/; HttpOnly', '.ASPXAUTH=mock-auth-ticket; Path=/; HttpOnly']);
         response.end('OK');
         return;
       }
@@ -38,7 +38,7 @@ async function startMockOxyGenServer(password: string) {
       response.end('Unauthorized');
       return;
     }
-    if (request.method === 'GET' && request.url === '/web-api/global/settings/currenttime' && request.headers.cookie?.includes('ASP.NET_SessionId=mock-session')) {
+    if (request.method === 'GET' && request.url === '/web-api/global/settings' && request.headers.cookie?.includes('ASP.NET_SessionId=mock-session')) {
       response.statusCode = 200;
       response.setHeader('content-type', 'application/json');
       response.end(JSON.stringify({ currentTime: '2026-06-04T00:00:00Z' }));

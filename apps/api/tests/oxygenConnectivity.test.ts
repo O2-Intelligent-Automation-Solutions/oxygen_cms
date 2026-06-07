@@ -15,18 +15,27 @@ function readBody(request: IncomingMessage) {
   });
 }
 
-async function startMockOxyGenServer(options: { password: string; failAuth?: boolean; license?: unknown; licenseDelayMs?: number }) {
+async function startMockOxyGenServer(options: { password: string; failAuth?: boolean; forbiddenAuth?: boolean; loginCookieWithoutAccess?: boolean; redirectAfterLogin?: boolean; license?: unknown; licenseDelayMs?: number }) {
   const requests: string[] = [];
   const server = createServer(async (request: IncomingMessage, response: ServerResponse) => {
     requests.push(`${request.method ?? 'GET'} ${request.url ?? '/'}`);
 
     if (request.method === 'POST' && request.url === '/v2/Auth/Login') {
+      if (options.forbiddenAuth) {
+        response.statusCode = 403;
+        response.setHeader('content-type', 'text/html');
+        response.end('<!DOCTYPE HTML><html><body><h1>Forbidden</h1></body></html>');
+        return;
+      }
       const body = await readBody(request);
       const form = new URLSearchParams(body);
       if (!options.failAuth && form.get('Username') === 'admin' && form.get('Password') === options.password) {
-        response.statusCode = 200;
-        response.setHeader('set-cookie', 'ASP.NET_SessionId=mock-session; Path=/; HttpOnly');
-        response.end('OK');
+        response.statusCode = options.loginCookieWithoutAccess || options.redirectAfterLogin ? 302 : 200;
+        if (options.redirectAfterLogin) response.setHeader('location', '/OPTWS/OxyGen.aspx');
+        response.setHeader('set-cookie', options.loginCookieWithoutAccess
+          ? ['OtherCookie=not-session; Path=/; HttpOnly']
+          : ['ASP.NET_SessionId=mock-session; Path=/; HttpOnly', '.ASPXAUTH=mock-auth-ticket; Path=/; HttpOnly']);
+        response.end(options.loginCookieWithoutAccess || options.redirectAfterLogin ? '' : 'OK');
         return;
       }
       response.statusCode = 401;
@@ -34,11 +43,11 @@ async function startMockOxyGenServer(options: { password: string; failAuth?: boo
       return;
     }
 
-    if (request.method === 'GET' && request.url === '/web-api/global/settings/currenttime') {
+    if (request.method === 'GET' && request.url === '/web-api/global/settings') {
       if (request.headers.cookie?.includes('ASP.NET_SessionId=mock-session')) {
         response.statusCode = 200;
         response.setHeader('content-type', 'application/json');
-        response.end(JSON.stringify({ currentTime: '2026-06-04T00:00:00Z' }));
+        response.end(JSON.stringify({ siteName: 'Mock OxyGen', currentTime: '2026-06-04T00:00:00Z' }));
         return;
       }
       response.statusCode = 401;
@@ -82,7 +91,7 @@ afterEach(async () => {
 });
 
 describe('OxyGen connectivity checks', () => {
-  it('authenticates and probes the current-time API through a session cookie', async () => {
+  it('authenticates and probes global settings through a session cookie', async () => {
     const mock = await startMockOxyGenServer({ password: 'RemotePassword!42', licenseDelayMs: 120 });
 
     const result = await testOxyGenConnectivity({
@@ -112,7 +121,60 @@ describe('OxyGen connectivity checks', () => {
     expect(result.responseTimeMs).not.toBeNull();
     expect(result.durationMs - (result.responseTimeMs ?? 0)).toBeGreaterThanOrEqual(80);
     expect(result.checkedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-    expect(mock.requests).toEqual(['POST /v2/Auth/Login', 'GET /web-api/global/settings/currenttime', 'GET /web-api/BUS/License']);
+    expect(mock.requests).toEqual(['POST /v2/Auth/Login', 'GET /web-api/BUS/License', 'GET /web-api/global/settings']);
+  });
+
+  it('accepts OxyGen login redirects when a session cookie is returned', async () => {
+    const mock = await startMockOxyGenServer({ password: 'RemotePassword!42', redirectAfterLogin: true });
+
+    const result = await testOxyGenConnectivity({
+      instance: {
+        name: 'Redirect Login Mock',
+        protocol: 'http',
+        host: '127.0.0.1',
+        port: mock.port,
+        apiBaseUrl: mock.baseUrl,
+        username: 'admin'
+      },
+      password: 'RemotePassword!42',
+      timeoutMs: 2000
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      status: 'reachable',
+      authentication: { ok: true, httpStatusCode: 302 },
+      license: { status: 'valid', step: { ok: true, httpStatusCode: 200 } },
+      api: { ok: true, httpStatusCode: 200 }
+    });
+    expect(mock.requests).toEqual(['POST /v2/Auth/Login', 'GET /web-api/BUS/License', 'GET /web-api/global/settings']);
+  });
+
+  it('marks attempted license timeouts as license errors and skips settings', async () => {
+    const mock = await startMockOxyGenServer({ password: 'RemotePassword!42', licenseDelayMs: 150 });
+
+    const result = await testOxyGenConnectivity({
+      instance: {
+        name: 'License Timeout Mock',
+        protocol: 'http',
+        host: '127.0.0.1',
+        port: mock.port,
+        apiBaseUrl: mock.baseUrl,
+        username: 'admin',
+        checkLicense: true
+      },
+      password: 'RemotePassword!42',
+      timeoutMs: 50
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 'reachable',
+      license: { status: 'error', step: { ok: false, errorCode: 'Error', message: 'Request timed out.' } },
+      api: { ok: false, skipped: true, message: 'Settings probe skipped because the license probe failed.' }
+    });
+    expect(result.message).toContain('license issue');
+    expect(mock.requests).toEqual(['POST /v2/Auth/Login', 'GET /web-api/BUS/License']);
   });
 
   it('returns auth-error when login fails and does not call the API probe', async () => {
@@ -141,7 +203,59 @@ describe('OxyGen connectivity checks', () => {
     expect(mock.requests).toEqual(['POST /v2/Auth/Login']);
   });
 
-  it('maps refused HTTPS OxyGen endpoint probes to authentication failure', async () => {
+  it('returns auth-error and skips downstream probes when login does not return an OxyGen session cookie', async () => {
+    const mock = await startMockOxyGenServer({ password: 'CorrectPassword!42', loginCookieWithoutAccess: true });
+
+    const result = await testOxyGenConnectivity({
+      instance: {
+        name: 'Invalid Cookie Login Mock',
+        protocol: 'http',
+        host: '127.0.0.1',
+        port: mock.port,
+        apiBaseUrl: mock.baseUrl,
+        username: 'admin'
+      },
+      password: 'CorrectPassword!42',
+      timeoutMs: 2000
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 'auth-error',
+      authentication: { ok: false, httpStatusCode: 302, errorCode: 'AUTH_NO_SESSION_COOKIE' },
+      api: { ok: false, skipped: true, message: 'Settings probe skipped because authentication failed.' },
+      license: { status: 'unknown', step: { ok: false, skipped: true, message: 'License probe skipped because authentication failed.' } }
+    });
+    expect(mock.requests).toEqual(['POST /v2/Auth/Login']);
+  });
+
+  it('returns auth-error and skips downstream probes when the login route is forbidden', async () => {
+    const mock = await startMockOxyGenServer({ password: 'CorrectPassword!42', forbiddenAuth: true });
+
+    const result = await testOxyGenConnectivity({
+      instance: {
+        name: 'Forbidden Login Mock',
+        protocol: 'http',
+        host: '127.0.0.1',
+        port: mock.port,
+        apiBaseUrl: mock.baseUrl,
+        username: 'admin'
+      },
+      password: 'RemotePassword!42',
+      timeoutMs: 2000
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 'auth-error',
+      authentication: { ok: false, httpStatusCode: 403, errorCode: 'AUTH_HTTP_ERROR' },
+      api: { ok: false, skipped: true, message: 'Settings probe skipped because authentication failed.' },
+      license: { status: 'unknown', step: { ok: false, skipped: true, message: 'License probe skipped because authentication failed.' } }
+    });
+    expect(mock.requests).toEqual(['POST /v2/Auth/Login']);
+  });
+
+  it('maps refused HTTPS endpoints to unreachable connection failures and skips later probes', async () => {
     const port = await unusedTcpPort();
 
     const result = await testOxyGenConnectivity({
@@ -159,12 +273,14 @@ describe('OxyGen connectivity checks', () => {
 
     expect(result).toMatchObject({
       ok: false,
-      status: 'auth-error',
-      message: 'Authentication failure',
+      status: 'unreachable',
       dns: { ok: true },
-      ssl: { ok: false, errorCode: 'ECONNREFUSED' },
-      authentication: { ok: false, skipped: true, message: 'Authentication failure', errorCode: 'AUTH_CONNECTION_REFUSED' },
-      api: { ok: false, skipped: true }
+      connect: { ok: false, errorCode: 'ECONNREFUSED' },
+      ssl: { ok: false, skipped: true, message: 'SSL validation skipped due to connection failure.' },
+      authentication: { ok: false, skipped: true, message: 'Authentication skipped due to connection failure.' },
+      api: { ok: false, skipped: true, message: 'Settings probe skipped due to connection failure.' },
+      license: { status: 'unknown', step: { skipped: true, message: 'License probe skipped due to connection failure.' } }
     });
+    expect(result.responseTimeMs).not.toBeNull();
   });
 });

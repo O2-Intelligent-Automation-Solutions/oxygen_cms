@@ -105,7 +105,6 @@ CREATE TABLE IF NOT EXISTS oxygen_instances (
   last_error TEXT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  UNIQUE KEY uq_oxygen_instances_name (name),
   KEY idx_oxygen_instances_group (group_id),
   KEY idx_oxygen_instances_status (status),
   CONSTRAINT fk_oxygen_instances_group FOREIGN KEY (group_id) REFERENCES user_groups(id) ON DELETE RESTRICT
@@ -298,6 +297,21 @@ const instanceImportColumnsSql = `ALTER TABLE oxygen_instances
   ADD KEY idx_oxygen_instances_archived (archived);
 `;
 
+const allowDuplicateInstanceNamesSql = `SET @drop_instance_name_index_sql = (
+  SELECT IF(
+    COUNT(*) > 0,
+    'ALTER TABLE oxygen_instances DROP INDEX uq_oxygen_instances_name',
+    'SELECT 1'
+  )
+  FROM information_schema.statistics
+  WHERE table_schema = DATABASE()
+    AND table_name = 'oxygen_instances'
+    AND index_name = 'uq_oxygen_instances_name'
+);
+PREPARE drop_instance_name_index_stmt FROM @drop_instance_name_index_sql;
+EXECUTE drop_instance_name_index_stmt;
+DEALLOCATE PREPARE drop_instance_name_index_stmt;`;
+
 export const schemaMigrations: SchemaMigration[] = [
   {
     version: '0.01',
@@ -364,5 +378,11 @@ export const schemaMigrations: SchemaMigration[] = [
     name: 'instance import metadata columns',
     checksum: '391966ee3f814e3d2d8a983d55a196f77de24f490dd496abb5f7ba2873aa44ed',
     upSql: instanceImportColumnsSql
+  },
+  {
+    version: '0.12',
+    name: 'allow duplicate instance names',
+    checksum: '4723114813a87869f22839e078a2542c262f092c17bf50e759b3e25ddbdcdb2a',
+    upSql: allowDuplicateInstanceNamesSql
   }
 ];

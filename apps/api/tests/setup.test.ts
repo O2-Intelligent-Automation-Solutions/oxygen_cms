@@ -7,6 +7,7 @@ import { createInMemoryAuthRepository } from '../src/auth/inMemoryAuthRepository
 import { createFileSetupSettingsStore } from '../src/setup/fileSetupSettingsStore.js';
 import { createFileSetupStatusProvider } from '../src/setup/setupStatus.js';
 import type { DatabaseProvisioner } from '../src/setup/databaseProvisioner.js';
+import { schemaMigrations } from '../src/db/migrations/index.js';
 
 const tempDirs: string[] = [];
 
@@ -31,6 +32,15 @@ afterEach(async () => {
 });
 
 describe('first-run database setup API', () => {
+  it('does not enforce unique instance names in current schema migrations', () => {
+    const initialInstanceMigration = schemaMigrations.find((migration) => migration.version === '0.02');
+    const duplicateNameMigration = schemaMigrations.find((migration) => migration.version === '0.12');
+
+    expect(initialInstanceMigration?.upSql).not.toContain('uq_oxygen_instances_name');
+    expect(duplicateNameMigration?.upSql).toContain('DROP INDEX uq_oxygen_instances_name');
+    expect(duplicateNameMigration?.upSql).toContain('information_schema.statistics');
+  });
+
   it('reports database setup is required before first admin creation on a fresh install', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'oxygen-cms-setup-api-'));
     tempDirs.push(dir);
@@ -52,7 +62,7 @@ describe('first-run database setup API', () => {
         connected: false,
         schemaCurrent: false,
         defaultDatabaseName: 'O2IAS_CMS',
-        targetSchemaVersion: '0.11'
+        targetSchemaVersion: '0.12'
       },
       admin: {
         exists: false

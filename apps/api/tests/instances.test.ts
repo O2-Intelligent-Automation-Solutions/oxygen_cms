@@ -17,14 +17,15 @@ function readRequestBody(request: IncomingMessage) {
   });
 }
 
-async function startMockOxyGenServer(password: string) {
+async function startMockOxyGenServer(password: string, onRequest?: (request: IncomingMessage) => void) {
   const server = createServer(async (request: IncomingMessage, response: ServerResponse) => {
+    onRequest?.(request);
     if (request.method === 'POST' && request.url === '/v2/Auth/Login') {
       const body = await readRequestBody(request);
       const form = new URLSearchParams(body);
       if (form.get('Username') === 'admin' && form.get('Password') === password) {
         response.statusCode = 200;
-        response.setHeader('set-cookie', 'ASP.NET_SessionId=mock-session; Path=/; HttpOnly');
+        response.setHeader('set-cookie', ['ASP.NET_SessionId=mock-session; Path=/; HttpOnly', '.ASPXAUTH=mock-auth-ticket; Path=/; HttpOnly']);
         response.end('OK');
         return;
       }
@@ -32,10 +33,38 @@ async function startMockOxyGenServer(password: string) {
       response.end('Unauthorized');
       return;
     }
-    if (request.method === 'GET' && request.url === '/web-api/global/settings/currenttime' && request.headers.cookie?.includes('ASP.NET_SessionId=mock-session')) {
+    if (request.method === 'GET' && request.url === '/web-api/global/settings' && request.headers.cookie?.includes('ASP.NET_SessionId=mock-session')) {
       response.statusCode = 200;
       response.setHeader('content-type', 'application/json');
-      response.end(JSON.stringify({ currentTime: '2026-06-04T00:00:00Z' }));
+      response.end(JSON.stringify([
+        {
+          Id: 4,
+          Group: 'Global',
+          Title: 'BUS: Auto Purge',
+          Hidden: false,
+          Controls: [
+            { Type: 'Switch', DataSource: 'BooleanValue', Properties: { Label: 'Enabled', Required: true }, VariableName: 'BUS_Auto_Purge_Enabled' },
+            { Type: 'NumberInput', DataSource: 'IntegerValue', Properties: { Label: 'Retention Period (Days)', Required: true }, VariableName: 'BUS_Auto_Purge' }
+          ],
+          Editable: true,
+          Variables: [
+            { Type: 'Boolean', Value: true, Description: 'Enables or disables the running of the OxyGen auto purge process.', VariableName: 'BUS_Auto_Purge_Enabled' },
+            { Type: 'Number', Value: 60, Description: 'Enables or disables the running of the OxyGen auto purge process.', VariableName: 'BUS_Auto_Purge' }
+          ],
+          Description: 'Enables or disables the running of the OxyGen auto purge process.',
+          SettingName: 'BUS_Auto_Purge',
+          StringValue: null,
+          BooleanValue: true,
+          IntegerValue: 60,
+          DocumentationURL: null
+        },
+        { SettingName: 'OxyGen_Version', Title: 'Production Version Settings', Variables: [{ VariableName: 'OxyGen_Version', Type: 'String', Value: '5.4.3' }], Controls: [{ VariableName: 'OxyGen_Version', Properties: { Label: 'OxyGen Version' } }] },
+        { SettingName: 'EMM_Delayed_Processing', Title: 'Email Processing', Variables: [{ VariableName: 'EMM_Processing_Enabled', Type: 'Boolean', Value: true }], Controls: [{ VariableName: 'EMM_Processing_Enabled', Properties: { Label: 'Email Processing' } }] },
+        { SettingName: 'BUS_Trigger_Processing', Title: 'OxyGen Processing', Variables: [{ VariableName: 'BUS_Trigger_Processing_Enabled', Type: 'Boolean', Value: true }], Controls: [{ VariableName: 'BUS_Trigger_Processing_Enabled', Properties: { Label: 'OxyGen Processing' } }] },
+        { SettingName: 'SMS_Delayed_Processing', Title: 'SMS Processing', Variables: [{ VariableName: 'SMS_Processing_Enabled', Type: 'Boolean', Value: false }], Controls: [{ VariableName: 'SMS_Processing_Enabled', Properties: { Label: 'SMS Processing' } }] },
+        { SettingName: 'Hangfire_CheckIn', Title: 'Hangfire', Variables: [{ VariableName: 'Hangfire_Last_Check_In', Type: 'DateTime', Value: '2026-06-04T00:00:00Z' }], Controls: [{ VariableName: 'Hangfire_Last_Check_In', Properties: { Label: 'Last Check-In' } }] },
+        { SettingName: 'ClientDomain', Title: 'Client Domain', Variables: [{ VariableName: 'ClientDomain', Type: 'String', Value: 'mock.example.com' }], Controls: [{ VariableName: 'ClientDomain', Properties: { Label: 'Client Domain' } }] }
+      ]));
       return;
     }
     response.statusCode = 404;
@@ -233,6 +262,61 @@ describe('instance enrollment API', () => {
     await app.close();
   });
 
+  it('excludes instances with license checks disabled from dashboard license issues', async () => {
+    const authRepository = createInMemoryAuthRepository();
+    const instanceRepository = createInMemoryInstanceRepository();
+    const app = await buildApp({ logger: false, authRepository, instanceRepository });
+    const { adminToken } = await bootstrap(app, authRepository);
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/instances',
+      headers: { authorization: `Bearer ${adminToken}` },
+      payload: { name: 'License Skipped', description: null, tenantId: null, protocol: 'https', host: 'license-skipped.example.com', password: 'RemotePassword!42', checkLicense: false }
+    });
+    expect(created.statusCode).toBe(201);
+
+    const dashboard = await app.inject({ method: 'GET', url: '/api/dashboard', headers: { authorization: `Bearer ${adminToken}` } });
+    expect(dashboard.statusCode).toBe(200);
+    expect(dashboard.json().dashboard.counts.licenseIssues).toBe(0);
+    expect(dashboard.json().dashboard.instances[0]).toMatchObject({
+      id: created.json().instance.id,
+      checkLicense: false,
+      hasIssue: false,
+      issueCount: 0,
+      primaryIssue: null
+    });
+
+    await app.close();
+  });
+
+  it('does not call the remote license API when checkLicense is false', async () => {
+    const requestedUrls: string[] = [];
+    const password = 'RemotePassword!42';
+    const port = await startMockOxyGenServer(password, (request) => requestedUrls.push(`${request.method} ${request.url}`));
+    const authRepository = createInMemoryAuthRepository();
+    const instanceRepository = createInMemoryInstanceRepository();
+    const app = await buildApp({ logger: false, authRepository, instanceRepository });
+    const { adminToken } = await bootstrap(app, authRepository);
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/instances',
+      headers: { authorization: `Bearer ${adminToken}` },
+      payload: { name: 'No License Probe', description: null, tenantId: null, protocol: 'http', host: '127.0.0.1', port, username: 'admin', password, checkLicense: false }
+    });
+    expect(created.statusCode).toBe(201);
+
+    const checked = await app.inject({ method: 'POST', url: `/api/instances/${created.json().instance.id}/test-connectivity`, headers: { authorization: `Bearer ${adminToken}` } });
+    expect(checked.statusCode).toBe(200);
+    expect(checked.json().license).toMatchObject({ status: 'unknown', step: { skipped: true } });
+    expect(requestedUrls).toContain('POST /v2/Auth/Login');
+    expect(requestedUrls).toContain('GET /web-api/global/settings');
+    expect(requestedUrls.some((url) => url.includes('/web-api/BUS/License'))).toBe(false);
+
+    await app.close();
+  });
+
   it('returns a scoped instance detail dashboard payload for an enrolled OxyGen instance', async () => {
     const authRepository = createInMemoryAuthRepository();
     const instanceRepository = createInMemoryInstanceRepository();
@@ -280,7 +364,7 @@ describe('instance enrollment API', () => {
       method: 'POST',
       url: '/api/instances/test-connectivity',
       headers: { authorization: `Bearer ${adminToken}` },
-      payload: { protocol: 'http', host: '127.0.0.1', port, username: 'admin', password: 'RemotePassword!42' }
+      payload: { protocol: 'http', host: '127.0.0.1', port, username: 'admin', password: 'RemotePassword!42', checkLicense: false }
     });
 
     expect(connectivity.statusCode).toBe(200);
@@ -311,7 +395,7 @@ describe('instance enrollment API', () => {
       method: 'POST',
       url: '/api/instances',
       headers: { authorization: `Bearer ${adminToken}` },
-      payload: { name: 'Local Mock OxyGen', description: null, tenantId: null, protocol: 'http', host: '127.0.0.1', port, username: 'admin', password: 'RemotePassword!42' }
+      payload: { name: 'Local Mock OxyGen', description: null, tenantId: null, protocol: 'http', host: '127.0.0.1', port, username: 'admin', password: 'RemotePassword!42', checkLicense: false }
     });
     expect(created.statusCode).toBe(201);
 
@@ -324,7 +408,16 @@ describe('instance enrollment API', () => {
       dns: { ok: true },
       ssl: { ok: true, skipped: true, valid: null },
       authentication: { ok: true, httpStatusCode: 200 },
-      api: { ok: true, httpStatusCode: 200 }
+      api: { ok: true, httpStatusCode: 200 },
+      settingsJson: [
+        { SettingName: 'BUS_Auto_Purge' },
+        { SettingName: 'OxyGen_Version' },
+        { SettingName: 'EMM_Delayed_Processing' },
+        { SettingName: 'BUS_Trigger_Processing' },
+        { SettingName: 'SMS_Delayed_Processing' },
+        { SettingName: 'Hangfire_CheckIn' },
+        { SettingName: 'ClientDomain' }
+      ]
     });
     expect(connectivity.json().durationMs).toBeGreaterThanOrEqual(0);
     expect(connectivity.json().password).toBeUndefined();
@@ -337,7 +430,20 @@ describe('instance enrollment API', () => {
     const healthDetails = await app.inject({ method: 'GET', url: `/api/instances/${created.json().instance.id}/health-details`, headers: { authorization: `Bearer ${adminToken}` } });
     expect(healthDetails.statusCode).toBe(200);
     expect(healthDetails.json().healthDetails).toMatchObject({
-      instance: { id: created.json().instance.id, name: 'Local Mock OxyGen', status: 'up' },
+      instance: {
+        id: created.json().instance.id,
+        name: 'Local Mock OxyGen',
+        status: 'up',
+        settingsJson: [
+          { SettingName: 'BUS_Auto_Purge' },
+          { SettingName: 'OxyGen_Version' },
+          { SettingName: 'EMM_Delayed_Processing' },
+          { SettingName: 'BUS_Trigger_Processing' },
+          { SettingName: 'SMS_Delayed_Processing' },
+          { SettingName: 'Hangfire_CheckIn' },
+          { SettingName: 'ClientDomain' }
+        ]
+      },
       availability: [{ checkType: 'connectivity', status: 'up' }],
       latestConnectivity: { checkType: 'connectivity', status: 'up' },
       licenseHistory: [{ checkType: 'license' }]
@@ -425,6 +531,33 @@ describe('instance enrollment API', () => {
     await app.close();
   });
 
+  it('imports spreadsheet CSV with trailing blank columns, password before check_license, and missing Tenant creation', async () => {
+    const authRepository = createInMemoryAuthRepository();
+    const instanceRepository = createInMemoryInstanceRepository();
+    const app = await buildApp({ logger: false, authRepository, instanceRepository });
+    const { adminToken } = await bootstrap(app, authRepository);
+
+    const csv = [
+      'instance_guid,name,description,tenant,protocol,host,port,username,polling_interval_seconds,is_enabled,password,check_license,archived,metadata,notes,,,,',
+      ',Spreadsheet Import,,10002,https,spreadsheet.example.com,443,admin,300,TRUE,SpreadsheetPassword!42,TRUE,FALSE,,OxyGen,,,,',
+      ''
+    ].join('\r\n');
+
+    const imported = await app.inject({ method: 'POST', url: '/api/instances/import', headers: { authorization: `Bearer ${adminToken}` }, payload: { csv } });
+
+    expect(imported.statusCode).toBe(200);
+    expect(imported.json()).toMatchObject({ created: 1, updated: 0, failed: 0 });
+    expect(imported.json().rows[0].warnings[0]).toContain('Tenant 10002 will be created.');
+    const tenant = (await authRepository.listTenants()).find((entry) => entry.name === '10002');
+    expect(tenant).toBeDefined();
+    const listed = await app.inject({ method: 'GET', url: '/api/instances', headers: { authorization: `Bearer ${adminToken}` } });
+    expect(listed.json().instances).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'Spreadsheet Import', tenantId: tenant?.id, host: 'spreadsheet.example.com', checkLicense: true, notes: 'OxyGen' })
+    ]));
+
+    await app.close();
+  });
+
   it('imports tenant-scoped CSV into the signed-in user Tenant without accepting a Tenant column', async () => {
     const authRepository = createInMemoryAuthRepository();
     const instanceRepository = createInMemoryInstanceRepository();
@@ -457,25 +590,25 @@ describe('instance enrollment API', () => {
     await app.close();
   });
 
-  it('rejects instance CSV imports with unknown Tenant names before persisting any rows', async () => {
+  it('rejects updates that would move existing instances to unknown Tenants', async () => {
     const authRepository = createInMemoryAuthRepository();
     const instanceRepository = createInMemoryInstanceRepository();
     const app = await buildApp({ logger: false, authRepository, instanceRepository });
-    const { adminToken } = await bootstrap(app, authRepository);
+    const { adminToken, tenant } = await bootstrap(app, authRepository);
+    const existing = await app.inject({ method: 'POST', url: '/api/instances', headers: { authorization: `Bearer ${adminToken}` }, payload: { name: 'Before Import', tenantId: tenant.id, protocol: 'https', host: 'before.example.com', username: 'admin', password: 'KeepPassword!42' } });
 
     const csv = [
       'instance_guid,name,description,tenant,protocol,host,port,username,polling_interval_seconds,is_enabled,check_license,archived,metadata,notes,password',
-      ',Valid Row,Would create,,https,valid.example.com,,admin,300,true,true,false,,,Password!42',
-      ',Invalid Row,Unknown Tenant,Missing Tenant,https,invalid.example.com,,admin,300,true,true,false,,,Password!42'
+      `${existing.json().instance.id},Invalid Row,Unknown Tenant,Missing Tenant,https,invalid.example.com,,admin,300,true,true,false,,,`
     ].join('\n');
 
     const imported = await app.inject({ method: 'POST', url: '/api/instances/import', headers: { authorization: `Bearer ${adminToken}` }, payload: { csv } });
 
     expect(imported.statusCode).toBe(400);
     expect(imported.json()).toMatchObject({ created: 0, updated: 0, failed: 1 });
-    expect(imported.json().rows[1].errors[0]).toContain('Unknown Tenant: Missing Tenant');
+    expect(imported.json().rows[0].errors[0]).toContain('Unknown Tenant: Missing Tenant');
     const listed = await app.inject({ method: 'GET', url: '/api/instances', headers: { authorization: `Bearer ${adminToken}` } });
-    expect(listed.json().instances).toEqual([]);
+    expect(listed.json().instances).toEqual([expect.objectContaining({ id: existing.json().instance.id, name: 'Before Import', tenantId: tenant.id })]);
 
     await app.close();
   });

@@ -7,7 +7,7 @@ import { Button } from '@progress/kendo-react-buttons';
 import { Dialog, DialogActionsBar } from '@progress/kendo-react-dialogs';
 import { Editor, EditorTools, type EditorChangeEvent } from '@progress/kendo-react-editor';
 import { createJSONEditor, Mode, type Content } from 'vanilla-jsoneditor';
-import { type MouseEvent, FormEvent, KeyboardEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { type MouseEvent, FormEvent, Fragment, KeyboardEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { ManagedGrid, type ManagedGridColumn } from './ManagedGrid';
 import o2Logo from '../brand/assets/o2-ias-logo-dark.png';
 import oxygenLogo from '../brand/assets/oxygen-logo-inline-dark.png';
@@ -61,7 +61,7 @@ type Tenant = { id: string; name: string; description: string | null };
 type UserProfile = AuthProfile;
 type OxyGenInstance = { id: string; name: string; description: string | null; tenantId: TenantId; protocol: 'http' | 'https'; host: string; port: number | null; hostname: string; baseUrl: string; launchUrl: string; apiBaseUrl: string; username: string; pollingIntervalSeconds: number; isEnabled: boolean; checkLicense: boolean; archived: boolean; metadata: unknown | null; notes: string | null; status: string; sslValid: boolean | null; sslExpiresAt: string | null; lastCheckedAt: string | null; lastSuccessAt: string | null; lastFailureAt: string | null; uptimePercent24h: number | null; uptimePercent7d: number | null; responseTimeMs: number | null; processingStatus: string; emmQueueStatus: string; smsStatus: string; hangfireStatus: string; licenseKey: string | null; licenseStatus: string; licenseJson: unknown | null; settingsJson: unknown | null; workflowSummaryJson: unknown | null; lastError: string | null; createdAt: string; updatedAt: string };
 type DashboardSeverity = 'ok' | 'warning' | 'failure' | 'unknown';
-type InstanceHealthModalKind = 'availability' | 'ssl' | 'license' | 'response' | 'endpoint' | 'monitoring' | 'workflow' | 'metadata' | 'notes' | 'record';
+type InstanceHealthModalKind = 'availability' | 'ssl' | 'license' | 'response' | 'endpoint' | 'monitoring' | 'workflow' | 'settings' | 'metadata' | 'notes' | 'record';
 type InstanceCheckHistoryEntry = { checkType: string; status: string; startedAt: string; finishedAt: string | null; durationMs: number | null; httpStatusCode: number | null; errorCode: string | null; errorMessage: string | null; detailsJson: unknown | null };
 type InstanceHealthDetails = { instance: OxyGenInstance; availability: InstanceCheckHistoryEntry[]; latestConnectivity: InstanceCheckHistoryEntry | null; licenseHistory: InstanceCheckHistoryEntry[] };
 type InstancePollerSummary = { checked: number; skipped: number; failed: number };
@@ -74,9 +74,10 @@ type AppLogGridRow = { id: string; createdAt: string; type: AppLogType; severity
 type InstanceImportRowResult = { rowNumber: number; instanceGuid: string | null; name: string | null; action: 'create' | 'update' | 'skip' | 'error'; errors: string[]; warnings: string[] };
 type InstanceImportResult = { dryRun: boolean; created: number; updated: number; failed: number; rows: InstanceImportRowResult[] };
 type LogRetentionSettings = { days: number };
-type ConnectivityStepDetail = { ok?: boolean; skipped?: boolean; message?: string; httpStatusCode?: number; errorCode?: string; valid?: boolean | null; expiresAt?: string | null; durationMs?: number };
-type ConnectivityDetailsJson = { dns?: ConnectivityStepDetail; ssl?: ConnectivityStepDetail; authentication?: ConnectivityStepDetail; api?: ConnectivityStepDetail; license?: ConnectivityStepDetail };
-type DashboardInstance = OxyGenInstance & { issues: string[]; issueCount: number; hasIssue: boolean; severity?: DashboardSeverity; primaryIssue?: string | null };
+type ConnectivityStepDetail = { ok?: boolean; skipped?: boolean; message?: string; httpStatusCode?: number; errorCode?: string; valid?: boolean | null; expiresAt?: string | null; durationMs?: number; address?: string | null; family?: number; host?: string; port?: number };
+type ConnectivityDetailsJson = { dns?: ConnectivityStepDetail; connect?: ConnectivityStepDetail; ssl?: ConnectivityStepDetail; authentication?: ConnectivityStepDetail; api?: ConnectivityStepDetail; license?: ConnectivityStepDetail };
+type DashboardIssueDetail = { label: string; severity: Exclude<DashboardSeverity, 'ok' | 'unknown'> };
+type DashboardInstance = OxyGenInstance & { issues: string[]; issueDetails?: DashboardIssueDetail[]; issueCount: number; hasIssue: boolean; severity?: DashboardSeverity; primaryIssue?: string | null };
 type DashboardSummary = { scope: 'tenant' | 'global'; tenant: { id: string; name: string; description: string | null } | null; poller: InstancePollerStatus | null; counts: { tenants: number; groups: number; users: number; roles: number; tenantRoles: number; globalRoles: number; instances: number; totalInstances: number; instancesWithIssues: number; upInstances: number; downInstances: number; sslIssues: number; licenseIssues: number; disabledInstances: number; connectivityIssues: number; processingIssues: number; unknownInstances: number }; instances: DashboardInstance[] };
 type BootstrapStatus = { requiresBootstrap: boolean };
 type SetupNextStep = 'database' | 'schema' | 'admin' | 'complete';
@@ -90,7 +91,7 @@ type NavSection = 'dashboard' | 'organizations' | 'instances' | 'instance-dashbo
 type ModalKind = 'user' | 'group' | 'role' | 'tenant' | 'instance';
 type ModalEntity = UserProfile | Group | Role | Tenant | OxyGenInstance;
 type ModalState = { kind: ModalKind; data?: ModalEntity } | null;
-type DashboardIssueFilter = 'all' | 'issues';
+type DashboardIssueFilter = string;
 type DashboardRefreshMode = 'quiet' | 'manual';
 type StatusTone = 'success' | 'warning' | 'failure';
 const AUTH_STORAGE_KEY = 'oxygen_cms.authToken';
@@ -328,7 +329,18 @@ function generateSecurePassword(length = 24) {
 }
 
 function apiErrorMessage(status: number, body: Record<string, unknown>) {
-  const base = String(body.error || body.message || `Request failed with status ${status}`);
+  const importRows = Array.isArray(body.rows) ? body.rows : [];
+  const firstRowError = importRows
+    .map((row) => {
+      if (!row || typeof row !== 'object') return null;
+      const candidate = row as { rowNumber?: unknown; errors?: unknown };
+      const errors = Array.isArray(candidate.errors) ? candidate.errors.filter((error) => typeof error === 'string') : [];
+      if (errors.length === 0) return null;
+      const rowNumber = typeof candidate.rowNumber === 'number' ? `Row ${candidate.rowNumber}: ` : '';
+      return `${rowNumber}${errors.slice(0, 2).join(' ')}`;
+    })
+    .find(Boolean);
+  const base = firstRowError || String(body.error || body.message || `Request failed with status ${status}`);
   const details = body.details ? ` ${JSON.stringify(body.details)}` : '';
   return import.meta.env.DEV ? `API ${status}: ${base}${details}` : base;
 }
@@ -457,6 +469,7 @@ export function App() {
   const [notesDraft, setNotesDraft] = useState('');
   const [isSavingHealthDetail, setIsSavingHealthDetail] = useState(false);
   const [logsBackTarget, setLogsBackTarget] = useState<{ section: NavSection; label: string; entityId?: string } | null>(null);
+  const [instanceDashboardBackTarget, setInstanceDashboardBackTarget] = useState<{ section: NavSection; label: string; entityId?: string } | null>(null);
   const [isDrawerExpanded, setIsDrawerExpanded] = useState(false);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
@@ -768,14 +781,17 @@ export function App() {
   function nav(section: NavSection, implemented = true, label?: string) {
     setActiveSection(section);
     if (section === 'settings-logs') setLogsBackTarget(null);
+    if (section !== 'instance-dashboard') setInstanceDashboardBackTarget(null);
     setRoute(section);
     setIsMobileDrawerOpen(false);
     if (!implemented) showNotImplemented(label || section);
   }
 
   function closeInstanceDashboard() {
-    setRoute('instances');
-    setActiveSection('instances');
+    const target: { section: NavSection; label?: string; entityId?: string } = instanceDashboardBackTarget || { section: 'instances' };
+    setRoute(target.section, target.entityId);
+    setActiveSection(target.section);
+    setInstanceDashboardBackTarget(null);
     setSelectedInstanceId('');
     setSelectedInstanceDetail(null);
   }
@@ -995,13 +1011,19 @@ export function App() {
       showStatus(`${instance.name}: ${res.message} (${res.status}${typeof res.responseTimeMs === 'number' ? `, ${res.responseTimeMs} ms response` : ''})`, tone);
       const refreshed = await api<{ instance: OxyGenInstance }>(`/api/instances/${instance.id}`, { token });
       setInstances((current) => current.map((entry) => entry.id === refreshed.instance.id ? refreshed.instance : entry));
-      if (selectedInstanceId === instance.id) setSelectedInstanceDetail(refreshed.instance);
+      if (selectedInstanceId === instance.id) {
+        setSelectedInstanceDetail(refreshed.instance);
+        const details = await api<{ healthDetails: InstanceHealthDetails }>(`/api/instances/${instance.id}/health-details`, { token });
+        setHealthDetails(details.healthDetails);
+      }
     }
     catch (err) { setError(err instanceof Error ? err.message : 'Connectivity test failed.'); setMessageTone('failure'); }
   }
 
   async function openInstanceDashboard(instance: OxyGenInstance) {
     clearStatus();
+    if (activeSection === 'dashboard') setInstanceDashboardBackTarget({ section: 'dashboard', label: 'Dashboard' });
+    else if (activeSection !== 'instance-dashboard') setInstanceDashboardBackTarget({ section: activeSection, label: activeSection === 'settings-logs' ? 'Logs' : activeSection === 'instances' ? 'Instances' : 'Previous view' });
     setSelectedInstanceId(instance.id);
     setSelectedInstanceDetail(instance);
     setRoute('instance-dashboard', instance.id);
@@ -1010,6 +1032,8 @@ export function App() {
       const res = await api<{ instance: OxyGenInstance }>(`/api/instances/${instance.id}`, { token });
       setSelectedInstanceDetail(res.instance);
       setInstances((current) => current.map((entry) => entry.id === res.instance.id ? res.instance : entry));
+      const detailRes = await api<{ healthDetails: InstanceHealthDetails }>(`/api/instances/${instance.id}/health-details`, { token });
+      setHealthDetails(detailRes.healthDetails);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load instance dashboard.');
     }
@@ -1152,6 +1176,7 @@ export function App() {
         <button type="button" role="menuitem" onClick={(event) => { closeMenu(event); openInstanceDashboard(instance); }}><LayoutDashboard /> Open Dashboard</button>
         {isSystemAdmin && <button type="button" role="menuitem" onClick={(event) => { closeMenu(event); openEditInstanceModal(instance); }}><Pencil /> Edit</button>}
         {isSystemAdmin && <button type="button" role="menuitem" onClick={(event) => { closeMenu(event); void testInstanceConnectivity(instance); }}><RotateCw /> Test Connectivity</button>}
+        <button type="button" role="menuitem" onClick={(event) => { closeMenu(event); openInstanceLogs(instance); }}><ClipboardList /> View Logs</button>
         <button type="button" role="menuitem" onClick={(event) => { closeMenu(event); window.open(launchUrlForInstance(instance), '_blank', 'noopener,noreferrer'); }}><ExternalLink /> Launch OxyGen</button>
         {isSystemAdmin && <button type="button" role="menuitem" onClick={(event) => { closeMenu(event); void setInstanceArchived(instance, !instance.archived); }}>{instance.archived ? <ArchiveRestore /> : <Archive />} {instance.archived ? 'Unarchive' : 'Archive'}</button>}
         {isSystemAdmin && <button className="danger" type="button" role="menuitem" onClick={(event) => { closeMenu(event); void deleteItem('instance', instance.id, `instance ${instance.name}`); }}><Trash2 /> Delete</button>}
@@ -1181,15 +1206,48 @@ export function App() {
   const dashboardTenantMatches = (tenantId: TenantId) => dashboardTenantFilter === 'all' || (dashboardTenantFilter === 'global' ? tenantId === null : tenantId === dashboardTenantFilter);
   const hasSslIssue = (instance: OxyGenInstance) => instance.protocol === 'https' && (instance.sslValid === false || instance.status === 'ssl-error');
   const hasConnectivityIssue = (instance: OxyGenInstance) => instance.status !== 'up' && instance.status !== 'unknown' && instance.status !== 'ssl-error';
-  const hasLicenseFailure = (instance: OxyGenInstance) => instance.licenseStatus === 'expired' || instance.licenseStatus === 'error' || (!instance.licenseKey && instance.licenseStatus !== 'unknown' && instance.licenseStatus !== 'warning');
-  const hasLicenseWarning = (instance: OxyGenInstance) => instance.licenseStatus === 'warning' || (!instance.licenseKey && instance.licenseStatus === 'unknown');
+  const hasLicenseFailure = (instance: OxyGenInstance) => instance.checkLicense && (instance.licenseStatus === 'expired' || instance.licenseStatus === 'error' || (!instance.licenseKey && instance.licenseStatus !== 'unknown' && instance.licenseStatus !== 'warning'));
+  const hasLicenseWarning = (instance: OxyGenInstance) => instance.checkLicense && (instance.licenseStatus === 'warning' || (!instance.licenseKey && instance.licenseStatus === 'unknown'));
   const hasLicenseIssue = (instance: OxyGenInstance) => hasLicenseFailure(instance) || hasLicenseWarning(instance);
   const hasProcessingFailure = (instance: OxyGenInstance) => instance.processingStatus === 'error' || instance.emmQueueStatus === 'error' || instance.smsStatus === 'error' || instance.hangfireStatus === 'error';
   const hasProcessingWarning = (instance: OxyGenInstance) => instance.processingStatus === 'warning' || instance.emmQueueStatus === 'warning' || instance.smsStatus === 'warning' || instance.hangfireStatus === 'warning';
   const hasProcessingIssue = (instance: OxyGenInstance) => hasProcessingFailure(instance) || hasProcessingWarning(instance);
+  const issueDisplayLabel = (label: string) => /^connection timed out:\s*.+/i.test(label.trim()) ? 'Connecting time out' : label;
+  const normalizedIssueKey = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'issue';
+  const issueFilterValue = (label: string) => `issue:${normalizedIssueKey(issueDisplayLabel(label))}`;
+  const dashboardIssueMatches = (instance: DashboardInstance, filter: DashboardIssueFilter) => {
+    if (filter === 'all') return true;
+    if (filter === 'issues') return instance.hasIssue;
+    if (filter === 'connectivity') return hasConnectivityIssue(instance);
+    if (filter === 'ssl') return hasSslIssue(instance);
+    if (filter === 'license') return hasLicenseIssue(instance);
+    if (filter === 'processing') return hasProcessingIssue(instance);
+    if (filter.startsWith('issue:')) return (instance.issueDetails || []).some((issue) => issueFilterValue(issue.label) === filter);
+    return true;
+  };
   const dashboardEnabledInstances = useMemo(() => (dashboard?.instances || []).filter((instance) => instance.isEnabled), [dashboard]);
   const dashboardTenantScopedInstances = useMemo(() => dashboardEnabledInstances.filter((instance) => dashboardTenantMatches(instance.tenantId)), [dashboardEnabledInstances, dashboardTenantFilter]);
-  const dashboardFilteredInstances = useMemo(() => dashboardTenantScopedInstances.filter((instance) => dashboardIssueFilter === 'all' || instance.hasIssue), [dashboardTenantScopedInstances, dashboardIssueFilter]);
+  const dashboardFilteredInstances = useMemo(() => dashboardTenantScopedInstances.filter((instance) => dashboardIssueMatches(instance, dashboardIssueFilter)), [dashboardTenantScopedInstances, dashboardIssueFilter]);
+  const dashboardIssueOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const options: Array<{ value: string; label: string }> = [
+      { value: 'all', label: 'All instances' },
+      { value: 'issues', label: 'Only instances with issues' },
+      { value: 'connectivity', label: 'Connectivity issues' },
+      { value: 'ssl', label: 'SSL warnings' },
+      { value: 'license', label: 'License issues' },
+      { value: 'processing', label: 'Processing issues' }
+    ];
+    for (const instance of dashboardTenantScopedInstances) {
+      for (const issue of instance.issueDetails || []) {
+        const value = issueFilterValue(issue.label);
+        if (seen.has(value)) continue;
+        seen.add(value);
+        options.push({ value, label: issueDisplayLabel(issue.label) });
+      }
+    }
+    return options;
+  }, [dashboardTenantScopedInstances]);
   const dashboardTenantOptions = tenants;
   const dashboardScopedCounts = useMemo(() => {
     const visibleInstances = dashboardTenantScopedInstances;
@@ -1220,8 +1278,169 @@ export function App() {
   }, [dashboard, dashboardTenantScopedInstances, dashboardTenantFilter, groups, users, roles, tenants.length]);
   const lastRefreshLabel = dashboardLastRefreshedAt ? new Date(dashboardLastRefreshedAt).toLocaleTimeString() : 'Not refreshed yet';
   const statusTone = (instance: DashboardInstance) => instance.severity === 'failure' ? 'issue' : instance.severity || (instance.status === 'up' && !instance.hasIssue ? 'ok' : instance.status === 'unknown' ? 'unknown' : 'issue');
-  const statusLabel = (instance: DashboardInstance) => instance.status === 'up' ? 'UP' : instance.status === 'down' ? 'DOWN' : instance.status === 'auth-error' ? 'AUTH ERROR' : instance.status === 'ssl-error' ? 'SSL WARNING' : instance.status.toUpperCase();
-  const responseLabel = (instance: DashboardInstance) => instance.status === 'down' ? 'NO RESPONSE' : instance.responseTimeMs === null ? '—' : `${instance.responseTimeMs} ms`;
+  const statusLabel = (instance: DashboardInstance) => instance.status === 'up' ? 'UP' : instance.status === 'down' ? 'NO CONNECTION' : instance.status === 'auth-error' ? 'AUTH ERROR' : instance.status === 'ssl-error' ? 'SSL WARNING' : instance.status.toUpperCase();
+  const availabilityLabel = (instance: OxyGenInstance) => instance.status === 'down' ? 'NO CONNECTION' : formatHealthStatus(instance.status).toUpperCase();
+  const sslCardLabel = (instance: OxyGenInstance) => instance.protocol !== 'https' ? 'Hidden' : instance.sslValid === null ? 'UNKNOWN' : instance.sslValid ? 'VALID' : 'INVALID';
+  const sslCardDetail = (instance: OxyGenInstance, step?: ConnectivityStepDetail) => instance.protocol !== 'https' ? 'Skipped for HTTP.' : step?.skipped ? step.message || 'Skipped.' : instance.sslExpiresAt ? `Expires ${formatDateTime(instance.sslExpiresAt)}` : step?.message || 'No SSL detail collected.';
+  const licenseCardLabel = (instance: OxyGenInstance) => instance.checkLicense ? instance.licenseStatus.toUpperCase() : 'Hidden';
+  const licenseCardDetail = (instance: OxyGenInstance, step?: ConnectivityStepDetail) => !instance.checkLicense ? 'License check disabled.' : step?.skipped ? step.message || 'Skipped.' : step?.ok === false ? step.message || 'License probe failed.' : formatNullable(instance.licenseKey, 'No license key collected');
+  const licenseCardStatusClass = (instance: OxyGenInstance, step?: ConnectivityStepDetail) => step?.skipped ? 'unknown' : instance.licenseStatus === 'valid' ? 'up' : instance.licenseStatus === 'warning' ? 'ssl-error' : instance.licenseStatus === 'error' || instance.licenseStatus === 'expired' || step?.ok === false ? 'down' : 'unknown';
+  const resolvedIpLabel = (details?: ConnectivityDetailsJson) => details?.dns?.ok ? (details.dns.address || 'Unknown') : details?.dns ? 'Resolution Failed' : 'Unknown';
+  const watchedSettings = [
+    { section: 'Global Settings', group: 'BUS_Auto_Purge', groupTitle: 'BUS: Auto Purge', variable: 'BUS_Auto_Purge_Enabled', fallbackLabel: 'Enabled' },
+    { section: 'Global Settings', group: 'BUS_Auto_Purge', groupTitle: 'BUS: Auto Purge', variable: 'BUS_Auto_Purge', fallbackLabel: 'Retention Period (Days)' },
+    { section: 'Global Settings', group: 'ClientDomain', groupTitle: 'OxyGen Base URL', variable: 'ClientDomain', fallbackLabel: 'OxyGen Base URL' },
+    { section: 'Licensing Settings', group: 'OxyGen_Version', groupTitle: 'OxyGen Version', variable: 'OxyGen_Version', fallbackLabel: 'Database Version Number' }
+  ];
+  const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === 'object' && !Array.isArray(value));
+  const normalizeKey = (value: unknown) => String(value ?? '').trim().toLowerCase();
+  const settingGroups = (settingsJson: unknown): Record<string, unknown>[] => {
+    if (Array.isArray(settingsJson)) return settingsJson.filter(isRecord);
+    if (!isRecord(settingsJson)) return [];
+    if ('SettingName' in settingsJson || 'SettingsName' in settingsJson || 'Variables' in settingsJson) return [settingsJson];
+    for (const key of ['Settings', 'settings', 'Groups', 'groups', 'Data', 'data']) {
+      const value = settingsJson[key];
+      if (Array.isArray(value)) return value.filter(isRecord);
+    }
+    const keyedGroups: Record<string, unknown>[] = [];
+    for (const [key, value] of Object.entries(settingsJson)) {
+      if (isRecord(value)) keyedGroups.push({ SettingsName: key, ...value });
+    }
+    return keyedGroups;
+  };
+  const variableList = (group: Record<string, unknown>): Record<string, unknown>[] => {
+    const variables = group.Variables ?? group.variables;
+    if (Array.isArray(variables)) return variables.filter(isRecord);
+    if (isRecord(variables)) return Object.entries(variables).map(([key, value]) => isRecord(value) ? { VariableName: key, ...value } : { VariableName: key, Value: value });
+    return [];
+  };
+  const controlList = (group: Record<string, unknown>): Record<string, unknown>[] => {
+    const controls = group.Controls ?? group.controls;
+    return Array.isArray(controls) ? controls.filter(isRecord) : [];
+  };
+  const settingControl = (group: Record<string, unknown>, variableName: string) => controlList(group).find((entry) => normalizeKey(entry.VariableName ?? entry.variableName) === normalizeKey(variableName));
+  const settingLabel = (group: Record<string, unknown>, variable: Record<string, unknown>, variableName: string, fallback: string) => {
+    const control = settingControl(group, variableName);
+    const properties = isRecord(control?.Properties) ? control.Properties : isRecord(control?.properties) ? control.properties : null;
+    return formatNullable((properties?.Label ?? properties?.label ?? variable.Label ?? variable.label) as string | undefined, fallback);
+  };
+  const typedGroupValue = (group: Record<string, unknown>, dataSourceOrType: unknown) => {
+    const key = normalizeKey(dataSourceOrType);
+    if (key === 'booleanvalue' || key === 'boolean') return group.BooleanValue ?? group.booleanValue;
+    if (key === 'integervalue' || key === 'integer' || key === 'int32' || key === 'number') return group.IntegerValue ?? group.integerValue;
+    if (key === 'decimalvalue' || key === 'decimal') return group.DecimalValue ?? group.decimalValue;
+    if (key === 'datetimevalue' || key === 'datetime' || key === 'date') return group.DateTimeValue ?? group.dateTimeValue;
+    if (key === 'stringvalue' || key === 'string' || key === 'text') return group.StringValue ?? group.stringValue;
+    return undefined;
+  };
+  const settingRawValue = (group: Record<string, unknown>, variable: Record<string, unknown> | null, variableName: string) => {
+    if (variable && variable.Value !== undefined) return variable.Value;
+    if (variable && variable.value !== undefined) return variable.value;
+    const control = settingControl(group, variableName);
+    const valueFromDataSource = typedGroupValue(group, control?.DataSource ?? control?.dataSource);
+    if (valueFromDataSource !== undefined && valueFromDataSource !== null) return valueFromDataSource;
+    const valueFromType = typedGroupValue(group, variable?.Type ?? variable?.type);
+    if (valueFromType !== undefined && valueFromType !== null) return valueFromType;
+    return undefined;
+  };
+  const formatSettingValue = (value: unknown) => {
+    if (value === null || value === undefined || value === '') return 'Unknown';
+    if (typeof value === 'boolean') return value ? 'True' : 'False';
+    if (Array.isArray(value)) return value.join(', ');
+    if (typeof value === 'object') return JSON.stringify(value);
+    return String(value);
+  };
+  const extractedSettings = (settingsJson: unknown) => watchedSettings.map((target) => {
+    const group = settingGroups(settingsJson).find((entry) => normalizeKey(entry.SettingName ?? entry.settingName ?? entry.SettingsName ?? entry.settingsName ?? entry.Name ?? entry.name) === normalizeKey(target.group));
+    const variable = group ? variableList(group).find((entry) => normalizeKey(entry.VariableName ?? entry.variableName ?? entry.Name ?? entry.name) === normalizeKey(target.variable)) ?? null : null;
+    return {
+      section: target.section,
+      groupKey: target.group,
+      groupTitle: target.groupTitle,
+      groupDescription: formatNullable((group?.Description ?? group?.description) as string | undefined, ''),
+      variableName: target.variable,
+      label: target.fallbackLabel,
+      description: formatNullable((variable?.Description ?? variable?.description) as string | undefined, ''),
+      type: formatNullable((variable?.Type ?? variable?.type) as string | undefined, 'Unknown'),
+      value: formatSettingValue(group ? settingRawValue(group, variable, target.variable) : undefined)
+    };
+  });
+  const collectedSettingsCount = (settingsJson: unknown) => {
+    const groups = settingGroups(settingsJson);
+    const variableCount = groups.reduce((count, group) => count + variableList(group).length, 0);
+    return variableCount || groups.length;
+  };
+  const queueSettingTargets = {
+    processing: { group: 'BUS_Trigger_Processing', variable: 'BUS_Trigger_Processing_Enabled' },
+    email: { group: 'EMM_Delayed_Processing', variable: 'EMM_Processing_Enabled' },
+    sms: { group: 'SMS_Delayed_Processing', variable: 'SMS_Processing_Enabled' },
+    schedulingLastCheckIn: { group: 'Hangfire_CheckIn', variable: 'Hangfire_Last_Check_In' }
+  };
+  const settingValueByKey = (settingsJson: unknown, groupKey: string, variableKey: string) => {
+    const group = settingGroups(settingsJson).find((entry) => normalizeKey(entry.SettingName ?? entry.settingName ?? entry.SettingsName ?? entry.settingsName ?? entry.Name ?? entry.name) === normalizeKey(groupKey));
+    const variable = group ? variableList(group).find((entry) => normalizeKey(entry.VariableName ?? entry.variableName ?? entry.Name ?? entry.name) === normalizeKey(variableKey)) ?? null : null;
+    return group ? settingRawValue(group, variable, variableKey) : undefined;
+  };
+  const settingBooleanByKey = (settingsJson: unknown, groupKey: string, variableKey: string): boolean | null => {
+    const value = settingValueByKey(settingsJson, groupKey, variableKey);
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value !== 0;
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      if (['true', 'yes', '1', 'enabled', 'on'].includes(normalized)) return true;
+      if (['false', 'no', '0', 'disabled', 'paused', 'off'].includes(normalized)) return false;
+    }
+    return null;
+  };
+  const queueEnabledLabel = (enabled: boolean | null) => enabled === null ? 'Unknown' : enabled ? 'Enabled' : 'Paused';
+  const queueEnabledTone = (enabled: boolean | null) => enabled === null ? 'unknown' : enabled ? 'enabled' : 'paused';
+  const queueStatusMessage = (value: string | null | undefined) => formatNullable(value, 'Unknown');
+  const queueRows = (instance: OxyGenInstance) => {
+    const settings = instance.settingsJson;
+    const schedulingLast = formatSettingValue(settingValueByKey(settings, queueSettingTargets.schedulingLastCheckIn.group, queueSettingTargets.schedulingLastCheckIn.variable));
+    return [
+      { label: 'Processing Queue', message: queueStatusMessage(instance.processingStatus), enabled: settingBooleanByKey(settings, queueSettingTargets.processing.group, queueSettingTargets.processing.variable) },
+      { label: 'Email Queue', message: queueStatusMessage(instance.emmQueueStatus), enabled: settingBooleanByKey(settings, queueSettingTargets.email.group, queueSettingTargets.email.variable) },
+      { label: 'SMS Queue', message: queueStatusMessage(instance.smsStatus), enabled: settingBooleanByKey(settings, queueSettingTargets.sms.group, queueSettingTargets.sms.variable) },
+      { label: 'Scheduling Queue', message: queueStatusMessage(instance.hangfireStatus), enabled: null, detail: schedulingLast === 'Unknown' ? null : `Last check-in ${schedulingLast}` }
+    ];
+  };
+  const renderQueueStatusList = (instance: OxyGenInstance) => <>
+    {queueRows(instance).map((queue) => <Fragment key={queue.label}>
+      <dt className="workflow-queue-name">{queue.label}</dt>
+      <dd className="workflow-queue-value"><span className={`queue-state-dot ${queueEnabledTone(queue.enabled)}`} title={queueEnabledLabel(queue.enabled)} /><span className="queue-status-message">{queue.message}</span>{queue.enabled !== null && <span className={`queue-state-label ${queueEnabledTone(queue.enabled)}`}>{queueEnabledLabel(queue.enabled)}</span>}{queue.detail && <small>{queue.detail}</small>}</dd>
+    </Fragment>)}
+  </>;
+  const settingsEntryValue = (settingsJson: unknown, variableName: string) => extractedSettings(settingsJson).find((entry) => entry.variableName === variableName)?.value ?? 'Unknown';
+  const booleanPill = (value: boolean | null, trueTone: 'green' | 'red' | 'grey', falseTone: 'green' | 'red' | 'grey', labels: { trueLabel?: string; falseLabel?: string } = {}) => {
+    const label = value === null ? 'Unknown' : value ? labels.trueLabel ?? 'Yes' : labels.falseLabel ?? 'No';
+    const tone = value === null ? 'unknown' : value ? trueTone : falseTone;
+    return <span className={`boolean-pill ${tone}`}>{label}</span>;
+  };
+  const formatRetentionDays = (value: string) => value === 'Unknown' ? value : /\bdays?\b/i.test(value) ? value : `${value} Days`;
+  const renderSettingsTree = (settingsJson: unknown, compact = false) => {
+    const autoPurgeEnabled = settingBooleanByKey(settingsJson, 'BUS_Auto_Purge', 'BUS_Auto_Purge_Enabled');
+    const retentionDays = formatRetentionDays(settingsEntryValue(settingsJson, 'BUS_Auto_Purge'));
+    const baseUrl = settingsEntryValue(settingsJson, 'ClientDomain');
+    const oxygenVersion = settingsEntryValue(settingsJson, 'OxyGen_Version');
+    return <div className={`settings-summary ${compact ? 'compact' : ''}`}>
+      <div className="settings-summary-row settings-summary-row-auto-purge">
+        <span className="settings-summary-label">Auto Purge Enabled:</span>
+        <span className="settings-summary-value">{booleanPill(autoPurgeEnabled, 'green', 'red', { trueLabel: 'Enabled', falseLabel: 'Disabled' })}</span>
+        <span className="settings-summary-label secondary">Retention:</span>
+        <span className="settings-summary-value">{retentionDays}</span>
+      </div>
+      <div className="settings-summary-row">
+        <span className="settings-summary-label">OxyGen Base URL:</span>
+        <span className="settings-summary-value wide">{baseUrl}</span>
+      </div>
+      <div className="settings-summary-row">
+        <span className="settings-summary-label">OxyGen Version:</span>
+        <span className="settings-summary-value wide">{oxygenVersion}</span>
+      </div>
+    </div>;
+  };
+  const responseLabel = (instance: DashboardInstance) => instance.status === 'down' && instance.responseTimeMs === null ? 'NO RESPONSE' : instance.responseTimeMs === null ? '—' : `${instance.responseTimeMs} ms`;
   const responseTone = (instance: DashboardInstance) => instance.status === 'down' ? 'issue' : instance.responseTimeMs !== null ? 'ok' : instance.status === 'unknown' ? 'unknown' : statusTone(instance);
   const valueTone = (isGood: boolean, isUnknown = false, isWarning = false) => isWarning ? 'warning' : isUnknown ? 'unknown' : isGood ? 'ok' : 'issue';
   const formatDuration = (value: number | null | undefined) => value === null || value === undefined ? '—' : `${value} ms`;
@@ -1229,17 +1448,21 @@ export function App() {
   const connectivityDetails = (entry: InstanceCheckHistoryEntry | null | undefined): ConnectivityDetailsJson => (entry?.detailsJson && typeof entry.detailsJson === 'object' ? entry.detailsJson as ConnectivityDetailsJson : {});
   const daysUntil = (value: string | null) => value ? Math.ceil((new Date(value).getTime() - Date.now()) / 86400000) : null;
 
-  async function openInstanceHealthModal(kind: InstanceHealthModalKind) {
-    if (!selectedInstance || !token) return;
+  async function openInstanceHealthModal(kind: InstanceHealthModalKind, targetInstance = selectedInstance) {
+    if (!targetInstance || !token) return;
+    setSelectedInstanceId(targetInstance.id);
+    setSelectedInstanceDetail(targetInstance);
     setHealthModal(kind);
     setHealthDetails(null);
-    if (kind === 'metadata') setMetadataDraft(selectedInstance.metadata ?? null);
-    if (kind === 'notes') setNotesDraft(notesToEditorHtml(selectedInstance.notes));
+    if (kind === 'metadata') setMetadataDraft(targetInstance.metadata ?? null);
+    if (kind === 'notes') setNotesDraft(notesToEditorHtml(targetInstance.notes));
     setIsHealthDetailsLoading(true);
     clearStatus();
     try {
-      const res = await api<{ healthDetails: InstanceHealthDetails }>(`/api/instances/${selectedInstance.id}/health-details`, { token });
+      const res = await api<{ healthDetails: InstanceHealthDetails }>(`/api/instances/${targetInstance.id}/health-details`, { token });
       setHealthDetails(res.healthDetails);
+      setSelectedInstanceDetail(res.healthDetails.instance);
+      setInstances((current) => current.map((entry) => entry.id === res.healthDetails.instance.id ? res.healthDetails.instance : entry));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load instance health details.');
     } finally {
@@ -1253,8 +1476,33 @@ export function App() {
     void openInstanceHealthModal(kind);
   }
 
+  function metricCardFilter(label: string): DashboardIssueFilter {
+    if (label === 'Issues') return 'issues';
+    if (label === 'Connectivity') return 'connectivity';
+    if (label === 'SSL') return 'ssl';
+    if (label === 'License') return 'license';
+    if (label === 'Processing Issues') return 'processing';
+    return 'all';
+  }
+
+  function instanceStatusModalKind(instance: DashboardInstance): InstanceHealthModalKind {
+    if (instance.status === 'ssl-error') return 'ssl';
+    return 'availability';
+  }
+
+  function openDashboardInstanceLogs(instance: DashboardInstance) {
+    setSelectedInstanceId(instance.id);
+    setSelectedInstanceDetail(instance);
+    openInstanceLogs(instance);
+  }
+
+  function openDashboardInstanceHealth(instance: DashboardInstance, kind: InstanceHealthModalKind) {
+    void openInstanceHealthModal(kind, instance);
+  }
+
   function renderTimingRow(label: string, step?: ConnectivityStepDetail, future = false) {
-    return <li className={`response-step ${future ? 'future' : step?.ok === false ? 'issue' : step?.ok ? 'ok' : 'unknown'}`}><span>{label}</span><strong>{future ? 'Future' : step?.skipped ? 'Skipped' : formatDuration(step?.durationMs)}</strong><small>{future ? 'Not collected yet' : step?.message || (step?.httpStatusCode ? `HTTP ${step.httpStatusCode}` : step?.ok ? 'OK' : 'No detail')}</small></li>;
+    const tone = future || step?.skipped ? 'future' : step?.ok === false ? 'issue' : step?.ok ? 'ok' : 'unknown';
+    return <li className={`response-step ${tone}`}><span>{label}</span><strong>{future ? 'Future' : step?.skipped ? 'Skipped' : formatDuration(step?.durationMs)}</strong><small>{future ? 'Not collected yet' : step?.message || (step?.httpStatusCode ? `HTTP ${step.httpStatusCode}` : step?.ok ? 'OK' : 'No detail')}</small></li>;
   }
 
   function detectNotesFormat(value: string | null | undefined) {
@@ -1327,6 +1575,7 @@ export function App() {
       endpoint: 'Connection Details',
       monitoring: 'Health Status',
       workflow: 'Workflow & Components',
+      settings: 'Settings',
       metadata: 'Custom Metadata',
       notes: 'Notes',
       record: 'Record Details'
@@ -1337,15 +1586,17 @@ export function App() {
     const latestConnectivity = details?.latestConnectivity ?? null;
     const stepDetails = connectivityDetails(latestConnectivity);
     const sslDays = daysUntil(instance.sslExpiresAt);
+    const triggersStep: ConnectivityStepDetail = stepDetails.api?.skipped ? { ...stepDetails.api, message: (stepDetails.api.message || 'Triggers probe skipped.').replace('Settings', 'Triggers') } : { ok: false, skipped: true, message: 'Triggers probe not collected yet.' };
     const body = <>
       {isHealthDetailsLoading && <p className="panel-copy">Loading health details…</p>}
       {!isHealthDetailsLoading && healthModal === 'availability' && <div className="health-detail-panel"><p className="panel-copy small-copy">Recent persisted availability checks from oldest to newest.</p>{details?.availability.length ? <div className="availability-chart" aria-label="Availability over time">{[...details.availability].reverse().map((entry, index) => <span key={`${entry.startedAt}-${index}`} className={`availability-bar status-${entry.status}`} title={`${formatDateTime(entry.finishedAt || entry.startedAt)} — ${formatHealthStatus(entry.status)}${entry.durationMs !== null ? ` (${entry.durationMs} ms)` : ''}`} />)}</div> : <p className="panel-copy">No availability history has been collected yet.</p>}<dl className="detail-list"><dt>Current status</dt><dd>{formatHealthStatus(instance.status)}</dd><dt>Last checked</dt><dd>{formatDateTime(instance.lastCheckedAt)}</dd><dt>Last success</dt><dd>{formatDateTime(instance.lastSuccessAt)}</dd><dt>Last failure</dt><dd>{formatDateTime(instance.lastFailureAt)}</dd><dt>Last error</dt><dd>{formatNullable(instance.lastError)}</dd></dl></div>}
       {!isHealthDetailsLoading && healthModal === 'ssl' && <div className="health-detail-panel"><dl className="detail-list"><dt>Protocol</dt><dd>{instance.protocol.toUpperCase()}</dd><dt>Certificate status</dt><dd>{instance.protocol !== 'https' ? 'Skipped for HTTP' : instance.sslValid === null ? 'Unknown' : instance.sslValid ? 'Valid' : 'Invalid'}</dd><dt>Expires</dt><dd>{formatDateTime(instance.sslExpiresAt)}</dd><dt>Days until expiration</dt><dd>{sslDays === null ? 'Unknown' : sslDays}</dd><dt>Last SSL probe</dt><dd>{formatDuration(stepDetails.ssl?.durationMs)}</dd><dt>SSL message</dt><dd>{stepDetails.ssl?.message || 'No SSL detail collected.'}</dd><dt>Error code</dt><dd>{formatNullable(stepDetails.ssl?.errorCode)}</dd></dl></div>}
       {!isHealthDetailsLoading && healthModal === 'license' && <div className="health-detail-panel"><dl className="detail-list"><dt>Status</dt><dd>{instance.licenseStatus}</dd><dt>License key</dt><dd>{formatNullable(instance.licenseKey, 'No license key collected')}</dd><dt>Last license probe</dt><dd>{details?.licenseHistory[0] ? `${formatDateTime(details.licenseHistory[0].finishedAt || details.licenseHistory[0].startedAt)} (${formatDuration(details.licenseHistory[0].durationMs)})` : 'No license history collected.'}</dd></dl><ReadOnlyJsonEditor value={instance.licenseJson ?? { message: 'No license JSON collected yet.' }} /></div>}
-      {!isHealthDetailsLoading && healthModal === 'response' && <div className="health-detail-panel"><p className="panel-copy small-copy">Timing from the last persisted check. Response remains the initial connection/TLS timing.</p><ol className="response-step-list">{renderTimingRow('Connect', instance.protocol === 'https' ? stepDetails.ssl : stepDetails.authentication)}{renderTimingRow('Auth', stepDetails.authentication)}{renderTimingRow('License', stepDetails.license)}{renderTimingRow('Settings', undefined, true)}{renderTimingRow('Triggers', undefined, true)}</ol><dl className="detail-list"><dt>Card response</dt><dd>{formatDuration(instance.responseTimeMs)}</dd><dt>Total check duration</dt><dd>{formatDuration(latestConnectivity?.durationMs)}</dd><dt>Last checked</dt><dd>{formatDateTime(instance.lastCheckedAt)}</dd></dl></div>}
-      {!isHealthDetailsLoading && healthModal === 'endpoint' && <div className="health-detail-panel"><dl className="detail-list"><dt>{tenantLabel}</dt><dd>{tenantName(instance.tenantId)}</dd><dt>Host</dt><dd>{instance.host}</dd><dt>Port</dt><dd>{formatNullable(instance.port)}</dd><dt>Base URL</dt><dd>{instance.baseUrl}</dd><dt>API Base URL</dt><dd>{instance.apiBaseUrl}</dd><dt>Launch URL</dt><dd>{instance.launchUrl}</dd><dt>Username</dt><dd>{instance.username}</dd></dl></div>}
-      {!isHealthDetailsLoading && healthModal === 'monitoring' && <div className="health-detail-panel"><dl className="detail-list"><dt>Enabled</dt><dd>{instance.isEnabled ? 'Yes' : 'No'}</dd><dt>Check License</dt><dd>{instance.checkLicense ? 'Yes' : 'No'}</dd><dt>Archived</dt><dd>{instance.archived ? 'Yes' : 'No'}</dd><dt>Last success</dt><dd>{formatDateTime(instance.lastSuccessAt)}</dd><dt>Last failure</dt><dd>{formatDateTime(instance.lastFailureAt)}</dd><dt>Uptime 24h</dt><dd>{instance.uptimePercent24h === null ? 'Unknown' : `${instance.uptimePercent24h}%`}</dd><dt>Uptime 7d</dt><dd>{instance.uptimePercent7d === null ? 'Unknown' : `${instance.uptimePercent7d}%`}</dd><dt>Last error</dt><dd>{formatNullable(instance.lastError, 'None')}</dd></dl></div>}
-      {!isHealthDetailsLoading && healthModal === 'workflow' && <div className="health-detail-panel"><dl className="detail-list"><dt>Processing</dt><dd>{instance.processingStatus}</dd><dt>EMM Queue</dt><dd>{instance.emmQueueStatus}</dd><dt>SMS</dt><dd>{instance.smsStatus}</dd><dt>Hangfire</dt><dd>{instance.hangfireStatus}</dd><dt>Workflow summary</dt><dd>{instance.workflowSummaryJson ? 'Collected' : 'Not collected yet'}</dd><dt>Global settings</dt><dd>{instance.settingsJson ? 'Collected' : 'Not collected yet'}</dd></dl>{Boolean(instance.workflowSummaryJson) && <ReadOnlyJsonEditor value={instance.workflowSummaryJson} />}{Boolean(instance.settingsJson) && <ReadOnlyJsonEditor value={instance.settingsJson} />}</div>}
+      {!isHealthDetailsLoading && healthModal === 'response' && <div className="health-detail-panel"><p className="panel-copy small-copy">Timing from the last persisted check. Response is Resolve + Connect + SSL + Auth for collected, non-skipped phases.</p><ol className="response-step-list">{renderTimingRow('Resolve', stepDetails.dns)}{renderTimingRow('Connect', stepDetails.connect)}{instance.protocol === 'https' && renderTimingRow('SSL', stepDetails.ssl)}{renderTimingRow('Auth', stepDetails.authentication)}{instance.checkLicense && renderTimingRow('License', stepDetails.license)}{renderTimingRow('Settings', stepDetails.api)}{renderTimingRow('Triggers', triggersStep)}</ol><dl className="detail-list"><dt>Card response</dt><dd>{formatDuration(instance.responseTimeMs)}</dd><dt>Total check duration</dt><dd>{formatDuration(latestConnectivity?.durationMs)}</dd><dt>Last checked</dt><dd>{formatDateTime(instance.lastCheckedAt)}</dd></dl></div>}
+      {!isHealthDetailsLoading && healthModal === 'endpoint' && <div className="health-detail-panel"><dl className="detail-list"><dt>{tenantLabel}</dt><dd>{tenantName(instance.tenantId)}</dd><dt>Host</dt><dd>{instance.host}</dd><dt>Resolved IP</dt><dd>{resolvedIpLabel(stepDetails)}</dd><dt>Port</dt><dd>{formatNullable(instance.port)}</dd><dt>Base URL</dt><dd>{instance.baseUrl}</dd><dt>API Base URL</dt><dd>{instance.apiBaseUrl}</dd><dt>Launch URL</dt><dd>{instance.launchUrl}</dd><dt>Username</dt><dd>{instance.username}</dd></dl></div>}
+      {!isHealthDetailsLoading && healthModal === 'monitoring' && <div className="health-detail-panel"><dl className="detail-list"><dt>Enabled</dt><dd>{booleanPill(instance.isEnabled, 'green', 'red', { trueLabel: 'Enabled', falseLabel: 'Disabled' })}</dd><dt>Check License</dt><dd>{booleanPill(instance.checkLicense, 'green', 'grey', { trueLabel: 'Enabled', falseLabel: 'Disabled' })}</dd><dt>Archived</dt><dd>{booleanPill(instance.archived, 'red', 'green')}</dd><dt>Last success</dt><dd>{formatDateTime(instance.lastSuccessAt)}</dd><dt>Last failure</dt><dd>{formatDateTime(instance.lastFailureAt)}</dd><dt>Uptime 24h</dt><dd>{instance.uptimePercent24h === null ? 'Unknown' : `${instance.uptimePercent24h}%`}</dd><dt>Uptime 7d</dt><dd>{instance.uptimePercent7d === null ? 'Unknown' : `${instance.uptimePercent7d}%`}</dd><dt>Last error</dt><dd>{formatNullable(instance.lastError, 'None')}</dd></dl></div>}
+      {!isHealthDetailsLoading && healthModal === 'workflow' && <div className="health-detail-panel"><dl className="detail-list workflow-queue-detail-list">{renderQueueStatusList(instance)}<dt>Workflow summary</dt><dd>{instance.workflowSummaryJson ? 'Collected' : 'Not collected yet'}</dd></dl>{Boolean(instance.workflowSummaryJson) && <ReadOnlyJsonEditor value={instance.workflowSummaryJson} />}</div>}
+      {!isHealthDetailsLoading && healthModal === 'settings' && <div className="health-detail-panel"><p className="panel-copy small-copy">Key values extracted from the latest collected global settings payload.</p>{renderSettingsTree(instance.settingsJson)}<ReadOnlyJsonEditor value={instance.settingsJson ?? { message: 'No settings JSON collected yet.' }} /></div>}
       {!isHealthDetailsLoading && healthModal === 'metadata' && <div className="health-detail-panel"><p className="panel-copy small-copy">Edit custom instance metadata stored with this instance.</p><EditableJsonEditor value={metadataDraft ?? {}} onChange={setMetadataDraft} /></div>}
       {!isHealthDetailsLoading && healthModal === 'notes' && <div className="health-detail-panel"><dl className="detail-list"><dt>Detected format</dt><dd>{detectNotesFormat(instance.notes).toUpperCase()}</dd><dt>Editor mode</dt><dd>{detectNotesFormat(instance.notes) === 'markdown' ? 'Markdown rendered through Kendo Editor' : 'Rich text HTML'}</dd></dl><Editor className="instance-notes-editor" defaultEditMode="div" value={notesDraft} onChange={(event: EditorChangeEvent) => setNotesDraft(event.html)} tools={notesEditorTools} contentStyle={{ height: 360, backgroundColor: '#020b14', color: '#f8fafc' }} /></div>}
       {!isHealthDetailsLoading && healthModal === 'record' && <div className="health-detail-panel"><dl className="detail-list"><dt>Description</dt><dd>{formatNullable(instance.description, 'No description')}</dd><dt>Created</dt><dd>{formatDateTime(instance.createdAt)}</dd><dt>Updated</dt><dd>{formatDateTime(instance.updatedAt)}</dd><dt>Instance ID</dt><dd>{instance.id}</dd></dl></div>}
@@ -1353,7 +1604,7 @@ export function App() {
     if (isMobileViewport) {
       return <section className="mobile-health-screen" aria-labelledby="mobile-health-title"><header className="mobile-health-screen-header"><button className="mobile-editor-back" type="button" onClick={() => setHealthModal(null)} aria-label="Back"><ChevronLeft /></button><div><p className="eyebrow small">Instance health</p><h2 id="mobile-health-title">{title}</h2></div></header><div className="mobile-health-screen-body">{body}<div className="mobile-editor-actions">{healthModal === 'metadata' && <Button className="compact-button" type="button" themeColor="primary" onClick={() => void saveInstanceMetadata()} disabled={isSavingHealthDetail}>Save Metadata</Button>}{healthModal === 'notes' && <Button className="compact-button" type="button" themeColor="primary" onClick={() => void saveInstanceNotes()} disabled={isSavingHealthDetail}>Save Notes</Button>}</div></div></section>;
     }
-    return <Dialog className="cms-dialog instance-health-dialog" title={title} onClose={() => setHealthModal(null)} width={healthModal === 'license' || healthModal === 'metadata' || healthModal === 'notes' ? 920 : 760}>
+    return <Dialog className="cms-dialog instance-health-dialog" title={title} onClose={() => setHealthModal(null)} width={healthModal === 'license' || healthModal === 'settings' || healthModal === 'metadata' || healthModal === 'notes' ? 920 : 760}>
       {body}
       <DialogActionsBar>{healthModal === 'metadata' && <Button className="compact-button" type="button" themeColor="primary" onClick={() => void saveInstanceMetadata()} disabled={isSavingHealthDetail}>Save Metadata</Button>}{healthModal === 'notes' && <Button className="compact-button" type="button" themeColor="primary" onClick={() => void saveInstanceNotes()} disabled={isSavingHealthDetail}>Save Notes</Button>}<Button className="compact-button instance-health-dialog-close" type="button" fillMode="flat" onClick={() => setHealthModal(null)}>Close</Button></DialogActionsBar>
     </Dialog>;
@@ -1387,15 +1638,15 @@ export function App() {
       </section>
       <section className="tenant-issue-grid dashboard-admin-kpis" aria-label="Dashboard security and tenant counts">{adminCards.map((card) => <article className={`tenant-issue-card ${card.tone}`} key={card.label}><span>{card.label}</span><strong>{card.value}</strong><small>{card.detail}</small></article>)}</section>
       <section className={`panel service-status-card ${pollerTone}`} aria-label="Background polling service status"><div className="service-status-main"><div className="service-title-block"><p className="eyebrow small">Service</p><div className="service-title-row"><h3>Background Polling Runner</h3><span className="service-state service-title-state">(<span className={`service-dot ${pollerTone}`} /><strong>{poller ? poller.state.toUpperCase() : 'UNAVAILABLE'}</strong>)</span></div></div></div><dl className="service-status-grid"><div><dt>Last run</dt><dd>{formatDateTime(poller?.lastRunAt ?? null)}</dd></div><div><dt>Next run</dt><dd>{formatDateTime(poller?.nextRunAt ?? null)}</dd></div><div className="compact"><dt>In flight</dt><dd>{poller?.inFlight ?? 0}</dd></div><div className="summary-wide"><dt>Last summary</dt><dd>{pollerSummary}</dd></div>{poller?.lastError && <div className="wide"><dt>Last error</dt><dd>{poller.lastError}</dd></div>}</dl>{isSystemAdmin && <div className="service-actions"><Button className="compact-button" type="button" onClick={() => void handlePollerControl('run-now')} disabled={!poller}><RotateCw /> Run Now</Button><Button className="compact-button" type="button" onClick={() => void handlePollerControl(poller?.isPaused ? 'resume' : 'pause')} disabled={!poller}>{poller?.isPaused ? <Play /> : <Pause />}{poller?.isPaused ? 'Resume Poller' : 'Pause Poller'}</Button><Button className="compact-button" type="button" fillMode="flat" onClick={() => nav('settings-logs')}><ClipboardList /> View Logs</Button></div>}</section>
-      <section className="tenant-metric-grid dashboard-primary-kpis" aria-label="Dashboard health KPIs">{metricCards.map((card) => <article className={`tenant-metric-card ${card.tone}`} key={card.label}><span>{card.label}</span><strong>{card.value}</strong><small>{card.detail}</small></article>)}</section>
+      <section className="tenant-metric-grid dashboard-primary-kpis" aria-label="Dashboard health KPIs">{metricCards.map((card) => <button className={`tenant-metric-card ${card.tone} clickable`} key={card.label} type="button" onClick={() => setDashboardIssueFilter(metricCardFilter(card.label))}><span>{card.label}</span><strong>{card.value}</strong><small>{card.detail}</small></button>)}</section>
       <section className="tenant-instance-board" aria-label="Tenant instance cards">
-        <div className="tenant-section-heading"><div><p className="eyebrow small">Instances</p><h3>Instance Board</h3></div><div className="dashboard-filter-bar"><label>Issues<select value={dashboardIssueFilter} onChange={(e) => setDashboardIssueFilter(e.target.value as DashboardIssueFilter)}><option value="all">All instances</option><option value="issues">Only instances with issues</option></select></label><Button className="compact-button" type="button" onClick={() => { nav('instances'); loadInstances(); }}><Server /> View Grid</Button></div></div>
+        <div className="tenant-section-heading"><div><p className="eyebrow small">Instances</p><h3>Instance Board</h3></div><div className="dashboard-filter-bar"><label>Issues<select value={dashboardIssueFilter} onChange={(e) => setDashboardIssueFilter(e.target.value)}>{dashboardIssueOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label><Button className="compact-button" type="button" onClick={() => { nav('instances'); loadInstances(); }}><Server /> View Grid</Button></div></div>
         {dashboard.instances.length === 0 ? <article className="panel tenant-dashboard-empty"><p className="panel-copy">No instances are currently visible for this dashboard scope.</p></article> : dashboardFilteredInstances.length === 0 ? <article className="panel tenant-dashboard-empty"><p className="panel-copy">No instances match the current dashboard filters.</p></article> : <div className="tenant-instance-card-grid">{dashboardFilteredInstances.map((instance) => {
           const tone = statusTone(instance);
           return <article className={`tenant-instance-card status-${instance.status} ${tone}`} key={instance.id}>
-            <header><div><span className="instance-status-dot" /><h4>{instance.name}</h4><p>{instance.host}</p></div><strong>{statusLabel(instance)}</strong></header>
-            <div className="tenant-instance-stats"><span><b className={valueTone(instance.uptimePercent24h !== null && instance.uptimePercent24h >= 99, instance.uptimePercent24h === null)}>{instance.uptimePercent24h === null ? '—' : `${instance.uptimePercent24h}%`}</b><small>Uptime</small></span><span><b className={responseTone(instance)}>{responseLabel(instance)}</b><small>Response</small></span><span><b className={hasLicenseFailure(instance) ? 'issue' : hasLicenseWarning(instance) ? 'warning' : valueTone(instance.licenseStatus === 'valid', instance.licenseStatus === 'unknown')}>{instance.licenseStatus}</b><small>License</small></span></div>
-            <div className="tenant-instance-foot"><span>{instance.primaryIssue || (instance.hasIssue ? instance.issues[0] : 'No active issues')}</span><div className="tenant-instance-actions" aria-label={`Actions for ${instance.name}`}><Button className="tenant-card-action" onClick={() => openInstanceDashboard(instance)} title="Dashboard" aria-label={`Open dashboard for ${instance.name}`} type="button" fillMode="flat"><LayoutDashboard /></Button><Button className="tenant-card-action" onClick={() => openEditInstanceModal(instance)} disabled={!isSystemAdmin} title="Edit" aria-label={`Edit ${instance.name}`} type="button" fillMode="flat"><Pencil /></Button><Button className="tenant-card-action" onClick={() => testInstanceConnectivity(instance)} disabled={!isSystemAdmin} title="Test" aria-label={`Test connectivity for ${instance.name}`} type="button" fillMode="flat"><RotateCw /></Button><Button className="tenant-card-action" onClick={() => window.open(launchUrlForInstance(instance), '_blank', 'noopener,noreferrer')} title="Open" aria-label={`Launch ${instance.name} in OxyGen`} type="button" fillMode="flat"><ExternalLink /></Button></div></div>
+            <header><div><span className="instance-status-dot" /><h4><button className="tenant-instance-name-link" type="button" onClick={() => void openInstanceDashboard(instance)}>{instance.name}</button></h4><p>{instance.host}</p></div><button className="instance-status-pill" type="button" onClick={() => openDashboardInstanceHealth(instance, instanceStatusModalKind(instance))}>{statusLabel(instance)}</button></header>
+            <div className="tenant-instance-stats"><button type="button" onClick={() => openDashboardInstanceHealth(instance, 'availability')}><b className={valueTone(instance.uptimePercent24h !== null && instance.uptimePercent24h >= 99, instance.uptimePercent24h === null)}>{instance.uptimePercent24h === null ? '—' : `${instance.uptimePercent24h}%`}</b><small>Uptime</small></button><button type="button" onClick={() => openDashboardInstanceHealth(instance, 'response')}><b className={responseTone(instance)}>{responseLabel(instance)}</b><small>Response</small></button><button type="button" onClick={() => openDashboardInstanceHealth(instance, instance.checkLicense ? 'license' : 'monitoring')}><b className={hasLicenseFailure(instance) ? 'issue' : hasLicenseWarning(instance) ? 'warning' : valueTone(instance.licenseStatus === 'valid', instance.licenseStatus === 'unknown')}>{instance.checkLicense ? instance.licenseStatus : 'skipped'}</b><small>License</small></button></div>
+            <div className="tenant-instance-foot"><button className="tenant-instance-status-message" type="button" onClick={() => openDashboardInstanceLogs(instance)}>{instance.primaryIssue ? issueDisplayLabel(instance.primaryIssue) : instance.hasIssue ? issueDisplayLabel(instance.issues[0] || 'Issue detected') : 'No active issues'}</button><div className="tenant-instance-actions" aria-label={`Actions for ${instance.name}`}><InstanceActionMenu instance={instance} mobile /></div></div>
           </article>;
         })}</div>}
       </section>
@@ -1557,7 +1808,7 @@ export function App() {
           {activeSection === 'dashboard' && renderDashboard()}
           {activeSection === 'organizations' && isSystemAdmin && <ManagedGrid gridKey="tenants" token={token!} rows={tenantRows} columns={tenantColumnDefs} actionCell={TenantActionCell} mobileActions={(row) => <MobileStandardActions onEdit={() => openEditTenantModal(row.raw)} onDelete={() => deleteItem('tenant', row.raw.id, `${tenantLabelLower} ${row.raw.name}`)} />} toolbar={<Button className="btn-create" onClick={openCreateTenantModal} type="button" themeColor="primary"><Plus /> Create “{tenantLabel}”</Button>} />}
           {activeSection === 'instances' && <ManagedGrid gridKey="instances" token={token!} rows={instanceRows} columns={labeledInstanceColumnDefs} actionCell={InstanceActionCell} actionWidth={58} mobileActions={mobileInstanceActions} toolbar={canImportExportInstances || isSystemAdmin ? renderInstanceToolbar() : null} />}
-          {activeSection === 'instance-dashboard' && selectedInstance && <div className="instance-detail-dashboard"><div className="instance-dashboard-actions"><Button className="compact-button" type="button" fillMode="flat" onClick={closeInstanceDashboard}><ChevronLeft /> Back to Instances</Button>{isSystemAdmin && <Button className="compact-button" type="button" onClick={() => openEditInstanceModal(selectedInstance)}><Pencil /> Edit</Button>}{isSystemAdmin && <Button className="compact-button" type="button" onClick={() => testInstanceConnectivity(selectedInstance)}><RotateCw /> Test Connectivity</Button>}{isSystemAdmin && <Button className="compact-button" type="button" onClick={() => void setInstanceArchived(selectedInstance, !selectedInstance.archived)}>{selectedInstance.archived ? <ArchiveRestore /> : <Archive />} {selectedInstance.archived ? 'Unarchive' : 'Archive'}</Button>}<Button className="compact-button" type="button" onClick={() => openInstanceLogs(selectedInstance)}><ClipboardList /> View Logs</Button><Button className="compact-button" type="button" onClick={() => window.open(launchUrlForInstance(selectedInstance), '_blank', 'noopener,noreferrer')}><ExternalLink /> Launch OxyGen</Button></div><div className="instance-health-strip"><button className={`instance-health-card clickable status-${selectedInstance.status}`} type="button" onClick={() => void openInstanceHealthModal('availability')}><span>Availability</span><strong>{selectedInstance.status}</strong><small>{formatDateTime(selectedInstance.lastCheckedAt)}</small></button><button className="instance-health-card clickable" type="button" onClick={() => void openInstanceHealthModal('ssl')}><span>SSL</span><strong>{selectedInstance.sslValid === null ? 'Unknown' : selectedInstance.sslValid ? 'Valid' : 'Invalid'}</strong><small>Expires {formatDateTime(selectedInstance.sslExpiresAt)}</small></button><button className="instance-health-card clickable" type="button" onClick={() => void openInstanceHealthModal('license')}><span>License</span><strong>{selectedInstance.licenseStatus}</strong><small>{formatNullable(selectedInstance.licenseKey, 'No license key collected')}</small></button><button className="instance-health-card clickable" type="button" onClick={() => void openInstanceHealthModal('response')}><span>Response</span><strong>{selectedInstance.responseTimeMs === null ? '—' : `${selectedInstance.responseTimeMs} ms`}</strong><small>Polling every {selectedInstance.pollingIntervalSeconds}s</small></button></div><div className="instance-detail-grid"><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('endpoint')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'endpoint')}><div className="panel-heading"><Server /><div><p className="eyebrow small">Endpoint</p><h3>Connection Details</h3></div></div><dl className="detail-list"><dt>{tenantLabel}</dt><dd>{tenantName(selectedInstance.tenantId)}</dd><dt>Host</dt><dd>{selectedInstance.host}</dd><dt>Port</dt><dd>{formatNullable(selectedInstance.port)}</dd><dt>Base URL</dt><dd>{selectedInstance.baseUrl}</dd><dt>API Base URL</dt><dd>{selectedInstance.apiBaseUrl}</dd><dt>Launch URL</dt><dd>{selectedInstance.launchUrl}</dd><dt>Username</dt><dd>{selectedInstance.username}</dd></dl></article><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('monitoring')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'monitoring')}><div className="panel-heading"><Activity /><div><p className="eyebrow small">Monitoring</p><h3>Health Status</h3></div></div><dl className="detail-list"><dt>Enabled</dt><dd>{selectedInstance.isEnabled ? 'Yes' : 'No'}</dd><dt>Last Success</dt><dd>{formatDateTime(selectedInstance.lastSuccessAt)}</dd><dt>Last Failure</dt><dd>{formatDateTime(selectedInstance.lastFailureAt)}</dd><dt>Uptime 24h</dt><dd>{selectedInstance.uptimePercent24h === null ? 'Unknown' : `${selectedInstance.uptimePercent24h}%`}</dd><dt>Uptime 7d</dt><dd>{selectedInstance.uptimePercent7d === null ? 'Unknown' : `${selectedInstance.uptimePercent7d}%`}</dd><dt>Check License</dt><dd>{selectedInstance.checkLicense ? 'Yes' : 'No'}</dd><dt>Archived</dt><dd>{selectedInstance.archived ? 'Yes' : 'No'}</dd><dt>Last Error</dt><dd>{formatNullable(selectedInstance.lastError, 'None')}</dd></dl></article><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('workflow')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'workflow')}><div className="panel-heading"><Database /><div><p className="eyebrow small">OxyGen BPM</p><h3>Workflow & Components</h3></div></div><dl className="detail-list"><dt>Processing</dt><dd>{selectedInstance.processingStatus}</dd><dt>EMM Queue</dt><dd>{selectedInstance.emmQueueStatus}</dd><dt>SMS</dt><dd>{selectedInstance.smsStatus}</dd><dt>Hangfire</dt><dd>{selectedInstance.hangfireStatus}</dd><dt>Workflow Summary</dt><dd>{selectedInstance.workflowSummaryJson ? 'Collected' : 'Not collected yet'}</dd><dt>Global Settings</dt><dd>{selectedInstance.settingsJson ? 'Collected' : 'Not collected yet'}</dd></dl></article><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('metadata')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'metadata')}><div className="panel-heading"><Database /><div><p className="eyebrow small">Custom Data</p><h3>Metadata</h3></div></div><dl className="detail-list"><dt>Status</dt><dd>{selectedInstance.metadata ? 'Custom metadata added' : 'No metadata'}</dd><dt>Type</dt><dd>{selectedInstance.metadata === null ? 'None' : Array.isArray(selectedInstance.metadata) ? 'Array' : typeof selectedInstance.metadata}</dd></dl></article><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('notes')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'notes')}><div className="panel-heading"><ClipboardList /><div><p className="eyebrow small">Knowledge</p><h3>Notes</h3></div></div><dl className="detail-list"><dt>Detected format</dt><dd>{detectNotesFormat(selectedInstance.notes).toUpperCase()}</dd><dt>Status</dt><dd>{selectedInstance.notes ? 'Notes added' : 'No notes'}</dd></dl></article><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('record')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'record')}><div className="panel-heading"><ShieldCheck /><div><p className="eyebrow small">Record</p><h3>Metadata</h3></div></div><dl className="detail-list"><dt>Description</dt><dd>{formatNullable(selectedInstance.description, 'No description')}</dd><dt>Created</dt><dd>{formatDateTime(selectedInstance.createdAt)}</dd><dt>Updated</dt><dd>{formatDateTime(selectedInstance.updatedAt)}</dd><dt>Instance ID</dt><dd>{selectedInstance.id}</dd></dl></article></div></div>}
+          {activeSection === 'instance-dashboard' && selectedInstance && <div className="instance-detail-dashboard"><div className="instance-dashboard-actions"><Button className="compact-button" type="button" fillMode="flat" onClick={closeInstanceDashboard}><ChevronLeft /> Back to Instances</Button>{isSystemAdmin && <Button className="compact-button" type="button" onClick={() => openEditInstanceModal(selectedInstance)}><Pencil /> Edit</Button>}{isSystemAdmin && <Button className="compact-button" type="button" onClick={() => testInstanceConnectivity(selectedInstance)}><RotateCw /> Test Connectivity</Button>}{isSystemAdmin && <Button className="compact-button" type="button" onClick={() => void setInstanceArchived(selectedInstance, !selectedInstance.archived)}>{selectedInstance.archived ? <ArchiveRestore /> : <Archive />} {selectedInstance.archived ? 'Unarchive' : 'Archive'}</Button>}<Button className="compact-button" type="button" onClick={() => openInstanceLogs(selectedInstance)}><ClipboardList /> View Logs</Button><Button className="compact-button" type="button" onClick={() => window.open(launchUrlForInstance(selectedInstance), '_blank', 'noopener,noreferrer')}><ExternalLink /> Launch OxyGen</Button></div><div className="instance-health-strip"><button className={`instance-health-card clickable status-${selectedInstance.status}`} type="button" onClick={() => void openInstanceHealthModal('availability')}><span>Availability</span><strong>{availabilityLabel(selectedInstance)}</strong><small>{formatDateTime(selectedInstance.lastCheckedAt)}</small></button>{selectedInstance.protocol === 'https' && <button className="instance-health-card clickable status-unknown" type="button" onClick={() => void openInstanceHealthModal('ssl')}><span>SSL Certificate</span><strong>{sslCardLabel(selectedInstance)}</strong><small>{sslCardDetail(selectedInstance, connectivityDetails(healthDetails?.latestConnectivity).ssl)}</small></button>}{selectedInstance.checkLicense && <button className={`instance-health-card clickable status-${licenseCardStatusClass(selectedInstance, connectivityDetails(healthDetails?.latestConnectivity).license)}`} type="button" onClick={() => void openInstanceHealthModal('license')}><span>License</span><strong>{licenseCardLabel(selectedInstance)}</strong><small>{licenseCardDetail(selectedInstance, connectivityDetails(healthDetails?.latestConnectivity).license)}</small></button>}<button className={`instance-health-card clickable status-${selectedInstance.status}`} type="button" onClick={() => void openInstanceHealthModal('response')}><span>Response</span><strong>{selectedInstance.responseTimeMs === null ? '—' : `${selectedInstance.responseTimeMs} ms`}</strong><small>Polling every {selectedInstance.pollingIntervalSeconds}s</small></button></div><div className="instance-detail-grid"><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('endpoint')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'endpoint')}><div className="panel-heading"><Server /><div><p className="eyebrow small">Endpoint</p><h3>Connection Details</h3></div></div><dl className="detail-list"><dt>{tenantLabel}</dt><dd>{tenantName(selectedInstance.tenantId)}</dd><dt>Host</dt><dd>{selectedInstance.host}</dd><dt>Resolved IP</dt><dd>{resolvedIpLabel(connectivityDetails(healthDetails?.latestConnectivity))}</dd><dt>Port</dt><dd>{formatNullable(selectedInstance.port)}</dd><dt>Base URL</dt><dd>{selectedInstance.baseUrl}</dd><dt>API Base URL</dt><dd>{selectedInstance.apiBaseUrl}</dd><dt>Launch URL</dt><dd>{selectedInstance.launchUrl}</dd><dt>Username</dt><dd>{selectedInstance.username}</dd></dl></article><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('monitoring')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'monitoring')}><div className="panel-heading"><Activity /><div><p className="eyebrow small">Monitoring</p><h3>Health Status</h3></div></div><dl className="detail-list"><dt>Enabled</dt><dd>{booleanPill(selectedInstance.isEnabled, 'green', 'red', { trueLabel: 'Enabled', falseLabel: 'Disabled' })}</dd><dt>Last Success</dt><dd>{formatDateTime(selectedInstance.lastSuccessAt)}</dd><dt>Last Failure</dt><dd>{formatDateTime(selectedInstance.lastFailureAt)}</dd><dt>Uptime 24h</dt><dd>{selectedInstance.uptimePercent24h === null ? 'Unknown' : `${selectedInstance.uptimePercent24h}%`}</dd><dt>Uptime 7d</dt><dd>{selectedInstance.uptimePercent7d === null ? 'Unknown' : `${selectedInstance.uptimePercent7d}%`}</dd><dt>Check License</dt><dd>{booleanPill(selectedInstance.checkLicense, 'green', 'grey', { trueLabel: 'Enabled', falseLabel: 'Disabled' })}</dd><dt>Archived</dt><dd>{booleanPill(selectedInstance.archived, 'red', 'green')}</dd><dt>Last Error</dt><dd>{formatNullable(selectedInstance.lastError, 'None')}</dd></dl></article><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('workflow')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'workflow')}><div className="panel-heading"><Database /><div><p className="eyebrow small">OxyGen BPM</p><h3>Workflow & Components</h3></div></div><dl className="detail-list workflow-queue-detail-list">{renderQueueStatusList(selectedInstance)}<dt>Workflow Summary</dt><dd>{selectedInstance.workflowSummaryJson ? 'Collected' : 'Not collected yet'}</dd></dl></article><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('settings')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'settings')}><div className="panel-heading"><Settings /><div><p className="eyebrow small">OxyGen BPM</p><h3>Settings</h3></div></div>{renderSettingsTree(selectedInstance.settingsJson, true)}<dl className="detail-list settings-card-summary"><dt>Raw JSON</dt><dd>{selectedInstance.settingsJson ? `${collectedSettingsCount(selectedInstance.settingsJson)} key setting(s) found` : 'Not collected yet'}</dd></dl></article><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('metadata')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'metadata')}><div className="panel-heading"><Database /><div><p className="eyebrow small">Custom Data</p><h3>Metadata</h3></div></div><dl className="detail-list"><dt>Status</dt><dd>{selectedInstance.metadata ? 'Custom metadata added' : 'No metadata'}</dd><dt>Type</dt><dd>{selectedInstance.metadata === null ? 'None' : Array.isArray(selectedInstance.metadata) ? 'Array' : typeof selectedInstance.metadata}</dd></dl></article><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('notes')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'notes')}><div className="panel-heading"><ClipboardList /><div><p className="eyebrow small">Knowledge</p><h3>Notes</h3></div></div><dl className="detail-list"><dt>Detected format</dt><dd>{detectNotesFormat(selectedInstance.notes).toUpperCase()}</dd><dt>Status</dt><dd>{selectedInstance.notes ? 'Notes added' : 'No notes'}</dd></dl></article><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('record')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'record')}><div className="panel-heading"><ShieldCheck /><div><p className="eyebrow small">Record</p><h3>Metadata</h3></div></div><dl className="detail-list"><dt>Description</dt><dd>{formatNullable(selectedInstance.description, 'No description')}</dd><dt>Created</dt><dd>{formatDateTime(selectedInstance.createdAt)}</dd><dt>Updated</dt><dd>{formatDateTime(selectedInstance.updatedAt)}</dd><dt>Instance ID</dt><dd>{selectedInstance.id}</dd></dl></article></div></div>}
           {activeSection === 'instance-dashboard' && !selectedInstance && <article className="panel"><p className="panel-copy">Select an instance from the grid to open its dashboard.</p><Button className="compact-button" type="button" onClick={() => setActiveSection('instances')}><ChevronLeft /> Back to Instances</Button></article>}
           {activeSection === 'user-groups' && isSystemAdmin && <ManagedGrid gridKey="user-groups" token={token!} rows={groupRows} columns={labeledGroupColumnDefs} actionCell={GroupActionCell} mobileActions={(row) => <MobileStandardActions onEdit={() => openEditGroupModal(row.raw)} onDelete={() => deleteItem('group', row.raw.id, `group ${row.raw.name}`)} />} toolbar={<Button className="btn-create" onClick={openCreateGroupModal} type="button" themeColor="primary"><Plus /> Create &quot;Group&quot;</Button>} />}
           {activeSection === 'users' && isSystemAdmin && <ManagedGrid gridKey="users" token={token!} rows={userRows} columns={labeledUserColumnDefs} actionCell={UserActionCell} mobileActions={(row) => <MobileStandardActions onEdit={() => openEditUserModal(row.raw)} onDelete={() => deleteItem('user', row.raw.user.id, `user ${row.raw.user.email}`)} />} toolbar={<Button className="btn-create" onClick={openCreateUserModal} type="button" themeColor="primary"><Plus /> Create &quot;User&quot;</Button>} />}

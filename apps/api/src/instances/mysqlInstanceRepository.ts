@@ -222,7 +222,7 @@ export function createMysqlInstanceRepository(pool: Pool, credentialCipher?: Cre
   }
 
   function availabilityFromConnectivity(result: ConnectivityResult): InstanceStatus {
-    if (result.ok) return 'up';
+    if (result.status === 'reachable') return 'up';
     if (result.status === 'auth-error') return 'auth-error';
     if (result.status === 'ssl-error') return 'ssl-error';
     return 'down';
@@ -230,13 +230,13 @@ export function createMysqlInstanceRepository(pool: Pool, credentialCipher?: Cre
 
   async function persistConnectivityResult(instanceId: string, result: ConnectivityResult) {
     const availability = availabilityFromConnectivity(result);
-    const lastSuccessAt = result.ok ? result.checkedAt : null;
-    const lastFailureAt = result.ok ? null : result.checkedAt;
+    const lastSuccessAt = availability === 'up' ? result.checkedAt : null;
+    const lastFailureAt = availability === 'up' ? null : result.checkedAt;
     await pool.execute(
       `UPDATE oxygen_instance_status
        SET availability_status = ?, ssl_valid = ?, ssl_expires_at = ?, last_checked_at = ?,
            last_success_at = COALESCE(?, last_success_at), last_failure_at = COALESCE(?, last_failure_at),
-           response_time_ms = ?, last_error = ?, license_key = ?, license_status = ?, license_json = ?
+           response_time_ms = ?, last_error = ?, license_key = ?, license_status = ?, license_json = ?, settings_json = ?
        WHERE instance_id = ?`,
       [
         availability,
@@ -250,6 +250,7 @@ export function createMysqlInstanceRepository(pool: Pool, credentialCipher?: Cre
         result.license.key,
         result.license.status,
         result.license.payload === null ? null : JSON.stringify(result.license.payload),
+        result.settingsJson === null ? null : JSON.stringify(result.settingsJson),
         instanceId
       ]
     );
@@ -264,9 +265,9 @@ export function createMysqlInstanceRepository(pool: Pool, credentialCipher?: Cre
         new Date(result.checkedAt),
         result.durationMs,
         result.httpStatusCode,
-        result.ok ? null : (result.authentication.errorCode ?? result.api.errorCode ?? result.ssl.errorCode ?? result.dns.errorCode ?? 'CONNECTIVITY_ERROR'),
+        result.ok ? null : (result.authentication.errorCode ?? result.api.errorCode ?? result.ssl.errorCode ?? result.connect.errorCode ?? result.dns.errorCode ?? 'CONNECTIVITY_ERROR'),
         result.ok ? null : result.message,
-        JSON.stringify({ dns: result.dns, ssl: result.ssl, authentication: result.authentication, api: result.api, license: result.license.step })
+        JSON.stringify({ dns: result.dns, connect: result.connect, ssl: result.ssl, authentication: result.authentication, api: result.api, license: result.license.step })
       ]
     );
     await pool.execute(

@@ -28,9 +28,11 @@ function failedDnsConnectivity(): ConnectivityResult {
     responseTimeMs: null,
     httpStatusCode: null,
     dns: { ok: false, errorCode: 'ENOTFOUND', message: 'getaddrinfo ENOTFOUND beta.fakedomain.com' },
+    connect: { ok: false, skipped: true, message: 'Connection skipped because DNS resolution failed.' },
     ssl: { ok: false, valid: null, expiresAt: null },
     authentication: { ok: false },
     api: { ok: false },
+    settingsJson: null,
     license: { step: { ok: false }, status: 'unknown', key: null, payload: null }
   };
 }

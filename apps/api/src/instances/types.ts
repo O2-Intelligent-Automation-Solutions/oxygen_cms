@@ -91,6 +91,10 @@ export type ConnectivityStepResult = {
   valid?: boolean | null;
   expiresAt?: string | null;
   durationMs?: number;
+  address?: string | null;
+  family?: number;
+  host?: string;
+  port?: number;
 };
 
 export type LicenseProbeResult = {
@@ -109,9 +113,11 @@ export type ConnectivityResult = {
   responseTimeMs: number | null;
   httpStatusCode: number | null;
   dns: ConnectivityStepResult;
+  connect: ConnectivityStepResult;
   ssl: ConnectivityStepResult;
   authentication: ConnectivityStepResult;
   api: ConnectivityStepResult;
+  settingsJson: unknown | null;
   license: LicenseProbeResult;
 };
 

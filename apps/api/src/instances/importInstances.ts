@@ -31,6 +31,7 @@ type PreparedImportRow = {
   name: string;
   input: CreateInstanceInput | UpdateInstanceInput;
   existing?: OxyGenInstance;
+  tenantNameToCreate?: string;
 };
 
 const uuidSchema = z.string().uuid();
@@ -150,8 +151,8 @@ export async function importInstancesFromCsv(options: {
         const requestedTenant = values.tenant || '';
         if (requestedTenant) {
           const tenant = tenantsByName.get(requestedTenant.trim().toLowerCase());
-          if (!tenant) errors.push(`Unknown Tenant: ${requestedTenant}`);
-          else tenantId = tenant.id;
+          if (tenant) tenantId = tenant.id;
+          else if (action === 'update') errors.push(`Unknown Tenant: ${requestedTenant}`);
         }
         if (existing && existing.tenantId !== tenantId) {
           errors.push(`Tenant assignment cannot be changed by import for existing instance ${instanceGuid}. Current Tenant: ${tenantName(tenants, existing.tenantId) || 'Global'}.`);
@@ -183,7 +184,11 @@ export async function importInstancesFromCsv(options: {
         const candidate = { ...inputBase, password };
         const parsedInput = createInstanceSchema.safeParse(candidate);
         if (!parsedInput.success) errors.push(...parsedInput.error.issues.map((issue) => issue.message));
-        else if (errors.length === 0) prepared.push({ rowNumber: parsedRow.rowNumber, action, instanceGuid: instanceGuid || null, name, input: parsedInput.data });
+        else if (errors.length === 0) {
+          const tenantNameToCreate = scope === 'global' && values.tenant && !tenantsByName.has(values.tenant.trim().toLowerCase()) ? values.tenant.trim() : undefined;
+          if (tenantNameToCreate) warnings.push(`Tenant ${tenantNameToCreate} will be created.`);
+          prepared.push({ rowNumber: parsedRow.rowNumber, action, instanceGuid: instanceGuid || null, name, input: parsedInput.data, tenantNameToCreate });
+        }
       } else if (existing) {
         const candidate = { ...inputBase, password };
         const parsedInput = updateInstanceSchema.safeParse(candidate);
@@ -208,9 +213,20 @@ export async function importInstancesFromCsv(options: {
 
   let created = 0;
   let updated = 0;
+  const runtimeTenantsByName = new Map(tenantsByName);
   for (const row of prepared) {
     if (row.action === 'create') {
-      const instance = await options.instanceRepository.createInstance(row.input as CreateInstanceInput);
+      let input = row.input as CreateInstanceInput;
+      if (row.tenantNameToCreate) {
+        const normalizedTenantName = row.tenantNameToCreate.trim().toLowerCase();
+        let tenant = runtimeTenantsByName.get(normalizedTenantName);
+        if (!tenant) {
+          tenant = await options.authRepository.createTenant({ name: row.tenantNameToCreate, description: 'Created by instance CSV import.' });
+          runtimeTenantsByName.set(normalizedTenantName, tenant);
+        }
+        input = { ...input, tenantId: tenant.id };
+      }
+      const instance = await options.instanceRepository.createInstance(input);
       const result = rows.find((entry) => entry.rowNumber === row.rowNumber);
       if (result) result.instance = instance;
       created += 1;

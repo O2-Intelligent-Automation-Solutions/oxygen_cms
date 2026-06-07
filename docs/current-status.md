@@ -6,7 +6,7 @@ This documentation has been migrated to the GitHub Wiki:
 
 ## Local repo status summary
 
-Current CMS schema version: `0.09`.
+Current CMS schema version: `0.12`.
 
 Recent dashboard/service-log work adds:
 
@@ -24,6 +24,9 @@ Recent dashboard/service-log work adds:
 - Routine successful background poller completion summaries are stored as Verbose service logs. Each poller instance check also writes a Verbose Connection row with `entityGuid` and `tenantId`; new instance issues write one Error/Warning row, repeated identical issues are suppressed, and recovery writes one Logging row that the instance is nominal.
 - Best-effort poller log persistence so a missing/unavailable log table cannot crash the API service.
 - Dashboard KPI styling uses the OxyGen display font for all KPI numerals, with the administrative KPI group (Tenants, Users, User Groups, Roles) restored to aqua branding while health KPIs retain green/yellow/red semantic severity colors.
+- Dashboard health KPI cards are clickable issue filters, the Issues dropdown includes normalized issue labels emitted by the API/UI, endpoint-specific `Connection timed out: <ip>:<port>` labels are consolidated under `Connecting time out`, status messages open instance logs, and `check_license=false` instances are excluded from License issue counts/cards.
+- Instance connectivity checks now record explicit Resolve, Connect, SSL, Auth, Settings, License, and Triggers phase rows in Response Details. DNS success plus TCP refusal is classified as `down` / `NO CONNECTION`, with SSL/Auth/License/Settings/Triggers skipped due to connection failure instead of being reported as an authentication error. HTTP instances hide SSL details; `check_license=false` instances hide License details.
+- Instance dashboards include a Settings card backed by the latest `/web-api/global/settings` payload. The card extracts non-queue global settings such as BUS auto-purge, OxyGen version, and client-domain values; the Raw JSON count reflects the full payload variable count. Queue enable/paused flags move to Workflow & Components as visual indicators on Processing Queue, Email Queue, SMS Queue, and Scheduling Queue rows. Health Status and Settings boolean values use colored pills (`Enabled`/`Disabled` or `Yes`/`No`) with green/red/grey semantics. The Settings dialog displays the full read-only JSON payload like the License dialog.
 - The Service card is a compact operational strip; Last Summary is widened for thousands-scale `checked / skipped / failed` values while In Flight remains compact.
 - Instances grid includes CSV Export/Import controls for SystemAdmin and TenantAdmin users. Global users export/import a `tenant` column by Tenant name and may leave it blank for global/unassigned instances; tenant-scoped users export without the `tenant` column and imports are forced to their assigned Tenant. `instance_guid` maps to the instance `id`; blank creates a new instance, existing GUID updates, unknown nonblank GUID creates with that GUID. Passwords are never exported; blank import passwords preserve existing credentials on update and are rejected on create.
 

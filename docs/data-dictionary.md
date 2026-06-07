@@ -8,7 +8,7 @@ This documentation has been migrated to the GitHub Wiki:
 
 ### Schema version
 
-Current CMS schema version: `0.10`.
+Current CMS schema version: `0.12`.
 
 ### `application_logs`
 
@@ -45,18 +45,27 @@ Instance CSV import/export is an API/UI contract; it does not add a new table.
 | `instance_guid` | `oxygen_instances.id` | Upsert key. Blank creates a new GUID; unknown nonblank GUID creates an instance preserving that GUID. |
 | `name` | `oxygen_instances.name` | Required. |
 | `description` | `oxygen_instances.description` | Blank imports as null. |
-| `tenant` | `oxygen_instances.tenant_id` via Tenant name | Present only for global users. Uses Tenant name, not GUID. Blank means global/unassigned. Tenant-scoped exports omit this column and imports are forced to the user's assigned Tenant. |
+| `tenant` | `oxygen_instances.tenant_id` via Tenant name | Present only for global users. Uses Tenant name, not GUID. Blank means global/unassigned. Missing Tenant names are created for new instance rows. Existing instance Tenant assignments remain immutable. Tenant-scoped exports omit this column and imports are forced to the user's assigned Tenant. |
 | `protocol` | `oxygen_instances.protocol` | `http` or `https`; defaults to `https` when omitted. |
 | `host` | `oxygen_instances.host` | Hostname/domain without protocol. |
 | `port` | `oxygen_instances.port` | Blank imports as null. |
 | `username` | encrypted remote credential username | Defaults to `admin` when omitted. |
 | `polling_interval_seconds` | `oxygen_instances.polling_interval_seconds` | Defaults to `300` when omitted. |
 | `is_enabled` | `oxygen_instances.is_enabled` | Accepts common truthy values such as `true`, `1`, `yes`, `y`, `on`. |
-| `check_license` | `oxygen_instances.check_license` | Accepts common truthy values. When false, polling skips the OxyGen license/settings API probe. |
+| `check_license` | `oxygen_instances.check_license` | Accepts common truthy values. When false, polling skips the OxyGen license probe and hides License response details/KPIs for that instance. |
 | `archived` | `oxygen_instances.archived` | Accepts common truthy values. Archived servers are hidden from the default instance list but data/history is retained and the server can be unarchived. |
 | `metadata` | `oxygen_instances.metadata` | Optional JSON object stored with the instance and shown as a JSON dashboard card. Nonblank CSV import values must be valid JSON. |
 | `notes` | `oxygen_instances.notes` | Optional large notes block. May contain HTML, Markdown, RTF, or plain text; dashboard display auto-detects the format. |
 | `password` | encrypted remote credential password | Import-only. Always blank on export. Required for creates; blank preserves the current password on updates. |
+
+### Connectivity check history details
+
+`oxygen_instance_check_history.details_json` for `check_type='connectivity'` stores the latest phase details used by Response Details: `dns` (Resolve), `connect`, `ssl`, `authentication`, `license`, `api` (Settings via `/web-api/global/settings`), and `settingsJson` (the raw Settings JSON payload when collected). DNS details may include `address`; connect details include the resolved `host`/`port`. TCP connection failure sets the instance availability to `down` and stores skipped SSL/Auth/License/Settings details rather than reporting an auth error. Authentication succeeds only when `/v2/Auth/Login` returns a 2xx/3xx response that is not a login/forbidden page and includes an OxyGen session cookie; missing/non-session cookies, forbidden pages, and login forms are auth failures. License/Settings/Triggers are skipped after auth failure. When `check_license=true`, License runs before Settings; attempted License failures are stored as license `error` and Settings/Triggers are skipped. When `check_license=false`, License is skipped and can be hidden by the UI. `oxygen_instance_status.response_time_ms` is Resolve + Connect + SSL + Auth for collected, non-skipped phases.
+
+`oxygen_instance_status.settings_json` stores the most recent raw `/web-api/global/settings` JSON payload. The Instance Dashboard Settings card extracts non-queue values from `BUS_Auto_Purge`, `OxyGen_Version`, and `ClientDomain`; its Raw JSON count is based on all `Variables[]` entries in the full payload. Queue-oriented flags from `BUS_Trigger_Processing`, `EMM_Delayed_Processing`, `SMS_Delayed_Processing`, and `Hangfire_CheckIn` are displayed on Workflow & Components queue rows instead of in Settings. The Settings dialog shows the full read-only JSON payload, matching the License JSON dialog pattern.
+
+
+Dashboard issue filters normalize noisy endpoint-specific connectivity errors before display. In particular, labels matching `Connection timed out: <ip>:<port>` are displayed and filtered as `Connecting time out` while raw endpoint-specific details remain in logs/history.
 
 ### `application_settings` keys
 

@@ -2029,7 +2029,7 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
   font-family: var(--brand-font-display);
   font-size: clamp(1.12rem, 2vw, 1.36rem);
   line-height: 1.05;
-  text-transform: capitalize;
+  text-transform: uppercase;
   overflow-wrap: break-word;
 }
 
@@ -2249,6 +2249,198 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
   overflow-wrap: anywhere;
 }
 
+.workflow-queue-detail-list {
+  grid-template-columns: minmax(152px, 0.28fr) minmax(0, 1fr);
+}
+
+.workflow-queue-name {
+  color: var(--brand-muted-2);
+}
+
+.workflow-queue-value {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.queue-state-dot {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 9px;
+  border-radius: 50%;
+  background: #7da0bc;
+  box-shadow: 0 0 0 3px rgba(125, 160, 188, 0.14);
+}
+
+.queue-state-dot.enabled {
+  background: #65f0a4;
+  box-shadow: 0 0 0 3px rgba(101, 240, 164, 0.16), 0 0 12px rgba(101, 240, 164, 0.34);
+}
+
+.queue-state-dot.paused {
+  background: #f5c542;
+  box-shadow: 0 0 0 3px rgba(245, 197, 66, 0.16), 0 0 12px rgba(245, 197, 66, 0.28);
+}
+
+.queue-state-dot.unknown {
+  background: #20d6d2;
+  opacity: 0.7;
+}
+
+.queue-status-message {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-state-label {
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  border-radius: 999px;
+  color: var(--brand-text);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.queue-state-label.enabled {
+  border: 1px solid rgba(101, 240, 164, 0.3);
+  background: rgba(101, 240, 164, 0.1);
+  color: #9ff6c4;
+}
+
+.queue-state-label.paused {
+  border: 1px solid rgba(245, 197, 66, 0.35);
+  background: rgba(245, 197, 66, 0.1);
+  color: #f7d877;
+}
+
+.queue-state-label.unknown {
+  border: 1px solid rgba(32, 214, 210, 0.28);
+  background: rgba(32, 214, 210, 0.08);
+  color: #8ee8e5;
+}
+
+.boolean-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 42px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  line-height: 1.25;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.boolean-pill.green {
+  border: 1px solid rgba(101, 240, 164, 0.36);
+  background: rgba(101, 240, 164, 0.12);
+  color: #9ff6c4;
+}
+
+.boolean-pill.red {
+  border: 1px solid rgba(248, 113, 113, 0.38);
+  background: rgba(248, 113, 113, 0.12);
+  color: #fecaca;
+}
+
+.boolean-pill.grey {
+  border: 1px solid rgba(125, 160, 188, 0.34);
+  background: rgba(125, 160, 188, 0.12);
+  color: var(--brand-muted-2);
+}
+
+.boolean-pill.unknown {
+  border: 1px solid rgba(32, 214, 210, 0.28);
+  background: rgba(32, 214, 210, 0.08);
+  color: #8ee8e5;
+}
+
+.workflow-queue-value small {
+  min-width: 0;
+  color: var(--brand-muted-2);
+  font-size: 0.72rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-summary {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-summary-row {
+  display: grid;
+  grid-template-columns: minmax(230px, 0.34fr) minmax(0, 1fr);
+  gap: 8px 12px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.settings-summary-row-auto-purge {
+  grid-template-columns: minmax(230px, 0.34fr) minmax(120px, 0.18fr) max-content minmax(0, 1fr);
+}
+
+.settings-summary-label {
+  color: var(--brand-muted-2);
+  font-size: 0.68rem;
+  font-weight: 750;
+  letter-spacing: 0.13em;
+  line-height: 1.25;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.settings-summary-value {
+  min-width: 0;
+  color: var(--brand-text);
+  font-size: 0.88rem;
+  line-height: 1.32;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.settings-summary-value.wide {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-summary.compact {
+  gap: 6px;
+}
+
+.settings-summary.compact .settings-summary-row {
+  grid-template-columns: minmax(230px, 0.34fr) minmax(0, 1fr);
+  gap: 6px 12px;
+}
+
+.settings-summary.compact .settings-summary-row-auto-purge {
+  grid-template-columns: minmax(230px, 0.34fr) minmax(120px, 0.18fr) max-content minmax(0, 1fr);
+  gap: 6px 12px;
+}
+
+.settings-summary.compact .settings-summary-label {
+  font-size: 0.68rem;
+}
+
+.settings-summary.compact .settings-summary-value {
+  font-size: 0.88rem;
+}
+
+.settings-card-summary {
+  margin-top: 12px;
+  grid-template-columns: minmax(230px, 0.34fr) minmax(0, 1fr);
+}
+
 @media (min-width: 1800px) {
   .instance-detail-dashboard {
     max-width: 1560px;
@@ -2344,6 +2536,22 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
   .detail-list {
     grid-template-columns: 1fr;
     gap: 5px;
+  }
+
+  .settings-summary-row,
+  .settings-summary.compact .settings-summary-row,
+  .settings-summary-row-auto-purge,
+  .settings-summary.compact .settings-summary-row-auto-purge {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .settings-summary-label.secondary {
+    margin-top: 6px;
+  }
+
+  .settings-summary-value.wide {
+    white-space: normal;
   }
 }
 
@@ -3805,9 +4013,10 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
 
 .tenant-instance-card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 385px), 1fr));
   gap: 14px;
   min-width: 0;
+  overflow: visible;
 }
 
 .tenant-metric-card,
@@ -3825,6 +4034,23 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
   display: grid;
   gap: 8px;
   padding: 18px;
+}
+
+button.tenant-metric-card {
+  appearance: none;
+  width: 100%;
+  border: 1px solid rgba(118, 214, 255, 0.16);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+button.tenant-metric-card:hover,
+button.tenant-metric-card:focus-visible {
+  border-color: rgba(32, 214, 210, 0.58);
+  box-shadow: 0 0 0 1px rgba(32, 214, 210, 0.2), 0 16px 36px rgba(0, 0, 0, 0.22);
+  outline: none;
 }
 
 .tenant-metric-card span,
@@ -3947,14 +4173,19 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
 
 .tenant-instance-board {
   min-width: 0;
+  overflow: visible;
 }
 
 .tenant-instance-card {
   display: grid;
   gap: 16px;
   padding: 18px;
-  overflow: hidden;
+  overflow: visible;
   position: relative;
+}
+
+.tenant-instance-card:has(.instance-action-menu[open]) {
+  z-index: 40;
 }
 
 .tenant-instance-card::before {
@@ -4000,6 +4231,24 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
   color: #f6fbff;
 }
 
+.tenant-instance-name-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tenant-instance-name-link:hover,
+.tenant-instance-name-link:focus-visible {
+  text-decoration: underline;
+  text-decoration-color: currentColor;
+  outline: none;
+}
+
 .tenant-instance-card p {
   grid-column: 2;
   margin: 5px 0 0;
@@ -4007,14 +4256,28 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
   overflow-wrap: anywhere;
 }
 
-.tenant-instance-card header strong {
+.tenant-instance-card header strong,
+.instance-status-pill {
   padding: 5px 9px;
+  border: 0;
   border-radius: 999px;
   background: rgba(53, 195, 255, 0.1);
   color: #d7f5ff;
+  font: inherit;
   font-size: 0.76rem;
+  font-weight: 700;
   text-transform: uppercase;
   white-space: nowrap;
+}
+
+.instance-status-pill {
+  cursor: pointer;
+}
+
+.instance-status-pill:hover,
+.instance-status-pill:focus-visible {
+  background: rgba(32, 214, 210, 0.18);
+  outline: 1px solid rgba(32, 214, 210, 0.4);
 }
 
 .instance-status-dot {
@@ -4028,22 +4291,26 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
 }
 
 .tenant-instance-card.ok h4,
-.tenant-instance-card.ok header strong {
+.tenant-instance-card.ok header strong,
+.tenant-instance-card.ok .instance-status-pill {
   color: #5bffb1;
 }
 
 .tenant-instance-card.issue h4,
-.tenant-instance-card.issue header strong {
+.tenant-instance-card.issue header strong,
+.tenant-instance-card.issue .instance-status-pill {
   color: #ff5b6b;
 }
 
 .tenant-instance-card.warning h4,
-.tenant-instance-card.warning header strong {
+.tenant-instance-card.warning header strong,
+.tenant-instance-card.warning .instance-status-pill {
   color: var(--brand-warning);
 }
 
 .tenant-instance-card.unknown h4,
-.tenant-instance-card.unknown header strong {
+.tenant-instance-card.unknown header strong,
+.tenant-instance-card.unknown .instance-status-pill {
   color: #ffb454;
 }
 
@@ -4073,13 +4340,29 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
   gap: 8px;
 }
 
-.tenant-instance-stats span {
+.tenant-instance-stats span,
+.tenant-instance-stats button {
   display: grid;
   gap: 4px;
   min-width: 0;
   padding: 10px 9px;
+  border: 1px solid transparent;
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.035);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.tenant-instance-stats button {
+  cursor: pointer;
+}
+
+.tenant-instance-stats button:hover,
+.tenant-instance-stats button:focus-visible {
+  border-color: rgba(32, 214, 210, 0.34);
+  background: rgba(32, 214, 210, 0.08);
+  outline: none;
 }
 
 .tenant-instance-stats small {
@@ -4105,9 +4388,28 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
   font-size: 0.86rem;
 }
 
-.tenant-instance-foot span {
+.tenant-instance-foot span,
+.tenant-instance-status-message {
   min-width: 0;
+  flex: 1 1 auto;
   overflow-wrap: anywhere;
+}
+
+.tenant-instance-status-message {
+  border: 0;
+  background: transparent;
+  color: var(--muted-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tenant-instance-status-message:hover,
+.tenant-instance-status-message:focus-visible {
+  color: #f6fbff;
+  text-decoration: underline;
+  text-decoration-color: rgba(32, 214, 210, 0.7);
+  outline: none;
 }
 
 .tenant-instance-actions {
@@ -4224,7 +4526,7 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
     flex-direction: column;
   }
 
-  .tenant-instance-foot button {
+  .tenant-instance-status-message {
     width: 100%;
   }
 }

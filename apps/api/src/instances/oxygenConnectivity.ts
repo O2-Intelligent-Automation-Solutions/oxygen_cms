@@ -1,4 +1,6 @@
 import { lookup } from 'node:dns/promises';
+import { isIP } from 'node:net';
+import { connect as tcpConnect } from 'node:net';
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { connect as tlsConnect } from 'node:tls';
@@ -22,6 +24,7 @@ type ProbeResponse = {
   status: number;
   ok: boolean;
   setCookies: string[];
+  redirectLocation: string | null;
   body: string;
   connectionMs: number | null;
 };
@@ -50,15 +53,35 @@ function joinUrl(baseUrl: string, path: string) {
   return `${base}${path}`;
 }
 
-function collectSetCookie(values: string[]) {
-  return values
-    .map((cookie) => cookie.split(';')[0]?.trim())
-    .filter((cookie): cookie is string => Boolean(cookie));
+function collectSetCookie(cookies: string[]) {
+  return cookies
+    .map((cookie) => cookie.split(';')[0]?.trim() ?? '')
+    .filter(Boolean);
 }
 
-function connectionResponseTime(instance: ConnectivityInput['instance'], ssl: ConnectivityStepResult, authentication?: ProbeResponse | null): number | null {
-  if (instance.protocol === 'https') return ssl.durationMs ?? null;
-  return authentication?.connectionMs ?? null;
+function cookieName(cookie: string) {
+  return cookie.split('=')[0]?.trim().toLowerCase() ?? '';
+}
+
+function hasOxyGenSessionCookie(cookies: string[]) {
+  return cookies.some((cookie) => {
+    const name = cookieName(cookie);
+    return name === 'asp.net_sessionid' || name.includes('session');
+  });
+}
+
+function connectionResponseTime(dns: ConnectivityStepResult, connect: ConnectivityStepResult, ssl: ConnectivityStepResult, authentication: ConnectivityStepResult): number | null {
+  const phases = [dns, connect, ssl, authentication].filter((step) => !step.skipped && typeof step.durationMs === 'number');
+  if (!phases.length) return null;
+  return phases.reduce((total, step) => total + (step.durationMs ?? 0), 0);
+}
+
+function endpointPort(instance: ConnectivityInput['instance']) {
+  return instance.port ?? (instance.protocol === 'http' ? 80 : 443);
+}
+
+function connectionTarget(input: ConnectivityInput, dns: ConnectivityStepResult) {
+  return { host: dns.address || input.instance.host, port: endpointPort(input.instance) };
 }
 
 function requestProbe(url: string, options: { method: 'GET' | 'POST'; headers?: Record<string, string>; body?: string; timeoutMs: number }): Promise<ProbeResponse> {
@@ -81,10 +104,12 @@ function requestProbe(url: string, options: { method: 'GET' | 'POST'; headers?: 
       response.on('end', () => {
         const status = response.statusCode ?? 0;
         const setCookie = response.headers['set-cookie'];
+        const location = response.headers.location;
         resolve({
           status,
           ok: status >= 200 && status < 400,
           setCookies: Array.isArray(setCookie) ? setCookie : setCookie ? [setCookie] : [],
+          redirectLocation: Array.isArray(location) ? location[0] ?? null : location ?? null,
           body: Buffer.concat(chunks).toString('utf8'),
           connectionMs
         });
@@ -109,12 +134,33 @@ function requestProbe(url: string, options: { method: 'GET' | 'POST'; headers?: 
 }
 
 async function dnsCheck(host: string): Promise<ConnectivityStepResult> {
+  const startedAt = Date.now();
+  const ipVersion = isIP(host);
+  if (ipVersion) {
+    return { ok: true, skipped: true, address: host, family: ipVersion, durationMs: 0, message: `DNS resolution skipped because ${host} is already an IP address.` };
+  }
   try {
     const result = await lookup(host);
-    return { ok: true, message: `Resolved ${host} to ${result.address}.` };
+    return { ok: true, address: result.address, family: result.family, durationMs: Date.now() - startedAt, message: `Successfully resolved "${host}" to "${result.address}".` };
   } catch (error) {
-    return { ok: false, message: messageFromError(error), errorCode: codeFromError(error) };
+    return { ok: false, address: null, durationMs: Date.now() - startedAt, message: messageFromError(error), errorCode: codeFromError(error) };
   }
+}
+
+async function connectCheck(input: ConnectivityInput, dns: ConnectivityStepResult): Promise<ConnectivityStepResult> {
+  const target = connectionTarget(input, dns);
+  return new Promise((resolve) => {
+    const startedAt = Date.now();
+    const socket = tcpConnect({ host: target.host, port: target.port, timeout: input.timeoutMs ?? 5000 });
+    const finish = (step: ConnectivityStepResult) => {
+      socket.removeAllListeners();
+      socket.destroy();
+      resolve({ host: target.host, port: target.port, durationMs: Date.now() - startedAt, ...step });
+    };
+    socket.once('connect', () => finish({ ok: true, message: `Connected to ${target.host}:${target.port}.` }));
+    socket.once('timeout', () => finish({ ok: false, message: `Connection timed out: ${target.host}:${target.port}`, errorCode: 'CONNECT_TIMEOUT' }));
+    socket.once('error', (error) => finish({ ok: false, message: `Connection Failed: "${messageFromError(error)}"`, errorCode: codeFromError(error) }));
+  });
 }
 
 async function sslCheck(input: ConnectivityInput): Promise<ConnectivityStepResult> {
@@ -146,7 +192,27 @@ async function sslCheck(input: ConnectivityInput): Promise<ConnectivityStepResul
   });
 }
 
+function responseLooksAuthenticated(response: ProbeResponse) {
+  if (response.status >= 300 && response.status < 400) {
+    const location = response.redirectLocation?.trim();
+    if (!location) return false;
+    const normalized = location.toLowerCase();
+    return !normalized.includes('/v2/auth/login') && !normalized.includes('/auth/login') && !normalized.includes('login.aspx');
+  }
+  if (response.status >= 200 && response.status < 300) {
+    const body = response.body.toLowerCase();
+    return !(
+      body.includes('forbidden') ||
+      body.includes('unauthorized') ||
+      body.includes("don't have permission") ||
+      (body.includes('<form') && (body.includes('password') || body.includes('login')))
+    );
+  }
+  return false;
+}
+
 async function postLogin(input: ConnectivityInput): Promise<{ step: ConnectivityStepResult; cookieHeader: string; response: ProbeResponse | null }> {
+  const startedAt = Date.now();
   try {
     const form = new URLSearchParams({
       Username: input.instance.username,
@@ -162,44 +228,70 @@ async function postLogin(input: ConnectivityInput): Promise<{ step: Connectivity
       timeoutMs: input.timeoutMs ?? 5000
     });
     const cookies = collectSetCookie(response.setCookies);
-    const authenticated = response.status >= 200 && response.status < 400;
+    const loginAccepted = response.status >= 200 && response.status < 400;
+    const cookieHeader = cookies.join('; ');
+    const missingCookie = loginAccepted && !cookieHeader;
+    const missingSessionCookie = loginAccepted && Boolean(cookieHeader) && !hasOxyGenSessionCookie(cookies);
+    if (!loginAccepted || missingCookie || missingSessionCookie) {
+      return {
+        step: {
+          ok: false,
+          httpStatusCode: response.status,
+          durationMs: Date.now() - startedAt,
+          message: missingCookie
+            ? 'OxyGen authentication failed because no session cookie was returned.'
+            : missingSessionCookie
+              ? 'OxyGen authentication failed because the login response did not return an OxyGen session cookie.'
+              : `OxyGen authentication failed with HTTP ${response.status}.`,
+          errorCode: missingCookie ? 'AUTH_NO_SESSION_COOKIE' : missingSessionCookie ? 'AUTH_NO_SESSION_COOKIE' : 'AUTH_HTTP_ERROR'
+        },
+        cookieHeader: '',
+        response
+      };
+    }
+
+    const authenticated = responseLooksAuthenticated(response);
     return {
       step: {
         ok: authenticated,
         httpStatusCode: response.status,
-        durationMs: response.connectionMs ?? undefined,
-        message: authenticated ? 'OxyGen authentication succeeded.' : `OxyGen authentication failed with HTTP ${response.status}.`,
-        errorCode: authenticated ? undefined : 'AUTH_HTTP_ERROR'
+        durationMs: Date.now() - startedAt,
+        message: authenticated ? 'OxyGen authentication succeeded.' : 'OxyGen authentication failed because the login response did not confirm a successful application session.',
+        errorCode: authenticated ? undefined : 'AUTH_LOGIN_NOT_CONFIRMED'
       },
-      cookieHeader: cookies.join('; '),
+      cookieHeader: authenticated ? cookieHeader : '',
       response
     };
   } catch (error) {
-    return { step: { ok: false, message: messageFromError(error), errorCode: codeFromError(error) }, cookieHeader: '', response: null };
+    return { step: { ok: false, durationMs: Date.now() - startedAt, message: messageFromError(error), errorCode: codeFromError(error) }, cookieHeader: '', response: null };
   }
 }
 
-async function probeCurrentTime(input: ConnectivityInput, cookieHeader: string): Promise<{ step: ConnectivityStepResult; response: ProbeResponse | null }> {
-  if (!cookieHeader) return { step: { ok: false, skipped: true, message: 'API probe skipped because authentication did not return a session cookie.' }, response: null };
+async function probeGlobalSettings(input: ConnectivityInput, cookieHeader: string): Promise<{ step: ConnectivityStepResult; response: ProbeResponse | null; payload: unknown | null }> {
+  if (!cookieHeader) return { step: { ok: false, skipped: true, message: 'Settings probe skipped because authentication did not return a session cookie.' }, response: null, payload: null };
   try {
-    const response = await requestProbe(joinUrl(input.instance.apiBaseUrl, '/web-api/global/settings/currenttime'), {
+    const response = await requestProbe(joinUrl(input.instance.apiBaseUrl, '/web-api/global/settings'), {
       method: 'GET',
       headers: { cookie: cookieHeader },
       timeoutMs: input.timeoutMs ?? 5000
     });
-    const ok = response.status >= 200 && response.status < 400;
+    const httpOk = response.status >= 200 && response.status < 400;
+    const payload = httpOk ? parseJsonBody(response.body) : null;
+    const hasSettingsPayload = payload !== null && typeof payload === 'object';
+    const ok = httpOk && hasSettingsPayload;
     return {
       step: {
         ok,
         httpStatusCode: response.status,
         durationMs: response.connectionMs ?? undefined,
-        message: ok ? 'Current-time API probe succeeded.' : `Current-time API probe failed with HTTP ${response.status}.`,
-        errorCode: ok ? undefined : 'API_HTTP_ERROR'
+        message: !httpOk ? `Global settings probe failed with HTTP ${response.status}.` : hasSettingsPayload ? 'Global settings probe succeeded.' : 'Global settings probe did not return JSON settings data.',
+        errorCode: ok ? undefined : httpOk ? 'SETTINGS_INVALID_RESPONSE' : 'SETTINGS_HTTP_ERROR'
       },
-      response
+      response,
+      payload
     };
   } catch (error) {
-    return { step: { ok: false, message: messageFromError(error), errorCode: codeFromError(error) }, response: null };
+    return { step: { ok: false, message: messageFromError(error), errorCode: codeFromError(error) }, response: null, payload: null };
   }
 }
 
@@ -261,11 +353,11 @@ async function probeLicense(input: ConnectivityInput, cookieHeader: string): Pro
     });
     const payload = parseJsonBody(response.body);
     if (response.status === 404) {
-      return { step: { ok: false, httpStatusCode: response.status, durationMs: response.connectionMs ?? undefined, message: 'License API unavailable.', errorCode: 'LICENSE_API_UNAVAILABLE' }, status: 'unknown', key: null, payload };
+      return { step: { ok: false, httpStatusCode: response.status, durationMs: response.connectionMs ?? undefined, message: 'License API unavailable.', errorCode: 'LICENSE_API_UNAVAILABLE' }, status: 'error', key: null, payload };
     }
     const ok = response.status >= 200 && response.status < 400;
     if (!ok) {
-      return { step: { ok: false, httpStatusCode: response.status, durationMs: response.connectionMs ?? undefined, message: `License API probe failed with HTTP ${response.status}.`, errorCode: 'LICENSE_HTTP_ERROR' }, status: 'unknown', key: null, payload };
+      return { step: { ok: false, httpStatusCode: response.status, durationMs: response.connectionMs ?? undefined, message: `License API probe failed with HTTP ${response.status}.`, errorCode: 'LICENSE_HTTP_ERROR' }, status: 'error', key: null, payload };
     }
     const key = licenseKeyFromPayload(payload);
     const status = licenseStatusFromPayload(payload, key);
@@ -282,7 +374,7 @@ async function probeLicense(input: ConnectivityInput, cookieHeader: string): Pro
       payload
     };
   } catch (error) {
-    return { step: { ok: false, message: messageFromError(error), errorCode: codeFromError(error) }, status: 'unknown', key: null, payload: null };
+    return { step: { ok: false, message: messageFromError(error), errorCode: codeFromError(error) }, status: 'error', key: null, payload: null };
   }
 }
 
@@ -291,40 +383,70 @@ export async function testOxyGenConnectivity(input: ConnectivityInput): Promise<
   const checkedAt = nowIso();
 
   const dns = await dnsCheck(input.instance.host);
-  if (!dns.ok) {
+  const dnsFailed = !dns.ok;
+  if (dnsFailed) {
+    const connect: ConnectivityStepResult = { ok: false, skipped: true, message: 'Connection skipped because DNS resolution failed.' };
+    const ssl: ConnectivityStepResult = { ok: false, skipped: true, valid: null, expiresAt: null, message: 'SSL validation skipped because DNS resolution failed.' };
+    const authentication: ConnectivityStepResult = { ok: false, skipped: true, message: 'Authentication skipped because DNS resolution failed.' };
     return {
       ok: false,
       status: 'unreachable',
       message: dns.message ?? 'DNS lookup failed.',
       checkedAt,
       durationMs: Date.now() - startedAt,
-      responseTimeMs: null,
+      responseTimeMs: connectionResponseTime(dns, connect, ssl, authentication),
       httpStatusCode: null,
       dns,
-      ssl: { ok: false, skipped: true, valid: null, expiresAt: null, message: 'SSL check skipped because DNS failed.' },
-      authentication: { ok: false, skipped: true, message: 'Authentication skipped because DNS failed.' },
-      api: { ok: false, skipped: true, message: 'API probe skipped because DNS failed.' },
-      license: skippedLicense('License probe skipped because DNS failed.')
+      connect,
+      ssl,
+      authentication,
+      api: { ok: false, skipped: true, message: 'Settings probe skipped because DNS resolution failed.' },
+      settingsJson: null,
+      license: skippedLicense('License probe skipped because DNS resolution failed.')
+    };
+  }
+
+  const connect = await connectCheck(input, dns);
+  if (!connect.ok) {
+    const ssl: ConnectivityStepResult = { ok: false, skipped: true, valid: null, expiresAt: null, message: 'SSL validation skipped due to connection failure.' };
+    const authentication: ConnectivityStepResult = { ok: false, skipped: true, message: 'Authentication skipped due to connection failure.' };
+    return {
+      ok: false,
+      status: 'unreachable',
+      message: connect.message ?? 'Connection failed.',
+      checkedAt,
+      durationMs: Date.now() - startedAt,
+      responseTimeMs: connectionResponseTime(dns, connect, ssl, authentication),
+      httpStatusCode: null,
+      dns,
+      connect,
+      ssl,
+      authentication,
+      api: { ok: false, skipped: true, message: 'Settings probe skipped due to connection failure.' },
+      settingsJson: null,
+      license: skippedLicense('License probe skipped due to connection failure.')
     };
   }
 
   const ssl = await sslCheck(input);
   const sslConnectionFailed = !ssl.ok && (ssl.errorCode === 'TLS_TIMEOUT' || ssl.expiresAt === null);
   if (sslConnectionFailed) {
-    const refused = ssl.errorCode === 'ECONNREFUSED';
+    const authentication: ConnectivityStepResult = { ok: false, skipped: true, message: 'Authentication skipped because SSL connection failed.' };
     return {
       ok: false,
-      status: refused ? 'auth-error' : 'ssl-error',
-      message: refused ? 'Authentication failure' : ssl.message ?? 'SSL check failed.',
+      status: 'ssl-error',
+      message: ssl.message ?? 'SSL check failed.',
       checkedAt,
       durationMs: Date.now() - startedAt,
-      responseTimeMs: connectionResponseTime(input.instance, ssl),
+      responseTimeMs: connectionResponseTime(dns, connect, ssl, authentication),
       httpStatusCode: null,
       dns,
+      connect,
       ssl,
-      authentication: { ok: false, skipped: true, message: refused ? 'Authentication failure' : 'Authentication skipped because SSL connection failed.', errorCode: refused ? 'AUTH_CONNECTION_REFUSED' : undefined },
-      api: { ok: false, skipped: true, message: refused ? 'API probe skipped because authentication failed.' : 'API probe skipped because SSL connection failed.' },
-      license: skippedLicense(refused ? 'License probe skipped because authentication failed.' : 'License probe skipped because SSL connection failed.')
+      authentication,
+      api: { ok: false, skipped: true, message: 'Settings probe skipped because SSL connection failed.' },
+      settingsJson: null,
+      license: skippedLicense('License probe skipped because SSL connection failed.')
     };
   }
 
@@ -336,31 +458,38 @@ export async function testOxyGenConnectivity(input: ConnectivityInput): Promise<
       message: authentication.step.message ?? 'Authentication failed.',
       checkedAt,
       durationMs: Date.now() - startedAt,
-      responseTimeMs: connectionResponseTime(input.instance, ssl, authentication.response),
+      responseTimeMs: connectionResponseTime(dns, connect, ssl, authentication.step),
       httpStatusCode: authentication.step.httpStatusCode ?? null,
       dns,
+      connect,
       ssl,
       authentication: authentication.step,
-      api: { ok: false, skipped: true, message: 'API probe skipped because authentication failed.' },
+      api: { ok: false, skipped: true, message: 'Settings probe skipped because authentication failed.' },
+      settingsJson: null,
       license: skippedLicense('License probe skipped because authentication failed.')
     };
   }
 
-  const api = await probeCurrentTime(input, authentication.cookieHeader);
   const license = input.instance.checkLicense === false ? skippedLicense('License probe skipped because check_license is disabled for this instance.') : await probeLicense(input, authentication.cookieHeader);
-  const ok = api.step.ok;
+  const api = license.step.ok || license.step.skipped
+    ? await probeGlobalSettings(input, authentication.cookieHeader)
+    : { step: { ok: false, skipped: true, message: 'Settings probe skipped because the license probe failed.' } as ConnectivityStepResult, response: null, payload: null };
+  const blockedByLicense = !license.step.skipped && !license.step.ok;
+  const ok = api.step.ok && (license.step.skipped || license.step.ok);
   return {
     ok,
-    status: ok ? 'reachable' : 'unreachable',
-    message: ok ? 'Connectivity test passed.' : api.step.message ?? 'API probe failed.',
+    status: blockedByLicense ? 'reachable' : api.step.ok ? 'reachable' : 'unreachable',
+    message: blockedByLicense ? `Connectivity test completed with license issue: ${license.step.message ?? 'License probe failed.'}` : ok ? 'Connectivity test passed.' : api.step.message ?? 'Settings probe failed.',
     checkedAt,
     durationMs: Date.now() - startedAt,
-    responseTimeMs: connectionResponseTime(input.instance, ssl, authentication.response),
+    responseTimeMs: connectionResponseTime(dns, connect, ssl, authentication.step),
     httpStatusCode: api.step.httpStatusCode ?? authentication.step.httpStatusCode ?? null,
     dns,
+    connect,
     ssl,
     authentication: authentication.step,
     api: api.step,
+    settingsJson: api.payload,
     license
   };
 }

@@ -6,7 +6,7 @@ info:
   description: |
     API contract for OxyGen Central Management Server Phase 1.
 
-    Current CMS schema version: 0.10.
+    Current CMS schema version: 0.12.
 
     Phase 1 APIs cover first-run setup, local authentication/RBAC, tenant/user/group/role administration,
     manual OxyGen instance enrollment, dashboard background poller status/controls, application logs, grid preferences, and application settings.
@@ -563,7 +563,7 @@ paths:
     post:
       tags: [Instances]
       summary: Import OxyGen instances from CSV
-      description: SystemAdmin and TenantAdmin. Upserts by `instance_guid` (the instance `id`). Blank `instance_guid` creates a new instance; an unknown nonblank GUID creates an instance with that GUID. Global users may include a `tenant` column with Tenant names, leaving it blank for global/unassigned instances. Tenant-scoped users must omit the `tenant` column; all creates/updates are forced to their assigned Tenant. Existing instance Tenant assignments cannot be changed. Blank passwords preserve the current password on update and are invalid on create. Imports validate all rows before persisting any changes.
+      description: SystemAdmin and TenantAdmin. Upserts by `instance_guid` (the instance `id`). Blank `instance_guid` creates a new instance; an unknown nonblank GUID creates an instance with that GUID. Global users may include a `tenant` column with Tenant names, leaving it blank for global/unassigned instances; missing Tenant names are created for new instance rows. Tenant-scoped users must omit the `tenant` column; all creates/updates are forced to their assigned Tenant. Existing instance Tenant assignments cannot be changed. Blank passwords preserve the existing password on updates and are required for creates. Metadata must be valid JSON when provided.
       requestBody:
         required: true
         content:
@@ -586,7 +586,7 @@ paths:
     post:
       tags: [Instances]
       summary: Test unsaved instance connectivity
-      description: "Runs the same live DNS/TLS/auth/API connectivity check from create/edit modal connection values without creating or updating an enrolled instance, and without writing instance status/history. After successful authentication it also probes GET /web-api/BUS/License and returns the parsed license result."
+      description: "Runs the same live DNS/TCP/TLS/auth/API connectivity check from create/edit modal connection values without creating or updating an enrolled instance, and without writing instance status/history. Authentication requires /v2/Auth/Login to return a 2xx/3xx response that is not a login/forbidden page and includes an OxyGen session cookie; missing/non-session cookies, forbidden pages, and login forms are auth failures. After successful authentication it probes GET /web-api/BUS/License when checkLicense is enabled, then GET /web-api/global/settings. A failed required License probe marks the result as reachable with issues and skips Settings/Triggers. checkLicense=false skips the License phase."
       requestBody:
         required: true
         content:
@@ -652,7 +652,7 @@ paths:
     post:
       tags: [Instances]
       summary: Test instance connectivity
-      description: "Runs a live, CMS-initiated Phase 1 connectivity test: DNS resolution, HTTPS certificate inspection when applicable, OxyGen form authentication, a read-only current-time API probe, and GET /web-api/BUS/License. Updates instance availability/SSL/license status and appends connectivity/license history when using the MySQL repository."
+      description: "Runs a live, CMS-initiated Phase 1 connectivity test: DNS resolution, TCP connect, HTTPS certificate inspection when applicable, OxyGen form authentication requiring /v2/Auth/Login to return a 2xx/3xx response that is not a login/forbidden page and includes an OxyGen session cookie, GET /web-api/BUS/License when check_license is enabled, then GET /web-api/global/settings. Missing/non-session cookies, forbidden pages, login forms, and inaccessible authentication skip License, Settings, and Triggers phase details. Failed required License probes are stored as license errors and skip Settings/Triggers while preserving core availability as reachable. Updates instance availability/SSL/license status and appends connectivity/license history when using the MySQL repository."
       responses:
         '200':
           description: Connectivity result.
@@ -1130,6 +1130,7 @@ components:
         hostname: { type: string, description: Legacy/full hostname input; host or hostname is required. }
         username: { type: string, default: admin }
         password: { type: string, writeOnly: true, description: Remote OxyGen credential used only for this live test and never persisted by this endpoint. }
+        checkLicense: { type: boolean, default: true, description: Whether this live test should call the OxyGen License phase before Settings. When false, the License phase is skipped. }
     UpdateInstanceInput:
       allOf:
         - $ref: '#/components/schemas/CreateInstanceInput'
@@ -1142,7 +1143,7 @@ components:
       properties:
         csv:
           type: string
-          description: CSV text to import. Headers are `instance_guid,name,description,tenant,protocol,host,port,username,polling_interval_seconds,is_enabled,check_license,archived,metadata,notes,password` for global users and the same list without `tenant` for tenant-scoped users. `metadata` must be valid JSON when nonblank; `notes` may contain HTML, Markdown, RTF, or plain text.
+          description: CSV text to import. Headers are `instance_guid,name,description,tenant,protocol,host,port,username,polling_interval_seconds,is_enabled,check_license,archived,metadata,notes,password` for global users and the same list without `tenant` for tenant-scoped users. Column order is header-driven, and trailing blank spreadsheet columns are ignored. Global create rows create missing Tenant names automatically. `metadata` must be valid JSON when nonblank; `notes` may contain HTML, Markdown, RTF, or plain text.
         dryRun:
           type: boolean
           default: false
@@ -1284,9 +1285,11 @@ components:
           properties:
             issues:
               type: array
+              description: "Raw issue labels emitted by the API. The UI may normalize noisy endpoint-specific labels, for example grouping `Connection timed out: <ip>:<port>` under `Connecting time out`."
               items: { type: string }
             issueDetails:
               type: array
+              description: "Raw issue labels and severities used by dashboard filters/cards. The UI may normalize labels for display/filter grouping while preserving the raw issue details in logs/history."
               items:
                 type: object
                 required: [label, severity]
@@ -1296,7 +1299,7 @@ components:
             issueCount: { type: integer, minimum: 0 }
             hasIssue: { type: boolean }
             severity: { type: string, enum: [ok, warning, failure, unknown], description: Highest dashboard severity for the instance card. Failures render red, warnings render yellow, healthy renders green. }
-            primaryIssue: { type: [string, 'null'], description: Most critical issue/warning label to show on dashboard instance cards. }
+            primaryIssue: { type: [string, 'null'], description: Most critical issue/warning label to show on dashboard instance cards. The UI may normalize noisy endpoint-specific labels, for example grouping connection timeouts by category. }
     OxyGenInstance:
       type: object
       required: [id, name, description, tenantId, protocol, host, port, hostname, baseUrl, launchUrl, apiBaseUrl, username, pollingIntervalSeconds, isEnabled, checkLicense, archived, metadata, notes, status, createdAt, updatedAt]
@@ -1335,8 +1338,8 @@ components:
         hangfireStatus: { $ref: '#/components/schemas/ComponentStatus' }
         licenseKey: { type: [string, 'null'] }
         licenseStatus: { $ref: '#/components/schemas/LicenseStatus' }
-        licenseJson: {}
-        settingsJson: {}
+        licenseJson: { description: Raw payload returned by the OxyGen license probe for the License JSON dialog. }
+        settingsJson: { description: Raw payload returned by GET /web-api/global/settings. The Instance Dashboard Settings card extracts non-queue BUS_Auto_Purge, OxyGen_Version, and ClientDomain values from this payload; queue enable/paused values from BUS/EMM/SMS/Hangfire groups render on Workflow & Components rows; the Settings dialog shows the full JSON. }
         workflowSummaryJson: {}
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
@@ -1348,10 +1351,14 @@ components:
         skipped: { type: boolean, nullable: true }
         message: { type: string, nullable: true }
         httpStatusCode: { type: integer, nullable: true }
-        durationMs: { type: integer, minimum: 0, nullable: true, description: Step-level socket/TLS connection timing when captured. }
+        durationMs: { type: integer, minimum: 0, nullable: true, description: Step-level phase timing when captured. }
         errorCode: { type: string, nullable: true }
         valid: { type: boolean, nullable: true }
         expiresAt: { type: string, format: date-time, nullable: true }
+        address: { type: string, nullable: true, description: Resolved IP address for DNS phases. }
+        family: { type: integer, nullable: true, description: IP address family returned by DNS resolution. }
+        host: { type: string, nullable: true, description: Host or resolved IP used by the TCP connect phase. }
+        port: { type: integer, nullable: true, description: TCP port used by the connect phase. }
     LicenseProbeResult:
       type: object
       required: [step, status, key, payload]
@@ -1362,19 +1369,21 @@ components:
         payload: {}
     ConnectivityResult:
       type: object
-      required: [ok, status, message, checkedAt, durationMs, responseTimeMs, httpStatusCode, dns, ssl, authentication, api, license]
+      required: [ok, status, message, checkedAt, durationMs, responseTimeMs, httpStatusCode, dns, connect, ssl, authentication, api, settingsJson, license]
       properties:
         ok: { type: boolean }
         status: { type: string, enum: [reachable, unreachable, auth-error, ssl-error] }
         message: { type: string }
         checkedAt: { type: string, format: date-time }
         durationMs: { type: integer, minimum: 0, description: Full connectivity refresh duration including authentication and API/license probes. }
-        responseTimeMs: { type: integer, minimum: 0, nullable: true, description: Initial HTTP/TLS connection time only; authentication and API/license probe time is excluded. }
+        responseTimeMs: { type: integer, minimum: 0, nullable: true, description: Dashboard response time as Resolve + Connect + SSL + Auth for collected, non-skipped phases. }
         httpStatusCode: { type: integer, nullable: true }
         dns: { $ref: '#/components/schemas/ConnectivityStepResult' }
+        connect: { $ref: '#/components/schemas/ConnectivityStepResult' }
         ssl: { $ref: '#/components/schemas/ConnectivityStepResult' }
         authentication: { $ref: '#/components/schemas/ConnectivityStepResult' }
         api: { $ref: '#/components/schemas/ConnectivityStepResult' }
+        settingsJson: { description: Raw JSON payload returned by the Settings phase (`GET /web-api/global/settings`) when collected; null when Settings was skipped or failed before a JSON payload was available. }
         license: { $ref: '#/components/schemas/LicenseProbeResult' }
     InstancePollerSummary:
       type: object

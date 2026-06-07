@@ -58,9 +58,11 @@ function connectivityResult(): ConnectivityResult {
     responseTimeMs: 12,
     httpStatusCode: 200,
     dns: { ok: true },
+    connect: { ok: true, durationMs: 4 },
     ssl: { ok: true, valid: true, expiresAt: '2026-12-31T00:00:00.000Z' },
     authentication: { ok: true, httpStatusCode: 200 },
     api: { ok: true, httpStatusCode: 200 },
+    settingsJson: null,
     license: { step: { ok: true, httpStatusCode: 200 }, status: 'valid', key: 'KEY-123', payload: { licenseKey: 'KEY-123' } }
   };
 }
@@ -74,6 +76,7 @@ function failedConnectivityResult(): ConnectivityResult {
     responseTimeMs: null,
     httpStatusCode: null,
     dns: { ok: false, message: 'DNS Error: ENOTFOUND oxygen.example.com', errorCode: 'ENOTFOUND' },
+    connect: { ok: false, skipped: true, message: 'Connection skipped because DNS resolution failed.' },
     ssl: { ok: false, skipped: true, message: 'Skipped because DNS failed.' },
     authentication: { ok: false, skipped: true, message: 'Skipped because DNS failed.' },
     api: { ok: false, skipped: true, message: 'Skipped because DNS failed.' },
