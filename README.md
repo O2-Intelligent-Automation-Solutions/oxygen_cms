@@ -11,6 +11,7 @@ The GitHub Wiki is the documentation source of truth for this project.
 - [User Guide](https://github.com/O2-Intelligent-Automation-Solutions/oxygen_cms/wiki/User-Guide)
 - [Phase 1 Roadmap](https://github.com/O2-Intelligent-Automation-Solutions/oxygen_cms/wiki/Phase-1-Roadmap)
 - [Phase 2 Roadmap](https://github.com/O2-Intelligent-Automation-Solutions/oxygen_cms/wiki/Phase-2-Roadmap)
+- [Milestone 7 — Deployment Hardening and In-Place Updates](https://github.com/O2-Intelligent-Automation-Solutions/oxygen_cms/wiki/Milestone-7-Deployment-Hardening)
 - [Milestone 8 — BullMQ Job Queue Orchestration](https://github.com/O2-Intelligent-Automation-Solutions/oxygen_cms/wiki/Milestone-8-Job-Queue-Orchestration)
 - [Milestone 9 — Event Handling and Support Automation](https://github.com/O2-Intelligent-Automation-Solutions/oxygen_cms/wiki/Milestone-9-Event-Handling-Support-Automation)
 - [Database Architecture](https://github.com/O2-Intelligent-Automation-Solutions/oxygen_cms/wiki/Database-Architecture)
