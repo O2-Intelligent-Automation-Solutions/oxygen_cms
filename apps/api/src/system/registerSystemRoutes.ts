@@ -2,8 +2,9 @@ import type { FastifyInstance } from 'fastify';
 import { requireAuth, requireRole } from '../auth/registerAuthRoutes.js';
 import type { AuthRepository } from '../auth/types.js';
 import type { InstancePoller } from '../instances/instancePoller.js';
+import type { DatabasePerformanceReader } from './databasePerformance.js';
 
-export async function registerSystemRoutes(app: FastifyInstance, authRepository: AuthRepository, poller: InstancePoller | null) {
+export async function registerSystemRoutes(app: FastifyInstance, authRepository: AuthRepository, poller: InstancePoller | null, databasePerformanceReader: DatabasePerformanceReader) {
   const preHandler = [requireAuth(authRepository), requireRole('SystemAdmin')];
 
   function status() {
@@ -21,6 +22,7 @@ export async function registerSystemRoutes(app: FastifyInstance, authRepository:
   }
 
   app.get('/api/system/poller', { preHandler }, async () => ({ poller: status() }));
+  app.get('/api/system/database-performance', { preHandler }, async () => ({ databasePerformance: await databasePerformanceReader.readSnapshot() }));
   app.post('/api/system/poller/pause', { preHandler }, async () => {
     poller?.pause();
     return { poller: status() };

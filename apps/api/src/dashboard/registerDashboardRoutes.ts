@@ -46,13 +46,17 @@ function connectivityIssue(instance: OxyGenInstance) {
   return instance.status !== 'up' && instance.status !== 'unknown' && instance.status !== 'ssl-error';
 }
 
+function licenseEvaluationEligible(instance: OxyGenInstance) {
+  return instance.checkLicense && instance.status === 'up';
+}
+
 function licenseFailure(instance: OxyGenInstance) {
-  if (!instance.checkLicense) return false;
+  if (!licenseEvaluationEligible(instance)) return false;
   return instance.licenseStatus === 'expired' || instance.licenseStatus === 'error' || (!instance.licenseKey && instance.licenseStatus !== 'unknown' && instance.licenseStatus !== 'warning');
 }
 
 function licenseWarning(instance: OxyGenInstance) {
-  if (!instance.checkLicense) return false;
+  if (!licenseEvaluationEligible(instance)) return false;
   return instance.licenseStatus === 'warning' || (!instance.licenseKey && instance.licenseStatus === 'unknown');
 }
 

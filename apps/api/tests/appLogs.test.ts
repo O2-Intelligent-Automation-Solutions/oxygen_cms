@@ -38,6 +38,17 @@ function failedDnsConnectivity(): ConnectivityResult {
 }
 
 describe('application logs API', () => {
+  it('logs successful sign-in audit activity with the authenticated user name', async () => {
+    const { app, appLogRepository } = await bootApp();
+
+    const { logs, total } = await appLogRepository.list({ type: ['Audit'], search: 'User signed in.' });
+
+    expect(total).toBe(1);
+    expect(logs[0]).toMatchObject({ type: 'Audit', severity: 'Logging', source: 'Admin User', userName: 'Admin User', message: 'User signed in.' });
+
+    await app.close();
+  });
+
   it('persists and filters application logs by type severity source and search text', async () => {
     const { app, token, appLogRepository } = await bootApp();
     await appLogRepository.append({ type: 'Service', severity: 'Logging', source: 'OxyGen CMS', message: 'Background poller checked 2 instances', details: { checked: 2 } });

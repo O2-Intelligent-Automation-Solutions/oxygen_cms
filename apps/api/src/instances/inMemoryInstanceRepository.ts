@@ -207,9 +207,11 @@ export function createInMemoryInstanceRepository(): InstanceRepository {
       instance.sslValid = result.ssl.valid ?? null;
       instance.sslExpiresAt = result.ssl.expiresAt ?? null;
       instance.lastError = result.ok ? null : result.message;
-      instance.licenseKey = result.license.key;
-      instance.licenseStatus = result.license.status;
-      instance.licenseJson = result.license.payload;
+      if (!result.license.step.skipped) {
+        instance.licenseKey = result.license.key;
+        instance.licenseStatus = result.license.status;
+        instance.licenseJson = result.license.payload;
+      }
       instance.settingsJson = result.settingsJson;
       if (instance.status === 'up') instance.lastSuccessAt = result.checkedAt;
       else instance.lastFailureAt = result.checkedAt;

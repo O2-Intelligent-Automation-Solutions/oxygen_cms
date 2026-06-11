@@ -26,6 +26,7 @@ import { createSetupAwareInstanceRepository } from './instances/mysqlInstanceRep
 import { registerInstanceRoutes } from './instances/registerInstanceRoutes.js';
 import type { InstanceRepository } from './instances/types.js';
 import { registerSetupRoutes } from './setup/registerSetupRoutes.js';
+import { createDatabasePerformanceReader, type DatabasePerformanceReader } from './system/databasePerformance.js';
 import { registerSystemRoutes } from './system/registerSystemRoutes.js';
 import { createMysqlDatabaseProvisioner, type DatabaseProvisioner } from './setup/databaseProvisioner.js';
 import { createDefaultDeploymentConfig, type DeploymentConfig } from './setup/deploymentConfig.js';
@@ -43,6 +44,7 @@ type BuildAppOptions = FastifyServerOptions & {
   appSettingsRepository?: AppSettingsRepository;
   appLogRepository?: AppLogRepository;
   instancePoller?: InstancePoller;
+  databasePerformanceReader?: DatabasePerformanceReader;
   enableBackgroundPolling?: boolean;
   backgroundPollingTickMs?: number;
 };
@@ -163,6 +165,12 @@ function stringValue(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value : null;
 }
 
+function authProfileNameFromPayload(payload: unknown): string | null {
+  const root = objectRecord(parseJsonPayload(payload));
+  const user = objectRecord(root?.user);
+  return stringValue(user?.displayName) ?? stringValue(user?.email);
+}
+
 function responseEntity(payload: unknown, area: string): Record<string, unknown> | null {
   const root = objectRecord(payload);
   if (!root) return null;
@@ -226,6 +234,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     appSettingsRepository: providedAppSettingsRepository,
     appLogRepository: providedAppLogRepository,
     instancePoller: providedInstancePoller,
+    databasePerformanceReader: providedDatabasePerformanceReader,
     enableBackgroundPolling,
     backgroundPollingTickMs,
     ...fastifyOptions
@@ -235,6 +244,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   const gridPreferenceRepository = providedGridPreferenceRepository ?? createSetupAwareGridPreferenceRepository(setupSettingsStore, defaultGridPreferenceRepository);
   const appSettingsRepository = providedAppSettingsRepository ?? createSetupAwareAppSettingsRepository(setupSettingsStore, defaultAppSettingsRepository);
   const appLogRepository = providedAppLogRepository ?? createSetupAwareAppLogRepository(setupSettingsStore, defaultAppLogRepository);
+  const databasePerformanceReader = providedDatabasePerformanceReader ?? createDatabasePerformanceReader(setupSettingsStore);
   const app = Fastify(fastifyOptions);
   app.addHook('onSend', async (request, _reply, payload) => {
     (request as LoggedResponsePayloadRequest).appLogResponsePayload = payload;
@@ -243,7 +253,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   app.addHook('onResponse', async (request, reply) => {
     const activity = classifyApplicationActivity(request.method, request.url, reply.statusCode);
     if (!activity) return;
-    const userName = await resolveUserName(authRepository, request.headers.authorization);
+    const userName = await resolveUserName(authRepository, request.headers.authorization) ?? (request.url.startsWith('/api/auth/login') && reply.statusCode < 400 ? authProfileNameFromPayload((request as LoggedResponsePayloadRequest).appLogResponsePayload) : null);
     const responsePayload = (request as LoggedResponsePayloadRequest).appLogResponsePayload;
     const resolved = await resolveEntityTenantId(activity, request.method, request.url, request.body, responsePayload, authRepository, instanceRepository);
     const apiCall = `${request.method} ${apiCallPath(request.url, resolved.entityGuid)}`;
@@ -293,7 +303,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await registerGridPreferenceRoutes(app, authRepository, gridPreferenceRepository);
   await registerAppSettingsRoutes(app, authRepository, appSettingsRepository);
   await registerAppLogRoutes(app, authRepository, appLogRepository, appSettingsRepository);
-  await registerSystemRoutes(app, authRepository, instancePoller);
+  await registerSystemRoutes(app, authRepository, instancePoller, databasePerformanceReader);
 
   async function pruneExpiredApplicationLogs() {
     try {

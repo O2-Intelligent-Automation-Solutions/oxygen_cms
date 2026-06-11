@@ -677,6 +677,23 @@ paths:
                 properties:
                   poller: { $ref: '#/components/schemas/InstancePollerStatus' }
         '401': { $ref: '#/components/responses/Error' }
+  /api/system/database-performance:
+    get:
+      tags: [System]
+      summary: Get CMS database performance metrics
+      description: SystemAdmin only. Returns a lightweight MySQL performance snapshot for the CMS database, including information_schema table sizing, selected server counters, and the largest tables by data plus index size. The endpoint uses the configured CMS database connection and returns a non-throwing snapshot with `connected=false` and `error` when metrics cannot be read.
+      responses:
+        '200':
+          description: Database performance snapshot.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [databasePerformance]
+                properties:
+                  databasePerformance: { $ref: '#/components/schemas/DatabasePerformanceSnapshot' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
   /api/system/poller/pause:
     post:
       tags: [System]
@@ -1338,7 +1355,7 @@ components:
         hangfireStatus: { $ref: '#/components/schemas/ComponentStatus' }
         licenseKey: { type: [string, 'null'] }
         licenseStatus: { $ref: '#/components/schemas/LicenseStatus' }
-        licenseJson: { description: Raw payload returned by the OxyGen license probe for the License JSON dialog. }
+        licenseJson: { description: Raw payload returned by the OxyGen license probe for the License JSON dialog. Skipped License phases caused by connection/auth blockers preserve the prior license rollup and do not count as dashboard License Errors. }
         settingsJson: { description: Raw payload returned by GET /web-api/global/settings. The Instance Dashboard Settings card extracts non-queue BUS_Auto_Purge, OxyGen_Version, and ClientDomain values from this payload; queue enable/paused values from BUS/EMM/SMS/Hangfire groups render on Workflow & Components rows; the Settings dialog shows the full JSON. }
         workflowSummaryJson: {}
         createdAt: { type: string, format: date-time }
@@ -1408,6 +1425,72 @@ components:
             - $ref: '#/components/schemas/InstancePollerSummary'
             - type: 'null'
         lastError: { type: [string, 'null'] }
+    DatabasePerformanceSnapshot:
+      type: object
+      required: [configured, connected, database, generatedAt, error, summary, server, topTables, queryDigests]
+      properties:
+        configured: { type: boolean }
+        connected: { type: boolean }
+        database: { type: [string, 'null'] }
+        generatedAt: { type: string, format: date-time }
+        error: { type: [string, 'null'] }
+        summary:
+          type: object
+          required: [tableCount, estimatedRows, dataSizeBytes, indexSizeBytes, freeBytes, totalSizeBytes]
+          properties:
+            tableCount: { type: integer, minimum: 0 }
+            estimatedRows: { type: integer, minimum: 0, description: Approximate row count from information_schema.tables.table_rows. }
+            dataSizeBytes: { type: integer, minimum: 0 }
+            indexSizeBytes: { type: integer, minimum: 0 }
+            freeBytes: { type: integer, minimum: 0 }
+            totalSizeBytes: { type: integer, minimum: 0 }
+        server:
+          type: object
+          required: [version, uptimeSeconds, maxConnections, threadsConnected, maxUsedConnections, slowQueries, longQueryTimeSeconds, questions, abortedConnects, bufferPoolReadHitPercent]
+          properties:
+            version: { type: [string, 'null'] }
+            uptimeSeconds: { type: [integer, 'null'], minimum: 0 }
+            maxConnections: { type: [integer, 'null'], minimum: 0 }
+            threadsConnected: { type: [integer, 'null'], minimum: 0 }
+            maxUsedConnections: { type: [integer, 'null'], minimum: 0 }
+            slowQueries: { type: [integer, 'null'], minimum: 0, description: MySQL `Slow_queries` status counter since server startup. }
+            longQueryTimeSeconds: { type: [number, 'null'], minimum: 0, description: Current MySQL `long_query_time` threshold used to increment `Slow_queries`. }
+            questions: { type: [integer, 'null'], minimum: 0 }
+            abortedConnects: { type: [integer, 'null'], minimum: 0 }
+            bufferPoolReadHitPercent: { type: [number, 'null'], minimum: 0, maximum: 100 }
+        topTables:
+          type: array
+          items: { $ref: '#/components/schemas/DatabaseTablePerformance' }
+        queryDigests:
+          type: array
+          description: Normalized statement patterns from performance_schema ordered by total execution time when available.
+          items: { $ref: '#/components/schemas/DatabaseQueryDigestPerformance' }
+    DatabaseTablePerformance:
+      type: object
+      required: [tableName, engine, rowEstimate, dataSizeBytes, indexSizeBytes, freeBytes, totalSizeBytes, updatedAt]
+      properties:
+        tableName: { type: string }
+        engine: { type: [string, 'null'] }
+        rowEstimate: { type: integer, minimum: 0 }
+        dataSizeBytes: { type: integer, minimum: 0 }
+        indexSizeBytes: { type: integer, minimum: 0 }
+        freeBytes: { type: integer, minimum: 0 }
+        totalSizeBytes: { type: integer, minimum: 0 }
+        updatedAt: { type: [string, 'null'], format: date-time }
+    DatabaseQueryDigestPerformance:
+      type: object
+      required: [digestText, count, totalTimeSeconds, avgTimeSeconds, rowsExamined, rowsSent, errors, warnings, firstSeen, lastSeen]
+      properties:
+        digestText: { type: string, description: Normalized SQL statement pattern; literals are replaced by placeholders by MySQL performance_schema. }
+        count: { type: integer, minimum: 0 }
+        totalTimeSeconds: { type: number, minimum: 0 }
+        avgTimeSeconds: { type: number, minimum: 0 }
+        rowsExamined: { type: integer, minimum: 0 }
+        rowsSent: { type: integer, minimum: 0 }
+        errors: { type: integer, minimum: 0 }
+        warnings: { type: integer, minimum: 0 }
+        firstSeen: { type: [string, 'null'], format: date-time }
+        lastSeen: { type: [string, 'null'], format: date-time }
     AppLogType:
       type: string
       enum: [Audit, Service, CRUD, Connection, Security, UI]

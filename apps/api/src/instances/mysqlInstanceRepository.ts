@@ -236,7 +236,11 @@ export function createMysqlInstanceRepository(pool: Pool, credentialCipher?: Cre
       `UPDATE oxygen_instance_status
        SET availability_status = ?, ssl_valid = ?, ssl_expires_at = ?, last_checked_at = ?,
            last_success_at = COALESCE(?, last_success_at), last_failure_at = COALESCE(?, last_failure_at),
-           response_time_ms = ?, last_error = ?, license_key = ?, license_status = ?, license_json = ?, settings_json = ?
+           response_time_ms = ?, last_error = ?,
+           license_key = CASE WHEN ? THEN license_key ELSE ? END,
+           license_status = CASE WHEN ? THEN license_status ELSE ? END,
+           license_json = CASE WHEN ? THEN license_json ELSE ? END,
+           settings_json = ?
        WHERE instance_id = ?`,
       [
         availability,
@@ -247,8 +251,11 @@ export function createMysqlInstanceRepository(pool: Pool, credentialCipher?: Cre
         lastFailureAt ? new Date(lastFailureAt) : null,
         result.responseTimeMs,
         result.ok ? null : result.message,
+        result.license.step.skipped ? 1 : 0,
         result.license.key,
+        result.license.step.skipped ? 1 : 0,
         result.license.status,
+        result.license.step.skipped ? 1 : 0,
         result.license.payload === null ? null : JSON.stringify(result.license.payload),
         result.settingsJson === null ? null : JSON.stringify(result.settingsJson),
         instanceId

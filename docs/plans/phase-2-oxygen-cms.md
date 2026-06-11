@@ -11,4 +11,6 @@ This documentation has been migrated to the GitHub Wiki:
 - [x] Persist and expose `/web-api/global/settings` for the Settings card/dialog.
 - [x] Move queue enable/paused indicators to Workflow & Components.
 - [x] Normalize noisy timeout issue labels in the dashboard issue filter.
+- [x] Add Settings → Database performance visibility for CMS MySQL storage, server counters, slow queries, buffer-pool health, and table/query hotspots.
+- [x] Add dashboard KPI-to-grid drill-downs and Tenant row Dashboard actions for scoped triage.
 - [ ] Add richer trend/history visualizations after collector data matures.

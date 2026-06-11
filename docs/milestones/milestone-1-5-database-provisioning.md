@@ -6,4 +6,4 @@ This documentation has been migrated to the GitHub Wiki:
 
 ## Local schema checkpoint
 
-Current schema target: `0.12`. Recent migrations add application logs, log tenant/entity metadata, instance import metadata columns, and duplicate instance-name support.
+Current schema target: `0.12`. Recent migrations add application logs, log tenant/entity metadata, instance import metadata columns, and duplicate instance-name support. The Settings → Database dashboard is a read-only MySQL/status aggregate and does not require a schema migration.

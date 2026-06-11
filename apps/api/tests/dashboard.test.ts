@@ -87,9 +87,9 @@ describe('dashboard API', () => {
       authRepository,
       instanceRepository: createFakeInstanceRepository([
         instance({ id: 'acme-up', name: 'Acme Up', tenantId: tenant.id }),
-        instance({ id: 'acme-down', name: 'Acme Down', tenantId: tenant.id, status: 'down', lastError: 'Offline' }),
+        instance({ id: 'acme-down', name: 'Acme Down', tenantId: tenant.id, status: 'down', lastError: 'Offline', licenseKey: null, licenseStatus: 'unknown' }),
         instance({ id: 'acme-ssl', name: 'Acme SSL Warning', tenantId: tenant.id, status: 'ssl-error', sslValid: false }),
-        instance({ id: 'acme-authssl', name: 'Acme SSL Auth Failure', tenantId: tenant.id, status: 'auth-error', sslValid: false, lastError: 'OxyGen authentication failed with HTTP 401.' }),
+        instance({ id: 'acme-authssl', name: 'Acme SSL Auth Failure', tenantId: tenant.id, status: 'auth-error', sslValid: false, lastError: 'OxyGen authentication failed with HTTP 401.', licenseKey: null, licenseStatus: 'unknown' }),
         instance({ id: 'acme-license', name: 'Acme Missing License', tenantId: tenant.id, licenseKey: null, licenseStatus: 'unknown' }),
         instance({ id: 'acme-processing', name: 'Acme Processing', tenantId: tenant.id, processingStatus: 'error' }),
         instance({ id: 'acme-disabled', name: 'Acme Disabled', tenantId: tenant.id, isEnabled: false, status: 'down', lastError: 'Disabled host offline' }),
@@ -110,6 +110,8 @@ describe('dashboard API', () => {
     expect(body.dashboard.instances.find((entry: { id: string; hasIssue: boolean; severity: string; primaryIssue: string }) => entry.id === 'acme-down')).toMatchObject({ hasIssue: true, severity: 'failure', primaryIssue: 'Availability down' });
     expect(body.dashboard.instances.find((entry: { id: string; issues: string[]; severity: string; primaryIssue: string }) => entry.id === 'acme-ssl')).toMatchObject({ severity: 'warning', primaryIssue: 'SSL warning' });
     expect(body.dashboard.instances.find((entry: { id: string; issues: string[]; severity: string; primaryIssue: string }) => entry.id === 'acme-authssl')).toMatchObject({ severity: 'failure', primaryIssue: 'Authentication failure' });
+    expect(body.dashboard.instances.find((entry: { id: string; issues: string[] }) => entry.id === 'acme-down').issues).not.toContain('License API unavailable');
+    expect(body.dashboard.instances.find((entry: { id: string; issues: string[] }) => entry.id === 'acme-authssl').issues).not.toContain('License API unavailable');
     expect(body.dashboard.instances.find((entry: { id: string; issues: string[]; severity: string; primaryIssue: string }) => entry.id === 'acme-license')).toMatchObject({ severity: 'warning', primaryIssue: 'License API unavailable' });
     await app.close();
   });
