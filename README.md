@@ -25,6 +25,16 @@ Canonical OpenAPI file in this repository:
 docs/openapi.yaml
 ```
 
+## Deployment
+
+For the initial Docker-based deployment baseline, see [Deployment](docs/deployment.md).
+
+```bash
+scripts/deploy.sh init
+scripts/deploy.sh check
+scripts/deploy.sh start
+```
+
 ## Development Validation
 
 ```bash

@@ -1,0 +1,118 @@
+# Deployment
+
+Milestone 7A adds the first production-oriented Docker deployment baseline for the current API/web/MySQL MVP.
+
+## Model
+
+The baseline stack runs:
+
+- `app` — the production OxyGen CMS image built from this repository. The API serves `/api/*` and the built React app from the same container.
+- `mysql` — MySQL 8.4 with persistent Docker volume storage.
+
+BullMQ/Redis workers are intentionally not part of this first deployment slice. They are planned for Phase 1.5 and a later Milestone 7 revisit.
+
+## Quick start
+
+```bash
+scripts/deploy.sh init
+scripts/deploy.sh check
+scripts/deploy.sh start
+```
+
+Then open:
+
+```text
+http://localhost:8080
+```
+
+Change `CMS_HTTP_PORT` in `deploy/.env` if port `8080` is not appropriate.
+
+## Files
+
+- `docker-compose.deploy.yml` — production/self-contained Docker Compose stack.
+- `deploy.env.example` — non-secret template for deployment environment variables.
+- `scripts/deploy.sh` — user-friendly lifecycle helper.
+- `deploy/.env` — generated local deployment secrets. This file is ignored by git and must not be committed.
+
+## Lifecycle commands
+
+```bash
+scripts/deploy.sh init       # Create deploy/.env with generated secrets
+scripts/deploy.sh check      # Validate Docker/Compose and Compose config
+scripts/deploy.sh build      # Build the production image
+scripts/deploy.sh start      # Build and start app + MySQL
+scripts/deploy.sh status     # Show containers
+scripts/deploy.sh logs       # Follow app logs
+scripts/deploy.sh logs mysql # Follow MySQL logs
+scripts/deploy.sh backup     # Create timestamped MySQL/app-data backup
+scripts/deploy.sh pre-update # Validate stack and create a safety backup before update
+scripts/deploy.sh restart    # Restart services
+scripts/deploy.sh stop       # Stop services, preserving volumes
+```
+
+## Secrets
+
+`deploy/.env` is generated with mode `600` and includes:
+
+- `MYSQL_PASSWORD`
+- `MYSQL_ROOT_PASSWORD`
+- `OXYGEN_CMS_ENCRYPTION_KEY`
+
+Do not commit or share `deploy/.env`.
+
+## Backup and restore
+
+Create a timestamped backup with:
+
+```bash
+scripts/deploy.sh backup
+```
+
+Backups are written under `deploy/backups/<timestamp>/` by default and include:
+
+- `mysql.sql.gz` — MySQL logical dump for the CMS database.
+- `app-data.tar.gz` — CMS app data/settings volume backup.
+- `manifest.txt` — non-secret backup metadata.
+
+Before any application update, run:
+
+```bash
+scripts/deploy.sh pre-update
+```
+
+Restore is intentionally guarded because it replaces database contents:
+
+```bash
+CONFIRM_RESTORE=YES scripts/deploy.sh restore-db deploy/backups/<timestamp>/mysql.sql.gz
+```
+
+Always take a fresh backup before restore/update operations.
+
+## HTTPS / certificates
+
+The MVP deployment exposes the CMS app over HTTP on `CMS_HTTP_PORT`. For production HTTPS, place a reverse proxy or load balancer in front of the app port and terminate TLS there. Supported near-term patterns:
+
+1. **Existing reverse proxy / load balancer** — route HTTPS traffic to `http://<host>:${CMS_HTTP_PORT}`.
+2. **Customer-supplied certificate proxy** — bundled proxy automation is skipped for now; advanced/custom deployments may add their own proxy that mounts supplied certificate/key files.
+3. **Generated/self-signed local certificate outside CMS automation** — acceptable only for internal testing, not recommended for production users.
+
+Keep MySQL unexposed to the public network. Only the app HTTP port should be reachable by users/proxies.
+
+## Data persistence
+
+The Compose stack uses named volumes:
+
+- `oxygen-cms-mysql` for MySQL data.
+- `oxygen-cms-app-data` for CMS setup/settings state.
+
+Stopping the stack with `scripts/deploy.sh stop` preserves these volumes.
+
+## Current limitations
+
+This first deployment baseline does not yet include:
+
+- GitHub update detection.
+- CMS UI update banner/action flow.
+- BullMQ/Redis worker topology.
+
+Bundled HTTPS/certificate automation is intentionally skipped for now in favor of external reverse-proxy/load-balancer TLS termination.

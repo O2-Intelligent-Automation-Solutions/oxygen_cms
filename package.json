@@ -12,12 +12,19 @@
     "dev:db:reset": "bash scripts/dev-db-reset.sh",
     "dev:managed": "bash scripts/dev-up-managed.sh",
     "dev:managed:smoke": "bash scripts/dev-managed-smoke.sh",
+    "deploy:init": "bash scripts/deploy.sh init",
+    "deploy:check": "bash scripts/deploy.sh check",
+    "deploy:start": "bash scripts/deploy.sh start",
+    "deploy:stop": "bash scripts/deploy.sh stop",
+    "deploy:status": "bash scripts/deploy.sh status",
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "test:mysql-auth": "MYSQL_INTEGRATION_TESTS=true npm --workspace @oxygen-cms/api test -- --run tests/mysqlAuthRepository.test.ts",
     "test:mysql-crud": "MYSQL_INTEGRATION_TESTS=true npm --workspace @oxygen-cms/api test -- --run tests/mysqlAuthRepository.test.ts tests/mysqlInstanceRepository.test.ts",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "lint": "npm run lint --workspaces --if-present"
+    "lint": "npm run lint --workspaces --if-present",
+    "deploy:backup": "bash scripts/deploy.sh backup",
+    "deploy:pre-update": "bash scripts/deploy.sh pre-update"
   },
   "engines": {
     "node": ">=22"

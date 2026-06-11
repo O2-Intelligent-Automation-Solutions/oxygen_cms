@@ -1,6 +1,8 @@
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
+import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyRequest, type FastifyServerOptions } from 'fastify';
+import { existsSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { createInMemoryAppLogRepository } from './appLogs/inMemoryAppLogRepository.js';
 import { createSetupAwareAppLogRepository } from './appLogs/mysqlAppLogRepository.js';
@@ -47,11 +49,18 @@ type BuildAppOptions = FastifyServerOptions & {
   databasePerformanceReader?: DatabasePerformanceReader;
   enableBackgroundPolling?: boolean;
   backgroundPollingTickMs?: number;
+  webDistPath?: string | false;
 };
 
 const defaultSettingsPath = basename(process.cwd()) === 'api'
   ? join(process.cwd(), 'data/settings.json')
   : join(process.cwd(), 'apps/api/data/settings.json');
+function defaultWebDistPath() {
+  return basename(process.cwd()) === 'api'
+    ? join(process.cwd(), '../web/dist')
+    : join(process.cwd(), 'apps/web/dist');
+}
+
 const defaultFallbackAuthRepository = createInMemoryAuthRepository();
 const defaultSetupSettingsStore = createFileSetupSettingsStore(defaultSettingsPath);
 const defaultSetupStatusProvider = createFileSetupStatusProvider(defaultSetupSettingsStore);
@@ -237,6 +246,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     databasePerformanceReader: providedDatabasePerformanceReader,
     enableBackgroundPolling,
     backgroundPollingTickMs,
+    webDistPath = defaultWebDistPath(),
     ...fastifyOptions
   } = options;
   const authRepository = options.authRepository ?? createSetupAwareAuthRepository(setupSettingsStore, defaultFallbackAuthRepository);
@@ -322,6 +332,19 @@ export async function buildApp(options: BuildAppOptions = {}) {
   if (enableBackgroundPolling ?? config.nodeEnv !== 'test') {
     instancePoller.start();
     app.addHook('onClose', async () => { instancePoller.stop(); });
+  }
+
+  if (webDistPath && existsSync(join(webDistPath, 'index.html'))) {
+    await app.register(fastifyStatic, {
+      root: webDistPath,
+      prefix: '/',
+      index: false,
+      wildcard: false
+    });
+    app.get('/*', async (request, reply) => {
+      if (request.url.startsWith('/api/')) return reply.code(404).send({ error: 'Not found' });
+      return reply.sendFile('index.html');
+    });
   }
 
   return app;

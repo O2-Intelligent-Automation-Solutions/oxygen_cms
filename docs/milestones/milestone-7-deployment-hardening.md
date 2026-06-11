@@ -6,4 +6,6 @@ Canonical page:
 
 - [Milestone 7 — Deployment Hardening and In-Place Updates](https://github.com/O2-Intelligent-Automation-Solutions/oxygen_cms/wiki/Milestone-7-Deployment-Hardening)
 
-Summary: automated Docker deployment for the current API/web/MySQL MVP, setup/dependency/environment scripts, HTTPS/certificate path, backup/restore safety, GitHub update detection, CMS UI new-version notification, and a non-technical in-place application/database update flow. Revisit after Phase 1.5/BullMQ for worker/Redis topology.
+Summary: automated Docker deployment for the current API/web/MySQL MVP, setup/dependency/environment scripts, reverse-proxy HTTPS guidance, backup/restore safety, GitHub update detection, CMS UI new-version notification, and a non-technical in-place application/database update flow. Revisit after Phase 1.5/BullMQ for worker/Redis topology.
+
+Implementation status: Milestone 7A deployment baseline is delivered; Milestone 7B secret generation, backup/restore, pre-update safety, and reverse-proxy HTTPS guidance are delivered. Bundled HTTPS/certificate automation is intentionally skipped for now.

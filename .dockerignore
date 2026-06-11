@@ -1,0 +1,28 @@
+# Git/history
+.git
+.gitignore
+
+# Local dependencies and builds
+node_modules
+**/node_modules
+apps/api/dist
+apps/web/dist
+packages/shared/dist
+
+# Local environment/secrets
+.env
+.env.*
+!.env.example
+deploy/.env
+deploy/*.env
+
+# Test/cache/log output
+coverage
+.nyc_output
+.vite
+*.log
+npm-debug.log*
+.DS_Store
+
+# Local Hermes/session artifacts
+.hermes

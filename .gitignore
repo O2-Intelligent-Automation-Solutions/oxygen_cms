@@ -11,3 +11,6 @@ kendo-ui-license.txt
 apps/*/dist/
 packages/*/dist/
 apps/api/data/
+deploy/.env
+deploy/*.env
+!deploy/.gitkeep
