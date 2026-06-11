@@ -13,5 +13,6 @@ This documentation has been migrated to the GitHub Wiki:
 - [x] Normalize noisy timeout issue labels in the dashboard issue filter.
 - [x] Add Settings → Database performance visibility for CMS MySQL storage, server counters, slow queries, buffer-pool health, and table/query hotspots.
 - [x] Add dashboard KPI-to-grid drill-downs and Tenant row Dashboard actions for scoped triage.
-- [ ] Add BullMQ/Redis queue orchestration milestone before Phase 2 fan-in/fan-out work: per-instance scheduled checks, database maintenance jobs, SystemAdmin Bull Board visibility, and eventual native Jobs dashboard.
+- [ ] Add BullMQ/Redis queue orchestration milestone before Phase 2 fan-in/fan-out work: per-instance scheduled checks, database maintenance jobs, event ingestion, notification delivery, outbound webhook dispatch, SystemAdmin Bull Board visibility, and eventual native Jobs dashboard.
+- [ ] Add Milestone 9 event handling/support automation: global/Tenant severity mappings, custom inbound collectors, issue lifecycle/acknowledgement, queue dashboards, Unlayer email templates, and outbound integrations.
 - [ ] Add richer trend/history visualizations after collector data matures.
