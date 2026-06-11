@@ -109,10 +109,9 @@ Stopping the stack with `scripts/deploy.sh stop` preserves these volumes.
 
 ## Current limitations
 
-This first deployment baseline does not yet include:
+This deployment baseline now includes GitHub update detection and the CMS Settings → General update notice. It does not yet include:
 
-- GitHub update detection.
-- CMS UI update banner/action flow.
+- Non-technical in-place app/database update flow.
 - BullMQ/Redis worker topology.
 
 Bundled HTTPS/certificate automation is intentionally skipped for now in favor of external reverse-proxy/load-balancer TLS termination.

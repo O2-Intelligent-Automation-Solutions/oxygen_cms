@@ -88,6 +88,7 @@ type AppLabels = { tenant: string };
 type DatabaseTablePerformance = { tableName: string; engine: string | null; rowEstimate: number; dataSizeBytes: number; indexSizeBytes: number; freeBytes: number; totalSizeBytes: number; updatedAt: string | null };
 type DatabaseQueryDigestPerformance = { digestText: string; count: number; totalTimeSeconds: number; avgTimeSeconds: number; rowsExamined: number; rowsSent: number; errors: number; warnings: number; firstSeen: string | null; lastSeen: string | null };
 type DatabasePerformanceSnapshot = { configured: boolean; connected: boolean; database: string | null; generatedAt: string; error: string | null; summary: { tableCount: number; estimatedRows: number; dataSizeBytes: number; indexSizeBytes: number; freeBytes: number; totalSizeBytes: number }; server: { version: string | null; uptimeSeconds: number | null; maxConnections: number | null; threadsConnected: number | null; maxUsedConnections: number | null; slowQueries: number | null; longQueryTimeSeconds: number | null; questions: number | null; abortedConnects: number | null; bufferPoolReadHitPercent: number | null }; topTables: DatabaseTablePerformance[]; queryDigests: DatabaseQueryDigestPerformance[] };
+type SystemVersionSnapshot = { current: { version: string; commit: string | null; buildDate: string | null; repository: string; sourceUrl: string; updateChannel: string }; update: { checkedAt: string; source: 'github-release' | 'github-tag' | 'unavailable'; available: boolean; currentVersion: string; latestVersion: string | null; latestName: string | null; releaseUrl: string | null; publishedAt: string | null; error: string | null } };
 type DatabaseDetailPanel = 'status' | 'storage' | 'tables' | 'connections' | 'queries' | 'cache';
 type DatabaseMaintenanceAction = 'purge-logs' | 'compress' | 'defrag' | 'backup' | 'restore';
 type DatabaseMode = 'managed-mysql' | 'local-mysql' | 'existing-mysql';
@@ -447,6 +448,8 @@ export function App() {
   const [logRetention, setLogRetention] = useState<LogRetentionSettings>({ days: 90 });
   const [appLogs, setAppLogs] = useState<AppLogEntry[]>([]);
   const [databasePerformance, setDatabasePerformance] = useState<DatabasePerformanceSnapshot | null>(null);
+  const [systemVersion, setSystemVersion] = useState<SystemVersionSnapshot | null>(null);
+  const [isSystemVersionRefreshing, setIsSystemVersionRefreshing] = useState(false);
   const [databaseDetailPanel, setDatabaseDetailPanel] = useState<DatabaseDetailPanel>('storage');
   const [databaseDetailModal, setDatabaseDetailModal] = useState<DatabaseDetailPanel | null>(null);
   const [showDashboardInstanceBoard, setShowDashboardInstanceBoard] = useState(false);
@@ -679,6 +682,24 @@ export function App() {
     }
   }
 
+  async function loadSystemVersion(t = token, mode: DashboardRefreshMode = 'quiet') {
+    if (!t) return;
+    if (mode === 'manual') clearStatus();
+    setIsSystemVersionRefreshing(true);
+    try {
+      const res = await api<{ version: SystemVersionSnapshot }>('/api/system/version', { token: t });
+      setSystemVersion(res.version);
+      if (mode === 'manual') {
+        showStatus(res.version.update.error ? 'Version metadata refreshed; update source is currently unavailable.' : 'Version metadata refreshed.', res.version.update.error ? 'warning' : 'success');
+      }
+    } catch (err) {
+      if (mode === 'manual') setError(err instanceof Error ? err.message : 'Version refresh failed.');
+      else throw err;
+    } finally {
+      setIsSystemVersionRefreshing(false);
+    }
+  }
+
   async function handleClearLogs() {
     if (!token || isClearingLogs) return;
     if (!window.confirm('Clear all application logs? This cannot be undone.')) return;
@@ -776,6 +797,7 @@ export function App() {
       setProfile(restored);
       await loadAppLabels(t);
       await loadLogRetention(t).catch(() => undefined);
+      if (restored.roles.includes('SystemAdmin')) await loadSystemVersion(t).catch(() => undefined);
       if (restored.roles.includes('SystemAdmin')) await refreshAdminData(t);
       else await loadDashboard(t);
     } catch (err) {
@@ -969,8 +991,10 @@ export function App() {
       setMessage(`Signed in as ${login.user.displayName}.`);
       await loadAppLabels(login.token);
       await loadLogRetention(login.token).catch(() => undefined);
-      if (login.roles.includes('SystemAdmin')) await refreshAdminData(login.token);
-      else await loadDashboard(login.token);
+      if (login.roles.includes('SystemAdmin')) {
+        await loadSystemVersion(login.token).catch(() => undefined);
+        await refreshAdminData(login.token);
+      } else await loadDashboard(login.token);
     } catch (err) { setError(err instanceof Error ? err.message : 'Login failed.'); }
   }
 
@@ -1818,9 +1842,48 @@ export function App() {
     </div>;
   }
 
+  function updateTone(snapshot: SystemVersionSnapshot | null): 'ok' | 'warning' | 'issue' | 'neutral' {
+    if (!snapshot) return 'neutral';
+    if (snapshot.update.available) return 'warning';
+    if (snapshot.update.error) return 'issue';
+    return 'ok';
+  }
+
+  function updateStatusLabel(snapshot: SystemVersionSnapshot | null) {
+    if (!snapshot) return 'Checking';
+    if (snapshot.update.available) return 'Update Available';
+    if (snapshot.update.error) return 'Check Unavailable';
+    return 'Up to Date';
+  }
+
+  function renderVersionUpdatePanel() {
+    const snapshot = systemVersion;
+    const update = snapshot?.update;
+    const current = snapshot?.current;
+    const tone = updateTone(snapshot);
+    return <article className={`panel settings-panel version-update-panel ${tone}`}>
+      <div className="panel-heading"><Download /><div><p className="eyebrow small">Application updates</p><h3>OxyGen CMS Version</h3></div></div>
+      <section className={`version-update-summary ${tone}`}>
+        <div><span>Current</span><strong>{current?.version ?? 'Unknown'}</strong><small>{current?.commit ? `Commit ${current.commit.slice(0, 12)}` : 'Build commit unavailable'}</small></div>
+        <div><span>Latest</span><strong>{update?.latestVersion ?? 'Unknown'}</strong><small>{update?.source === 'unavailable' ? 'GitHub unavailable' : update?.source === 'github-tag' ? 'GitHub tag' : 'GitHub release'}</small></div>
+        <div><span>Status</span><strong>{updateStatusLabel(snapshot)}</strong><small>{update ? `Checked ${formatDateTime(update.checkedAt)}` : 'Not checked yet'}</small></div>
+      </section>
+      {update?.available && <p className="panel-copy version-update-message">A newer OxyGen CMS version is available. The next Milestone 7 slice will add the guarded in-place update workflow; for now, review the release metadata before updating manually.</p>}
+      {update?.error && <p className="panel-copy version-update-message warning">Update checks are non-blocking. CMS could not reach GitHub: {update.error}</p>}
+      <dl className="detail-list version-detail-list"><dt>Repository</dt><dd>{current?.repository ?? 'Unknown'}</dd><dt>Channel</dt><dd>{current?.updateChannel ?? 'stable'}</dd><dt>Build date</dt><dd>{current?.buildDate ? formatDateTime(current.buildDate) : 'Unavailable'}</dd><dt>Published</dt><dd>{update?.publishedAt ? formatDateTime(update.publishedAt) : 'Unavailable'}</dd></dl>
+      <div className="version-update-actions"><Button className="compact-button" type="button" onClick={() => void loadSystemVersion(token, 'manual')} disabled={isSystemVersionRefreshing}><RotateCw className={isSystemVersionRefreshing ? 'spin-icon' : ''} /> Check Now</Button>{(update?.releaseUrl || current?.sourceUrl) && <Button className="compact-button" type="button" fillMode="flat" onClick={() => window.open(update?.releaseUrl || current?.sourceUrl, '_blank', 'noopener,noreferrer')}><ExternalLink /> View Source</Button>}</div>
+    </article>;
+  }
+
+  function renderUpdateNotice() {
+    if (!systemVersion?.update.available) return null;
+    return <section className="version-update-notice" role="status"><div><strong>OxyGen CMS update available</strong><span>{systemVersion.update.latestVersion} is available from GitHub. Current version: {systemVersion.current.version}.</span></div><Button className="compact-button" type="button" onClick={() => nav('settings-general')}><Download /> View Update</Button></section>;
+  }
+
   function renderSettingsGeneral() {
     const retentionDays = logRetention?.days ?? 90;
     return <div className="settings-basic-stack">
+      {isSystemAdmin && renderVersionUpdatePanel()}
       <article className="panel settings-panel"><div className="panel-heading"><Settings /><div><p className="eyebrow small">Application settings</p><h3>Labels</h3></div></div><p className="panel-copy">Customize display labels used by the application without changing the underlying data model.</p><form className="settings-form" onSubmit={handleSaveLabels}><label>Tenant<input name="tenant" defaultValue={tenantLabel} placeholder="Tenant" required /></label><small>Example: change this to Partner to display Partner labels throughout CMS.</small><button type="submit">Save Labels</button></form></article>
       <article className="panel settings-panel"><div className="panel-heading"><Settings /><div><p className="eyebrow small">Application settings</p><h3>Log Retention</h3></div></div><p className="panel-copy">Configure how long CMS keeps database-backed application logs.</p><form className="settings-form compact-settings-form" onSubmit={handleSaveLogRetention}><label>Retention days<input name="days" type="number" min={1} max={3650} defaultValue={retentionDays} required /></label><button type="submit">Save Retention</button></form></article>
     </div>;
@@ -2016,6 +2079,7 @@ export function App() {
 
       {profile && (<div className={`admin-layout ${isDrawerExpanded ? 'drawer-expanded' : 'drawer-collapsed'} ${isMobileDrawerOpen ? 'mobile-drawer-open' : ''}`}><aside className={`admin-sidebar ${isDrawerExpanded ? 'expanded' : 'collapsed'} ${isMobileDrawerOpen ? 'mobile-open' : ''}`}><button className="mobile-drawer-close" type="button" onClick={() => setIsMobileDrawerOpen(false)} aria-label="Close navigation"><X /></button><button className="sidebar-toggle" type="button" onClick={() => setIsDrawerExpanded((v) => !v)} aria-label={isDrawerExpanded ? 'Collapse navigation' : 'Expand navigation'}>{isDrawerExpanded ? <ChevronLeft /> : <ChevronRight />}</button><div className="sidebar-user"><UserCircle /><div><span className="su-name">{profile.user.displayName}</span><span className="su-role">{profile.roles[0]}</span></div></div><nav className="sidebar-nav"><button className={`nav-link${activeSection === 'dashboard' ? ' active' : ''}`} onClick={() => nav('dashboard')}><LayoutDashboard /><span>Dashboard</span></button><div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => handleSidebarParentClick('organizations')}><Server /><span>Organizations</span>{openAccordions.has('organizations') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('organizations') && (<div className="nav-accordion-children"><button className={`nav-link child${activeSection === 'organizations' ? ' active' : ''}`} onClick={() => nav('organizations')}><span>{tenantLabelPlural}</span></button><button className={`nav-link child${activeSection === 'instances' ? ' active' : ''}`} onClick={() => { nav('instances'); loadInstances(); }}><span>Instances</span></button></div>)}</div><div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => handleSidebarParentClick('security')}><ShieldCheck /><span>Security</span>{openAccordions.has('security') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('security') && (<div className="nav-accordion-children"><button className={`nav-link child${activeSection === 'users' ? ' active' : ''}`} onClick={() => nav('users')}><span>Users</span></button><button className={`nav-link child${activeSection === 'user-groups' ? ' active' : ''}`} onClick={() => nav('user-groups')}><span>User Groups</span></button><button className={`nav-link child${activeSection === 'roles' ? ' active' : ''}`} onClick={() => nav('roles')}><span>Roles</span></button></div>)}</div><div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => handleSidebarParentClick('settings')}><Settings /><span>Settings</span>{openAccordions.has('settings') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('settings') && (<div className="nav-accordion-children"><button className={`nav-link child${activeSection === 'settings-general' ? ' active' : ''}`} onClick={() => nav('settings-general')}><span>General</span></button><button className={`nav-link child${activeSection === 'settings-logs' ? ' active' : ''}`} onClick={() => nav('settings-logs')}><span>Logs</span></button><button className={`nav-link child${activeSection === 'settings-database' ? ' active' : ''}`} onClick={() => nav('settings-database')}><span>Database</span></button><button className={`nav-link child${activeSection === 'settings-advanced' ? ' active' : ''}`} onClick={() => nav('settings-advanced', false, 'Advanced Settings')}><span>Advanced</span></button></div>)}</div></nav><button className="sidebar-logout" onClick={handleLogout}><LogOut /><span>Sign out</span></button></aside>
         <section className={`admin-content ${gridSection ? 'grid-section' : ''}`}>{activeSection !== 'dashboard' && <div className="page-header"><p className="eyebrow small">{sectionMeta.eyebrow}</p><h2>{sectionMeta.heading}</h2></div>}
+          {activeSection !== 'settings-general' && renderUpdateNotice()}
           {activeSection === 'dashboard' && renderDashboard()}
           {activeSection === 'organizations' && isSystemAdmin && <ManagedGrid gridKey="tenants" token={token!} rows={tenantRows} columns={tenantColumnDefs} actionCell={TenantActionCell} mobileActions={(row) => <TenantActionMenu tenant={row.raw} mobile />} toolbar={<Button className="btn-create" onClick={openCreateTenantModal} type="button" themeColor="primary"><Plus /> Create “{tenantLabel}”</Button>} />}
           {activeSection === 'instances' && <ManagedGrid gridKey="instances" token={token!} rows={visibleInstanceRows} columns={labeledInstanceColumnDefs} actionCell={InstanceActionCell} actionWidth={58} mobileActions={mobileInstanceActions} toolbar={canImportExportInstances || isSystemAdmin ? renderInstanceToolbar() : null} />}

@@ -3,8 +3,9 @@ import { requireAuth, requireRole } from '../auth/registerAuthRoutes.js';
 import type { AuthRepository } from '../auth/types.js';
 import type { InstancePoller } from '../instances/instancePoller.js';
 import type { DatabasePerformanceReader } from './databasePerformance.js';
+import type { UpdateChecker } from './updateInfo.js';
 
-export async function registerSystemRoutes(app: FastifyInstance, authRepository: AuthRepository, poller: InstancePoller | null, databasePerformanceReader: DatabasePerformanceReader) {
+export async function registerSystemRoutes(app: FastifyInstance, authRepository: AuthRepository, poller: InstancePoller | null, databasePerformanceReader: DatabasePerformanceReader, updateChecker: UpdateChecker) {
   const preHandler = [requireAuth(authRepository), requireRole('SystemAdmin')];
 
   function status() {
@@ -23,6 +24,7 @@ export async function registerSystemRoutes(app: FastifyInstance, authRepository:
 
   app.get('/api/system/poller', { preHandler }, async () => ({ poller: status() }));
   app.get('/api/system/database-performance', { preHandler }, async () => ({ databasePerformance: await databasePerformanceReader.readSnapshot() }));
+  app.get('/api/system/version', { preHandler }, async () => ({ version: await updateChecker.getVersionSnapshot() }));
   app.post('/api/system/poller/pause', { preHandler }, async () => {
     poller?.pause();
     return { poller: status() };

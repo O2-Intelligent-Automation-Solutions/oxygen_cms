@@ -8,4 +8,4 @@ Canonical page:
 
 Summary: automated Docker deployment for the current API/web/MySQL MVP, setup/dependency/environment scripts, reverse-proxy HTTPS guidance, backup/restore safety, GitHub update detection, CMS UI new-version notification, and a non-technical in-place application/database update flow. Revisit after Phase 1.5/BullMQ for worker/Redis topology.
 
-Implementation status: Milestone 7A deployment baseline is delivered; Milestone 7B secret generation, backup/restore, pre-update safety, and reverse-proxy HTTPS guidance are delivered. Bundled HTTPS/certificate automation is intentionally skipped for now.
+Implementation status: Milestone 7A deployment baseline, Milestone 7B secret generation/backup/pre-update safety/reverse-proxy HTTPS guidance, and Milestone 7C version metadata/GitHub update detection/CMS update notice are delivered. Bundled HTTPS/certificate automation is intentionally skipped for now; the non-technical in-place app/database update flow remains next.

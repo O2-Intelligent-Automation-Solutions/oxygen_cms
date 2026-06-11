@@ -677,6 +677,23 @@ paths:
                 properties:
                   poller: { $ref: '#/components/schemas/InstancePollerStatus' }
         '401': { $ref: '#/components/responses/Error' }
+  /api/system/version:
+    get:
+      tags: [System]
+      summary: Get CMS version and update availability
+      description: SystemAdmin only. Returns current build metadata plus a non-blocking GitHub update check. If GitHub is unavailable, the route still returns current version metadata with `update.source=unavailable` and a non-secret error message.
+      responses:
+        '200':
+          description: Version and update metadata.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [version]
+                properties:
+                  version: { $ref: '#/components/schemas/SystemVersionSnapshot' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
   /api/system/database-performance:
     get:
       tags: [System]
@@ -1425,6 +1442,35 @@ components:
             - $ref: '#/components/schemas/InstancePollerSummary'
             - type: 'null'
         lastError: { type: [string, 'null'] }
+    SystemVersionSnapshot:
+      type: object
+      required: [current, update]
+      properties:
+        current: { $ref: '#/components/schemas/CurrentVersionInfo' }
+        update: { $ref: '#/components/schemas/UpdateCheckResult' }
+    CurrentVersionInfo:
+      type: object
+      required: [version, commit, buildDate, repository, sourceUrl, updateChannel]
+      properties:
+        version: { type: string, example: 0.1.0 }
+        commit: { type: [string, 'null'], description: Build/source commit when supplied by deployment metadata. }
+        buildDate: { type: [string, 'null'], format: date-time, description: Build timestamp when supplied by deployment metadata. }
+        repository: { type: string, example: O2-Intelligent-Automation-Solutions/oxygen_cms }
+        sourceUrl: { type: string, format: uri }
+        updateChannel: { type: string, example: stable }
+    UpdateCheckResult:
+      type: object
+      required: [checkedAt, source, available, currentVersion, latestVersion, latestName, releaseUrl, publishedAt, error]
+      properties:
+        checkedAt: { type: string, format: date-time }
+        source: { type: string, enum: [github-release, github-tag, unavailable] }
+        available: { type: boolean }
+        currentVersion: { type: string }
+        latestVersion: { type: [string, 'null'] }
+        latestName: { type: [string, 'null'] }
+        releaseUrl: { type: [string, 'null'], format: uri }
+        publishedAt: { type: [string, 'null'], format: date-time }
+        error: { type: [string, 'null'], description: Non-secret update-check failure message when GitHub cannot be reached or returns an unusable response. }
     DatabasePerformanceSnapshot:
       type: object
       required: [configured, connected, database, generatedAt, error, summary, server, topTables, queryDigests]

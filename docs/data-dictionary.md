@@ -77,3 +77,15 @@ Dashboard issue filters normalize noisy endpoint-specific connectivity errors be
 | --- | --- | --- |
 | `labels` | `{ tenant: string }` | Display label customization. |
 | `logRetention` | `{ days: number }` | Log retention setting managed from Settings → General. Default is 90 days. |
+
+### `GET /api/system/version`
+
+The Settings → General update panel is backed by a read-only SystemAdmin endpoint. It does not add CMS tables or store GitHub state. The route derives current version metadata from the package/build environment and performs a non-blocking GitHub latest-release check with tag fallback.
+
+| Field group | Description |
+| --- | --- |
+| `current.version` / `current.commit` / `current.buildDate` | Currently running CMS package version plus optional build commit/date supplied by deployment metadata. |
+| `current.repository` / `current.sourceUrl` / `current.updateChannel` | GitHub repository, source URL, and update channel used for update checks. |
+| `update.checkedAt` / `update.source` | Timestamp and source of the latest check: `github-release`, `github-tag`, or `unavailable`. |
+| `update.available` / `update.latestVersion` / `update.releaseUrl` | Whether GitHub reports a newer semantic version, plus latest version and release/tag URL when available. |
+| `update.error` | Non-secret failure detail when GitHub is unreachable or returns unusable metadata. Update-check failures do not block CMS startup or Settings rendering. |
