@@ -1463,7 +1463,7 @@ components:
       required: [checkedAt, source, available, currentVersion, latestVersion, latestName, releaseUrl, publishedAt, error]
       properties:
         checkedAt: { type: string, format: date-time }
-        source: { type: string, enum: [github-release, github-tag, unavailable] }
+        source: { type: string, enum: [github-release, github-tag, github-branch, unavailable] }
         available: { type: boolean }
         currentVersion: { type: string }
         latestVersion: { type: [string, 'null'] }

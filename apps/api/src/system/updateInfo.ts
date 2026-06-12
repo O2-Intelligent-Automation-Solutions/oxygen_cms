@@ -11,7 +11,7 @@ export type CurrentVersionInfo = {
 
 export type UpdateCheckResult = {
   checkedAt: string;
-  source: 'github-release' | 'github-tag' | 'unavailable';
+  source: 'github-release' | 'github-tag' | 'github-branch' | 'unavailable';
   available: boolean;
   currentVersion: string;
   latestVersion: string | null;
@@ -39,6 +39,23 @@ type GitHubTag = {
   name?: unknown;
   commit?: { sha?: unknown; url?: unknown };
   zipball_url?: unknown;
+};
+
+type GitHubRepository = {
+  default_branch?: unknown;
+  pushed_at?: unknown;
+  updated_at?: unknown;
+  html_url?: unknown;
+};
+
+type GitHubCommit = {
+  sha?: unknown;
+  html_url?: unknown;
+  commit?: {
+    committer?: { date?: unknown };
+    author?: { date?: unknown };
+    message?: unknown;
+  };
 };
 
 export type UpdateChecker = {
@@ -188,7 +205,31 @@ export function createUpdateChecker(options: UpdateCheckerOptions = {}): UpdateC
           };
         }
 
-        return unavailable(current, checkedAt, `GitHub update metadata unavailable. Latest release status ${release.status}; tags status ${tags.status}.`);
+        const repositoryUrl = `https://api.github.com/repos/${repository}`;
+        const repositoryMetadata = await fetchJson<GitHubRepository>(fetchImpl, repositoryUrl, timeoutMs);
+        const defaultBranch = repositoryMetadata.ok && repositoryMetadata.body ? stringOrNull(repositoryMetadata.body.default_branch) : null;
+        if (defaultBranch) {
+          const branchUrl = `https://api.github.com/repos/${repository}/commits/${encodeURIComponent(defaultBranch)}`;
+          const branchCommit = await fetchJson<GitHubCommit>(fetchImpl, branchUrl, timeoutMs);
+          const sha = branchCommit.ok && branchCommit.body ? stringOrNull(branchCommit.body.sha) : null;
+          const commitUrl = branchCommit.ok && branchCommit.body ? stringOrNull(branchCommit.body.html_url) : null;
+          return {
+            current,
+            update: {
+              checkedAt,
+              source: 'github-branch',
+              available: Boolean(current.commit && sha && !sha.startsWith(current.commit) && !current.commit.startsWith(sha)),
+              currentVersion: current.version,
+              latestVersion: sha ? sha.slice(0, 12) : defaultBranch,
+              latestName: sha ? `${defaultBranch} @ ${sha.slice(0, 12)}` : defaultBranch,
+              releaseUrl: commitUrl ?? stringOrNull(repositoryMetadata.body?.html_url) ?? sourceUrl,
+              publishedAt: branchCommit.ok && branchCommit.body ? stringOrNull(branchCommit.body.commit?.committer?.date) ?? stringOrNull(branchCommit.body.commit?.author?.date) : stringOrNull(repositoryMetadata.body?.pushed_at) ?? stringOrNull(repositoryMetadata.body?.updated_at),
+              error: null
+            }
+          };
+        }
+
+        return unavailable(current, checkedAt, `GitHub update metadata unavailable. Latest release status ${release.status}; tags status ${tags.status}; repository status ${repositoryMetadata.status}.`);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Update check failed.';
         return unavailable(current, checkedAt, message);

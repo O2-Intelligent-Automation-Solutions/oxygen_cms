@@ -50,6 +50,26 @@ describe('system version/update routes', () => {
     expect(snapshot.update.available).toBe(false);
   });
 
+
+  it('falls back to the default branch commit when releases and tags are absent', async () => {
+    let calls = 0;
+    const checker = createUpdateChecker({
+      fetchImpl: async () => {
+        calls += 1;
+        if (calls === 1) return new Response(JSON.stringify({ message: 'Not Found' }), { status: 404 });
+        if (calls === 2) return new Response(JSON.stringify([]), { status: 200 });
+        if (calls === 3) return new Response(JSON.stringify({ default_branch: 'main', html_url: 'https://github.com/O2-Intelligent-Automation-Solutions/oxygen_cms', pushed_at: '2026-06-12T00:00:00Z' }), { status: 200 });
+        return new Response(JSON.stringify({ sha: '19b1884abcdef1234567890', html_url: 'https://github.com/O2-Intelligent-Automation-Solutions/oxygen_cms/commit/19b1884abcdef1234567890', commit: { committer: { date: '2026-06-12T00:00:00Z' } } }), { status: 200 });
+      },
+      now: () => new Date('2026-06-12T12:00:00Z')
+    });
+    const snapshot = await checker.getVersionSnapshot();
+    expect(snapshot.update.source).toBe('github-branch');
+    expect(snapshot.update.latestVersion).toBe('19b1884abcde');
+    expect(snapshot.update.latestName).toBe('main @ 19b1884abcde');
+    expect(snapshot.update.error).toBeNull();
+  });
+
   it('returns an offline-safe unavailable update state on network failure', async () => {
     const checker = createUpdateChecker({
       fetchImpl: async () => { throw new Error('network unavailable'); },

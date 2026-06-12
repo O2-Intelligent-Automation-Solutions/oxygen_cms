@@ -86,6 +86,6 @@ The Settings → General update panel is backed by a read-only SystemAdmin endpo
 | --- | --- |
 | `current.version` / `current.commit` / `current.buildDate` | Currently running CMS package version plus optional build commit/date supplied by deployment metadata. |
 | `current.repository` / `current.sourceUrl` / `current.updateChannel` | GitHub repository, source URL, and update channel used for update checks. |
-| `update.checkedAt` / `update.source` | Timestamp and source of the latest check: `github-release`, `github-tag`, or `unavailable`. |
+| `update.checkedAt` / `update.source` | Timestamp and source of the latest check: `github-release`, `github-tag`, `github-branch`, or `unavailable`. |
 | `update.available` / `update.latestVersion` / `update.releaseUrl` | Whether GitHub reports a newer semantic version, plus latest version and release/tag URL when available. |
 | `update.error` | Non-secret failure detail when GitHub is unreachable or returns unusable metadata. Update-check failures do not block CMS startup or Settings rendering. |
