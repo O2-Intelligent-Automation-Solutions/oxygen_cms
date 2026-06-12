@@ -762,7 +762,7 @@ export function App() {
       const res = await api<{ retention: LogRetentionSettings }>('/api/app-settings/log-retention', { method: 'PUT', token, body: JSON.stringify({ days: Number(f.get('days')) }) });
       const nextRetention = res.retention ?? { days: 90 };
       setLogRetention(nextRetention);
-      setMessage(`Log retention updated to ${nextRetention.days} day${nextRetention.days === 1 ? '' : 's'}.`);
+      setMessage(`Activity retention updated to ${nextRetention.days} day${nextRetention.days === 1 ? '' : 's'}.`);
     } catch (err) { setError(err instanceof Error ? err.message : 'Log retention update failed.'); }
   }
 
@@ -1887,7 +1887,7 @@ export function App() {
     return <div className="settings-basic-stack">
       {isSystemAdmin && renderVersionUpdatePanel()}
       <article className="panel settings-panel"><div className="panel-heading"><Settings /><div><p className="eyebrow small">Application settings</p><h3>Labels</h3></div></div><p className="panel-copy">Customize display labels used by the application without changing the underlying data model.</p><form className="settings-form" onSubmit={handleSaveLabels}><label>Tenant<input name="tenant" defaultValue={tenantLabel} placeholder="Tenant" required /></label><small>Example: change this to Partner to display Partner labels throughout CMS.</small><button type="submit">Save Labels</button></form></article>
-      <article className="panel settings-panel"><div className="panel-heading"><Settings /><div><p className="eyebrow small">Application settings</p><h3>Log Retention</h3></div></div><p className="panel-copy">Configure how long CMS keeps database-backed application logs.</p><form className="settings-form compact-settings-form" onSubmit={handleSaveLogRetention}><label>Retention days<input name="days" type="number" min={1} max={3650} defaultValue={retentionDays} required /></label><button type="submit">Save Retention</button></form></article>
+      <article className="panel settings-panel"><div className="panel-heading"><Settings /><div><p className="eyebrow small">Application settings</p><h3>Log Retention</h3></div></div><p className="panel-copy">Configure how long CMS keeps database-backed activity history, including application logs and instance check history.</p><form className="settings-form compact-settings-form" onSubmit={handleSaveLogRetention}><label>Retention days<input name="days" type="number" min={1} max={3650} defaultValue={retentionDays} required /></label><button type="submit">Save Retention</button></form></article>
     </div>;
   }
 

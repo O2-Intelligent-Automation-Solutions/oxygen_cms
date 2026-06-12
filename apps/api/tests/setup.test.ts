@@ -41,12 +41,16 @@ describe('first-run database setup API', () => {
     expect(duplicateNameMigration?.upSql).toContain('information_schema.statistics');
   });
 
-  it('adds a check-history index matching instance health detail reads', () => {
-    const historyIndexMigration = schemaMigrations.find((migration) => migration.version === '0.13');
+  it('adds check-history indexes matching detail reads and retention pruning', () => {
+    const historyDetailIndexMigration = schemaMigrations.find((migration) => migration.version === '0.13');
+    const historyRetentionIndexMigration = schemaMigrations.find((migration) => migration.version === '0.14');
 
-    expect(historyIndexMigration?.name).toBe('instance check history detail index');
-    expect(historyIndexMigration?.upSql).toContain('idx_oxygen_instance_check_history_instance_started_id_type');
-    expect(historyIndexMigration?.upSql).toContain('instance_id, started_at, id, check_type');
+    expect(historyDetailIndexMigration?.name).toBe('instance check history detail index');
+    expect(historyDetailIndexMigration?.upSql).toContain('idx_oxygen_instance_check_history_instance_started_id_type');
+    expect(historyDetailIndexMigration?.upSql).toContain('instance_id, started_at, id, check_type');
+    expect(historyRetentionIndexMigration?.name).toBe('instance check history retention index');
+    expect(historyRetentionIndexMigration?.upSql).toContain('idx_oxygen_instance_check_history_started_at');
+    expect(historyRetentionIndexMigration?.upSql).toContain('(started_at)');
   });
 
   it('reports database setup is required before first admin creation on a fresh install', async () => {
@@ -70,7 +74,7 @@ describe('first-run database setup API', () => {
         connected: false,
         schemaCurrent: false,
         defaultDatabaseName: 'O2IAS_CMS',
-        targetSchemaVersion: '0.13'
+        targetSchemaVersion: '0.14'
       },
       admin: {
         exists: false

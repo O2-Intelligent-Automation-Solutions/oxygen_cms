@@ -197,7 +197,7 @@ describe('application logs API', () => {
     await app.close();
   });
 
-  it('enforces log retention before returning the log list', async () => {
+  it('enforces activity retention before returning the log list', async () => {
     const { app, token, appLogRepository, appSettingsRepository } = await bootApp();
     await appSettingsRepository.saveLogRetention({ days: 30 });
     const oldLog = await appLogRepository.append({ type: 'Service', severity: 'Logging', source: 'OxyGen CMS', message: 'Old log row' });

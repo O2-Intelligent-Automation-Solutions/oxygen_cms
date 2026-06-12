@@ -324,7 +324,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
       const retention = await appSettingsRepository.getLogRetention();
       await appLogRepository.pruneOlderThan(retention.days);
     } catch (error) {
-      app.log.warn({ error }, 'Failed to prune expired application logs');
+      app.log.warn({ error }, 'Failed to prune expired activity history');
     }
   }
 

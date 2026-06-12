@@ -6,7 +6,7 @@ info:
   description: |
     API contract for OxyGen Central Management Server Phase 1.
 
-    Current CMS schema version: 0.13.
+    Current CMS schema version: 0.14.
 
     Phase 1 APIs cover first-run setup, local authentication/RBAC, tenant/user/group/role administration,
     manual OxyGen instance enrollment, dashboard background poller status/controls, application logs, grid preferences, and application settings.
@@ -929,10 +929,10 @@ paths:
   /api/app-settings/log-retention:
     get:
       tags: [Application Settings]
-      summary: Get application log retention setting
+      summary: Get activity retention setting
       responses:
         '200':
-          description: Log retention setting.
+          description: Activity retention setting.
           content:
             application/json:
               schema:
@@ -943,7 +943,7 @@ paths:
         '401': { $ref: '#/components/responses/Error' }
     put:
       tags: [Application Settings]
-      summary: Save application log retention setting
+      summary: Save activity retention setting
       requestBody:
         required: true
         content:
@@ -951,7 +951,7 @@ paths:
             schema: { $ref: '#/components/schemas/LogRetentionSettings' }
       responses:
         '200':
-          description: Saved log retention setting.
+          description: Saved activity retention setting.
           content:
             application/json:
               schema:

@@ -11,6 +11,8 @@ function fakePool(counts: Record<string, number>) {
       calls.push({ sql, values });
       if (sql.includes('COUNT(*) AS total') && sql.includes('application_logs')) return [[{ total: counts.application_logs ?? 0 }], []];
       if (sql.includes('COUNT(*) AS total') && sql.includes('oxygen_instance_check_history')) return [[{ total: counts.oxygen_instance_check_history ?? 0 }], []];
+      if (sql.includes('DELETE FROM application_logs')) return [{ affectedRows: counts.application_logs ?? 0 }, []];
+      if (sql.includes('DELETE FROM oxygen_instance_check_history')) return [{ affectedRows: counts.oxygen_instance_check_history ?? 0 }, []];
       return [{ affectedRows: 0 }, []];
     }
   } as unknown as Pool;
@@ -41,6 +43,23 @@ describe('mysql application log storage maintenance', () => {
       'ANALYZE TABLE application_logs',
       'ANALYZE TABLE oxygen_instance_check_history'
     ]);
+  });
+
+  it('prunes expired rows from all current activity tables', async () => {
+    const { pool, calls } = fakePool({ application_logs: 4, oxygen_instance_check_history: 9 });
+    const repository = createMysqlAppLogRepository(pool);
+
+    const deleted = await repository.pruneOlderThan(30);
+
+    expect(deleted).toBe(13);
+    expect(calls.map((call) => call.sql)).toEqual([
+      'DELETE FROM application_logs WHERE created_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)',
+      'DELETE FROM oxygen_instance_check_history WHERE started_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)',
+      'ANALYZE TABLE application_logs',
+      'ANALYZE TABLE oxygen_instance_check_history'
+    ]);
+    expect(calls[0]?.values).toEqual([30]);
+    expect(calls[1]?.values).toEqual([30]);
   });
 
   it('does not truncate or analyze activity tables when no activity rows exist', async () => {

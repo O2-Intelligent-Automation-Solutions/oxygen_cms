@@ -96,9 +96,11 @@ export function createMysqlAppLogRepository(pool: Pool): AppLogRepository {
       return { logs: rows.map(mapRow), total: Number(countRows[0]?.total ?? 0) };
     },
     async pruneOlderThan(days: number) {
-      const [result] = await pool.query<ResultSetHeader>('DELETE FROM application_logs WHERE created_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)', [days]);
-      if (result.affectedRows > 0) await refreshActivityTableStats(pool);
-      return result.affectedRows;
+      const [applicationLogResult] = await pool.query<ResultSetHeader>('DELETE FROM application_logs WHERE created_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)', [days]);
+      const [checkHistoryResult] = await pool.query<ResultSetHeader>('DELETE FROM oxygen_instance_check_history WHERE started_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)', [days]);
+      const deleted = applicationLogResult.affectedRows + checkHistoryResult.affectedRows;
+      if (deleted > 0) await refreshActivityTableStats(pool);
+      return deleted;
     },
     async clear() {
       const tables = await Promise.all(activityTables.map((tableName) => countTableRows(pool, tableName)));
