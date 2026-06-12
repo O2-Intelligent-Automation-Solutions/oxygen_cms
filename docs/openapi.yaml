@@ -826,8 +826,8 @@ paths:
         '401': { $ref: '#/components/responses/Error' }
     delete:
       tags: [Application Logs]
-      summary: Clear persisted CMS application logs
-      description: Deletes all persisted application log entries. The clear operation itself is excluded from application log auto-capture to avoid immediately recreating a log row.
+      summary: Clear persisted CMS activity tables
+      description: Truncates current CMS activity tables, including persisted application logs and instance check history, then refreshes table statistics. The clear operation itself is excluded from application log auto-capture to avoid immediately recreating a log row.
       responses:
         '200':
           description: Clear result.

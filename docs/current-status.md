@@ -38,3 +38,5 @@ Validation gate for this state:
 ```text
 npm run typecheck && npm test && npm run build
 ```
+
+- Settings → Database Purge Logs currently truncates the CMS activity tables (`application_logs` and `oxygen_instance_check_history`) and refreshes table statistics so dashboard storage metrics update after clearing activity.

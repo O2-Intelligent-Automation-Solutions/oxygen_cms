@@ -41,6 +41,23 @@ function mapRow(row: AppLogRow): AppLogEntry {
   };
 }
 
+const activityTables = ['application_logs', 'oxygen_instance_check_history'] as const;
+
+async function countTableRows(pool: Pool, tableName: typeof activityTables[number]) {
+  const [rows] = await pool.query<(RowDataPacket & { total: number })[]>(`SELECT COUNT(*) AS total FROM ${tableName}`);
+  return Number(rows[0]?.total ?? 0);
+}
+
+async function refreshActivityTableStats(pool: Pool) {
+  for (const tableName of activityTables) {
+    try {
+      await pool.query(`ANALYZE TABLE ${tableName}`);
+    } catch {
+      // Keep cleanup best-effort: some managed databases restrict ANALYZE TABLE.
+    }
+  }
+}
+
 function whereClause(query: AppLogQuery) {
   const clauses: string[] = [];
   const values: unknown[] = [];
@@ -80,11 +97,22 @@ export function createMysqlAppLogRepository(pool: Pool): AppLogRepository {
     },
     async pruneOlderThan(days: number) {
       const [result] = await pool.query<ResultSetHeader>('DELETE FROM application_logs WHERE created_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)', [days]);
+      if (result.affectedRows > 0) await refreshActivityTableStats(pool);
       return result.affectedRows;
     },
     async clear() {
-      const [result] = await pool.query<ResultSetHeader>('DELETE FROM application_logs');
-      return result.affectedRows;
+      const deleted = (await Promise.all(activityTables.map((tableName) => countTableRows(pool, tableName)))).reduce((sum, count) => sum + count, 0);
+      if (deleted === 0) return 0;
+      await pool.query('SET FOREIGN_KEY_CHECKS = 0');
+      try {
+        for (const tableName of activityTables) {
+          await pool.query(`TRUNCATE TABLE ${tableName}`);
+        }
+      } finally {
+        await pool.query('SET FOREIGN_KEY_CHECKS = 1');
+      }
+      await refreshActivityTableStats(pool);
+      return deleted;
     }
   };
 }
