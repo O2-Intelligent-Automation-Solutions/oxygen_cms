@@ -850,6 +850,35 @@ paths:
                           enum: [application_logs, oxygen_instance_check_history]
                         deleted: { type: integer, minimum: 0 }
         '401': { $ref: '#/components/responses/Error' }
+  /api/logs/retention/run:
+    post:
+      tags: [Application Logs]
+      summary: Run activity retention immediately
+      description: SystemAdmin-only maintenance action that reads the configured activity retention window, deletes expired application log and instance check history rows, refreshes table statistics when rows are removed, and returns combined plus per-table deleted counts. Unlike DELETE /api/logs, this is not a truncate operation and only removes rows older than the configured retention days.
+      responses:
+        '200':
+          description: Retention run result.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [retention, deleted, tables]
+                properties:
+                  retention: { $ref: '#/components/schemas/LogRetentionSettings' }
+                  deleted: { type: integer, minimum: 0 }
+                  tables:
+                    type: array
+                    description: Per-activity-table deleted row counts from the retention run.
+                    items:
+                      type: object
+                      required: [tableName, deleted]
+                      properties:
+                        tableName:
+                          type: string
+                          enum: [application_logs, oxygen_instance_check_history]
+                        deleted: { type: integer, minimum: 0 }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
   /api/grid-preferences/{gridKey}:
     parameters:
       - $ref: '#/components/parameters/gridKey'

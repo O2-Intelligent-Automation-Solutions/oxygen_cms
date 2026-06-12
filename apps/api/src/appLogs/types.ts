@@ -52,9 +52,11 @@ export type AppLogClearResult = {
   tables: AppLogClearTableResult[];
 };
 
+export type AppLogRetentionRunResult = AppLogClearResult;
+
 export type AppLogRepository = {
   append(entry: CreateAppLogEntry): Promise<AppLogEntry>;
   list(query?: AppLogQuery): Promise<AppLogListResult>;
-  pruneOlderThan(days: number): Promise<number>;
+  pruneOlderThan(days: number): Promise<AppLogRetentionRunResult>;
   clear(): Promise<AppLogClearResult>;
 };

@@ -85,6 +85,48 @@ describe('application logs API', () => {
     await app.close();
   });
 
+
+  it('lets SystemAdmin run configured activity retention immediately with per-table counts', async () => {
+    const { app, token, appSettingsRepository, appLogRepository } = await bootApp();
+    await appSettingsRepository.saveLogRetention({ days: 14 });
+    const pruneSpy = vi.spyOn(appLogRepository, 'pruneOlderThan').mockResolvedValue({
+      deleted: 7,
+      tables: [
+        { tableName: 'application_logs', deleted: 2 },
+        { tableName: 'oxygen_instance_check_history', deleted: 5 }
+      ]
+    });
+
+    const response = await app.inject({ method: 'POST', url: '/api/logs/retention/run', headers: { authorization: `Bearer ${token}` } });
+
+    expect(response.statusCode).toBe(200);
+    expect(pruneSpy).toHaveBeenCalledWith(14);
+    expect(response.json()).toEqual({
+      retention: { days: 14 },
+      deleted: 7,
+      tables: [
+        { tableName: 'application_logs', deleted: 2 },
+        { tableName: 'oxygen_instance_check_history', deleted: 5 }
+      ]
+    });
+
+    await app.close();
+  });
+
+  it('requires SystemAdmin to run activity retention manually', async () => {
+    const { app, token } = await bootApp();
+    const created = await app.inject({ method: 'POST', url: '/api/users', headers: { authorization: `Bearer ${token}` }, payload: { email: 'viewer@example.com', displayName: 'Viewer', password: 'ViewerPassword!42', roleNames: ['Viewer'], groupIds: [], tenantId: null, instanceAccessMode: 'none', instanceIds: [] } });
+    expect(created.statusCode).toBe(201);
+    const login = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: 'viewer@example.com', password: 'ViewerPassword!42' } });
+
+    const response = await app.inject({ method: 'POST', url: '/api/logs/retention/run', headers: { authorization: `Bearer ${login.json().token}` } });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toEqual({ error: 'SystemAdmin role required.' });
+
+    await app.close();
+  });
+
   it('logs grid preference saves as one UI activity with structured API details', async () => {
     const { app, token, appLogRepository } = await bootApp();
 

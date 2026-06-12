@@ -47,7 +47,8 @@ export function createInMemoryAppLogRepository(): AppLogRepository {
       for (let index = logs.length - 1; index >= 0; index -= 1) {
         if (Date.parse(logs[index].createdAt) < cutoff) logs.splice(index, 1);
       }
-      return originalLength - logs.length;
+      const deleted = originalLength - logs.length;
+      return { deleted, tables: [{ tableName: 'application_logs', deleted }] };
     },
     async clear() {
       const originalLength = logs.length;

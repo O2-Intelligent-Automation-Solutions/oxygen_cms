@@ -90,8 +90,10 @@ type DatabaseQueryDigestPerformance = { digestText: string; count: number; total
 type DatabasePerformanceSnapshot = { configured: boolean; connected: boolean; database: string | null; generatedAt: string; error: string | null; summary: { tableCount: number; estimatedRows: number; dataSizeBytes: number; indexSizeBytes: number; freeBytes: number; totalSizeBytes: number }; server: { version: string | null; uptimeSeconds: number | null; maxConnections: number | null; threadsConnected: number | null; maxUsedConnections: number | null; slowQueries: number | null; longQueryTimeSeconds: number | null; questions: number | null; abortedConnects: number | null; bufferPoolReadHitPercent: number | null }; topTables: DatabaseTablePerformance[]; queryDigests: DatabaseQueryDigestPerformance[] };
 type SystemVersionSnapshot = { current: { version: string; commit: string | null; buildDate: string | null; repository: string; sourceUrl: string; updateChannel: string }; update: { checkedAt: string; source: 'github-release' | 'github-tag' | 'github-branch' | 'unavailable'; available: boolean; currentVersion: string; latestVersion: string | null; latestName: string | null; releaseUrl: string | null; publishedAt: string | null; error: string | null } };
 type DatabaseDetailPanel = 'status' | 'storage' | 'tables' | 'connections' | 'queries' | 'cache';
-type DatabaseMaintenanceAction = 'purge-logs' | 'compress' | 'defrag' | 'backup' | 'restore';
-type LogPurgeResult = { deleted: number; tables?: Array<{ tableName: string; deleted: number }> };
+type DatabaseMaintenanceAction = 'run-retention' | 'purge-logs' | 'compress' | 'defrag' | 'backup' | 'restore';
+type ActivityTableMaintenanceResult = { deleted: number; tables?: Array<{ tableName: string; deleted: number }> };
+type LogPurgeResult = ActivityTableMaintenanceResult;
+type ActivityRetentionRunResult = ActivityTableMaintenanceResult & { retention: LogRetentionSettings };
 type DatabaseMode = 'managed-mysql' | 'local-mysql' | 'existing-mysql';
 type DbWizardStep = 'mode' | 'connection' | 'credentials' | 'review';
 type NavSection = 'dashboard' | 'organizations' | 'instances' | 'instance-dashboard' | 'users' | 'user-groups' | 'roles' | 'settings-general' | 'settings-logs' | 'settings-database' | 'settings-advanced';
@@ -701,6 +703,25 @@ export function App() {
     }
   }
 
+  function activityTableSummary(tables?: Array<{ tableName: string; deleted: number }>) {
+    return tables?.length ? ` Affected tables: ${tables.map((table) => `${table.tableName} (${formatNumber(table.deleted)})`).join(', ')}.` : '';
+  }
+
+  async function handleRunRetention() {
+    if (!token) return;
+    clearStatus();
+    try {
+      const res = await api<ActivityRetentionRunResult>('/api/logs/retention/run', { method: 'POST', token });
+      showStatus(`Retention pruned ${formatNumber(res.deleted)} expired activity row${res.deleted === 1 ? '' : 's'} older than ${formatNumber(res.retention.days)} day${res.retention.days === 1 ? '' : 's'}.${activityTableSummary(res.tables)}`);
+      await Promise.all([
+        loadDatabasePerformance(token).catch(() => undefined),
+        loadAppLogs(token).catch(() => undefined)
+      ]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to run activity retention.');
+    }
+  }
+
   async function handleClearLogs() {
     if (!token || isClearingLogs) return;
     if (!window.confirm('Purge CMS activity tables? This truncates application_logs and oxygen_instance_check_history and cannot be undone.')) return;
@@ -709,8 +730,7 @@ export function App() {
     try {
       const res = await api<LogPurgeResult>('/api/logs', { method: 'DELETE', token });
       setAppLogs([]);
-      const tableSummary = res.tables?.length ? ` Affected tables: ${res.tables.map((table) => `${table.tableName} (${formatNumber(table.deleted)})`).join(', ')}.` : '';
-      showStatus(`Cleared ${formatNumber(res.deleted)} activity row${res.deleted === 1 ? '' : 's'} from application logs and check history.${tableSummary} Tables were truncated so MySQL can release/reuse the space immediately.`);
+      showStatus(`Cleared ${formatNumber(res.deleted)} activity row${res.deleted === 1 ? '' : 's'} from application logs and check history.${activityTableSummary(res.tables)} Tables were truncated so MySQL can release/reuse the space immediately.`);
       await loadDatabasePerformance(token).catch(() => undefined);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to clear logs.');
@@ -721,12 +741,18 @@ export function App() {
 
   async function handleDatabaseMaintenance(action: DatabaseMaintenanceAction) {
     setDatabaseMaintenanceAction(action);
+    if (action === 'run-retention') {
+      await handleRunRetention();
+      setDatabaseMaintenanceAction(null);
+      return;
+    }
     if (action === 'purge-logs') {
       await handleClearLogs();
       setDatabaseMaintenanceAction(null);
       return;
     }
     const labels: Record<DatabaseMaintenanceAction, string> = {
+      'run-retention': 'Run Retention',
       'purge-logs': 'Purge Logs',
       compress: 'Compress Tables',
       defrag: 'Defrag Tables',
@@ -1927,7 +1953,8 @@ export function App() {
       { panel: 'cache', label: 'Buffer Pool Hit', value: formatPercent(snapshot.server.bufferPoolReadHitPercent), detail: bufferHealth.label, subdetail: bufferHealth.detail, tone: bufferHealth.tone }
     ];
     const maintenanceActions: Array<{ action: DatabaseMaintenanceAction; label: string; detail: string; icon: ReactNode; tone?: string }> = [
-      { action: 'purge-logs', label: 'Purge Logs', detail: 'Truncate CMS application logs and instance check history activity rows.', icon: <Trash2 /> },
+      { action: 'run-retention', label: 'Run Retention', detail: `Delete activity rows older than the configured ${formatNumber(logRetention.days)} day retention window.`, icon: <RotateCw /> },
+      { action: 'purge-logs', label: 'Purge Logs', detail: 'Truncate CMS application logs and instance check history activity rows.', icon: <Trash2 />, tone: 'danger' },
       { action: 'compress', label: 'Compress', detail: 'Planned maintenance job for table rebuild/compression after backup.', icon: <Archive /> },
       { action: 'defrag', label: 'Defrag', detail: 'Planned OPTIMIZE/defragment job for reclaiming fragmented table space.', icon: <Activity /> },
       { action: 'backup', label: 'Backup', detail: 'Planned export job with a downloadable backup artifact.', icon: <Download /> },
@@ -1952,7 +1979,7 @@ export function App() {
       </section>
       {isMobileViewport && renderDetailPanel()}
       {!isMobileViewport && databaseDetailModal && <Dialog className="cms-dialog database-detail-dialog" title={`${kpiCards.find((card) => card.panel === databaseDetailModal)?.label || 'Database'} Details`} onClose={() => setDatabaseDetailModal(null)} width={920}>{renderDetailPanel()}<DialogActionsBar><Button className="compact-button" type="button" fillMode="flat" onClick={() => setDatabaseDetailModal(null)}>Close</Button></DialogActionsBar></Dialog>}
-      <section className="panel database-performance-panel"><div className="panel-heading"><Settings /><div><p className="eyebrow small">Maintenance actions</p><h3>Database Maintenance</h3></div></div><div className="database-maintenance-grid">{maintenanceActions.map((action) => <button className={`database-maintenance-action ${action.tone || ''}`} type="button" key={action.action} onClick={() => void handleDatabaseMaintenance(action.action)} disabled={databaseMaintenanceAction === action.action || isClearingLogs}><span>{action.icon}</span><strong>{action.label}</strong><small>{action.detail}</small></button>)}</div><p className="panel-copy">Purge Logs currently truncates CMS activity tables: application logs and instance check history. Compress, Defrag, Backup, and Restore intentionally require dedicated backend maintenance jobs, backup artifact storage, and restore safeguards before execution.</p></section>
+      <section className="panel database-performance-panel"><div className="panel-heading"><Settings /><div><p className="eyebrow small">Maintenance actions</p><h3>Database Maintenance</h3></div></div><div className="database-maintenance-grid">{maintenanceActions.map((action) => <button className={`database-maintenance-action ${action.tone || ''}`} type="button" key={action.action} onClick={() => void handleDatabaseMaintenance(action.action)} disabled={databaseMaintenanceAction === action.action || isClearingLogs}><span>{action.icon}</span><strong>{action.label}</strong><small>{action.detail}</small></button>)}</div><p className="panel-copy">Run Retention safely deletes activity rows older than the configured retention window. Purge Logs truncates CMS activity tables: application logs and instance check history. Compress, Defrag, Backup, and Restore intentionally require dedicated backend maintenance jobs, backup artifact storage, and restore safeguards before execution.</p></section>
     </div></div>;
   }
 

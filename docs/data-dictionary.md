@@ -78,7 +78,7 @@ Dashboard issue filters normalize noisy endpoint-specific connectivity errors be
 | Key | Shape | Notes |
 | --- | --- | --- |
 | `labels` | `{ tenant: string }` | Display label customization. |
-| `logRetention` | `{ days: number }` | Activity retention setting managed from Settings → General. Default is 90 days. It prunes `application_logs.created_at` and `oxygen_instance_check_history.started_at`. |
+| `logRetention` | `{ days: number }` | Activity retention setting managed from Settings → General. Default is 90 days. It prunes `application_logs.created_at` and `oxygen_instance_check_history.started_at`; Settings → Database can trigger the same retention cleanup immediately via `POST /api/logs/retention/run`. |
 
 ### `GET /api/system/version`
 

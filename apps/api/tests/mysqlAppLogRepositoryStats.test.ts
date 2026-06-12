@@ -49,9 +49,15 @@ describe('mysql application log storage maintenance', () => {
     const { pool, calls } = fakePool({ application_logs: 4, oxygen_instance_check_history: 9 });
     const repository = createMysqlAppLogRepository(pool);
 
-    const deleted = await repository.pruneOlderThan(30);
+    const result = await repository.pruneOlderThan(30);
 
-    expect(deleted).toBe(13);
+    expect(result).toEqual({
+      deleted: 13,
+      tables: [
+        { tableName: 'application_logs', deleted: 4 },
+        { tableName: 'oxygen_instance_check_history', deleted: 9 }
+      ]
+    });
     expect(calls.map((call) => call.sql)).toEqual([
       'DELETE FROM application_logs WHERE created_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)',
       'DELETE FROM oxygen_instance_check_history WHERE started_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)',

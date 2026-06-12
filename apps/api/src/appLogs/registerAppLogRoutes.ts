@@ -32,6 +32,15 @@ export async function registerAppLogRoutes(app: FastifyInstance, authRepository:
     return repository.list(scoped.query);
   });
 
+  app.post('/api/logs/retention/run', { preHandler }, async (request, reply) => {
+    const profile = request.authProfile as AuthProfile | undefined;
+    if (!profile?.roles.includes('SystemAdmin')) return reply.code(403).send({ error: 'SystemAdmin role required.' });
+    if (!appSettingsRepository) return reply.code(500).send({ error: 'Log retention settings are unavailable.' });
+    const retention = await appSettingsRepository.getLogRetention();
+    const result = await repository.pruneOlderThan(retention.days);
+    return { retention, ...result };
+  });
+
   app.delete('/api/logs', { preHandler }, async (request, reply) => {
     const profile = request.authProfile as AuthProfile | undefined;
     if (!profile?.roles.includes('SystemAdmin')) return reply.code(403).send({ error: 'SystemAdmin role required.' });
