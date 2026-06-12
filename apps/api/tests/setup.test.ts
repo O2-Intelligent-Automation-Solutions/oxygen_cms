@@ -41,6 +41,14 @@ describe('first-run database setup API', () => {
     expect(duplicateNameMigration?.upSql).toContain('information_schema.statistics');
   });
 
+  it('adds a check-history index matching instance health detail reads', () => {
+    const historyIndexMigration = schemaMigrations.find((migration) => migration.version === '0.13');
+
+    expect(historyIndexMigration?.name).toBe('instance check history detail index');
+    expect(historyIndexMigration?.upSql).toContain('idx_oxygen_instance_check_history_instance_started_id_type');
+    expect(historyIndexMigration?.upSql).toContain('instance_id, started_at, id, check_type');
+  });
+
   it('reports database setup is required before first admin creation on a fresh install', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'oxygen-cms-setup-api-'));
     tempDirs.push(dir);
@@ -62,7 +70,7 @@ describe('first-run database setup API', () => {
         connected: false,
         schemaCurrent: false,
         defaultDatabaseName: 'O2IAS_CMS',
-        targetSchemaVersion: '0.12'
+        targetSchemaVersion: '0.13'
       },
       admin: {
         exists: false

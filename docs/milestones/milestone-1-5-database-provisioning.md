@@ -6,4 +6,4 @@ This documentation has been migrated to the GitHub Wiki:
 
 ## Local schema checkpoint
 
-Current schema target: `0.12`. Recent migrations add application logs, log tenant/entity metadata, instance import metadata columns, and duplicate instance-name support. The Settings → Database dashboard is a read-only MySQL/status aggregate and does not require a schema migration.
+Current schema target: `0.13`. Recent migrations add application logs, log tenant/entity metadata, instance import metadata columns, duplicate instance-name support, and a health-detail index on `oxygen_instance_check_history` for instance dashboard reads. The Settings → Database dashboard is a read-only MySQL/status aggregate and does not require a schema migration.

@@ -6,7 +6,7 @@ This documentation has been migrated to the GitHub Wiki:
 
 ## Local repo status summary
 
-Current CMS schema version: `0.12`.
+Current CMS schema version: `0.13`.
 
 Recent dashboard/service-log work adds:
 

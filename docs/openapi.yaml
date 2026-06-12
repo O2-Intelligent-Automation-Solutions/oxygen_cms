@@ -6,7 +6,7 @@ info:
   description: |
     API contract for OxyGen Central Management Server Phase 1.
 
-    Current CMS schema version: 0.12.
+    Current CMS schema version: 0.13.
 
     Phase 1 APIs cover first-run setup, local authentication/RBAC, tenant/user/group/role administration,
     manual OxyGen instance enrollment, dashboard background poller status/controls, application logs, grid preferences, and application settings.

@@ -7,7 +7,7 @@ docs/openapi.yaml
 ```
 
 Current API spec version: `0.8.0`.
-Current CMS schema version: `0.12`.
+Current CMS schema version: `0.13`.
 
 This update documents:
 

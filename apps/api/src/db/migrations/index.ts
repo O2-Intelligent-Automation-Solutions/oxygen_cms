@@ -180,6 +180,7 @@ CREATE TABLE IF NOT EXISTS oxygen_instance_check_history (
   details_json JSON NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY idx_oxygen_instance_check_history_instance_created (instance_id, created_at),
+  KEY idx_oxygen_instance_check_history_instance_started_id_type (instance_id, started_at, id, check_type),
   KEY idx_oxygen_instance_check_history_type_status (check_type, status),
   CONSTRAINT fk_oxygen_instance_check_history_instance FOREIGN KEY (instance_id) REFERENCES oxygen_instances(id) ON DELETE CASCADE
 );
@@ -312,6 +313,22 @@ PREPARE drop_instance_name_index_stmt FROM @drop_instance_name_index_sql;
 EXECUTE drop_instance_name_index_stmt;
 DEALLOCATE PREPARE drop_instance_name_index_stmt;`;
 
+
+const checkHistoryDetailIndexSql = `SET @add_check_history_detail_index_sql = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE oxygen_instance_check_history ADD INDEX idx_oxygen_instance_check_history_instance_started_id_type (instance_id, started_at, id, check_type)',
+    'SELECT 1'
+  )
+  FROM information_schema.statistics
+  WHERE table_schema = DATABASE()
+    AND table_name = 'oxygen_instance_check_history'
+    AND index_name = 'idx_oxygen_instance_check_history_instance_started_id_type'
+);
+PREPARE add_check_history_detail_index_stmt FROM @add_check_history_detail_index_sql;
+EXECUTE add_check_history_detail_index_stmt;
+DEALLOCATE PREPARE add_check_history_detail_index_stmt;`;
+
 export const schemaMigrations: SchemaMigration[] = [
   {
     version: '0.01',
@@ -384,5 +401,11 @@ export const schemaMigrations: SchemaMigration[] = [
     name: 'allow duplicate instance names',
     checksum: '4723114813a87869f22839e078a2542c262f092c17bf50e759b3e25ddbdcdb2a',
     upSql: allowDuplicateInstanceNamesSql
+  },
+  {
+    version: '0.13',
+    name: 'instance check history detail index',
+    checksum: 'ad2d4c236e2b818a83975e33c826f851c4dc74c8b7902efc584edb373314d095',
+    upSql: checkHistoryDetailIndexSql
   }
 ];
