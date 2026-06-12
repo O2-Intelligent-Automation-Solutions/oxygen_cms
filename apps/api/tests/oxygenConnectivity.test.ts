@@ -1,9 +1,9 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { AddressInfo, createServer as createNetServer } from 'node:net';
+import { AddressInfo, createServer as createNetServer, type Server as NetServer } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
 import { testOxyGenConnectivity } from '../src/instances/oxygenConnectivity.js';
 
-const servers: Array<ReturnType<typeof createServer>> = [];
+const servers: Array<ReturnType<typeof createServer> | NetServer> = [];
 
 function readBody(request: IncomingMessage) {
   return new Promise<string>((resolve, reject) => {
@@ -84,6 +84,14 @@ async function unusedTcpPort() {
   const { port } = server.address() as AddressInfo;
   await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   return port;
+}
+
+async function startClosingTcpServer() {
+  const server = createNetServer((socket) => socket.destroy());
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  servers.push(server);
+  const { port } = server.address() as AddressInfo;
+  return { port };
 }
 
 afterEach(async () => {
@@ -283,4 +291,32 @@ describe('OxyGen connectivity checks', () => {
     });
     expect(result.responseTimeMs).not.toBeNull();
   });
+  it('maps TLS handshake resets to unreachable connection failures, not ignorable SSL warnings', async () => {
+    const mock = await startClosingTcpServer();
+
+    const result = await testOxyGenConnectivity({
+      instance: {
+        name: 'TLS Reset Mock',
+        protocol: 'https',
+        host: '127.0.0.1',
+        port: mock.port,
+        apiBaseUrl: `https://127.0.0.1:${mock.port}`,
+        username: 'admin'
+      },
+      password: 'RemotePassword!42',
+      timeoutMs: 1000
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 'unreachable',
+      connect: { ok: true },
+      ssl: { ok: false, valid: false, expiresAt: null },
+      authentication: { ok: false, skipped: true, message: 'Authentication skipped because TLS connection failed.' },
+      api: { ok: false, skipped: true, message: 'Settings probe skipped because TLS connection failed.' },
+      license: { status: 'unknown', step: { skipped: true, message: 'License probe skipped because TLS connection failed.' } }
+    });
+    expect(result.message).toMatch(/TLS connection failed/i);
+  });
+
 });

@@ -1499,8 +1499,9 @@ export function App() {
   }, [dashboard, dashboardTenantScopedInstances, dashboardTenantFilter, groups, users, roles, tenants.length]);
   const lastRefreshLabel = dashboardLastRefreshedAt ? new Date(dashboardLastRefreshedAt).toLocaleTimeString() : 'Not refreshed yet';
   const statusTone = (instance: DashboardInstance) => instance.severity === 'failure' ? 'issue' : instance.severity || (instance.status === 'up' && !instance.hasIssue ? 'ok' : instance.status === 'unknown' ? 'unknown' : 'issue');
-  const statusLabel = (instance: DashboardInstance) => instance.status === 'up' ? 'UP' : instance.status === 'down' ? 'NO CONNECTION' : instance.status === 'auth-error' ? 'AUTH ERROR' : instance.status === 'ssl-error' ? 'SSL WARNING' : instance.status.toUpperCase();
-  const availabilityLabel = (instance: OxyGenInstance) => instance.status === 'down' ? 'NO CONNECTION' : formatHealthStatus(instance.status).toUpperCase();
+  const isTlsConnectionError = (instance: Pick<OxyGenInstance, 'status' | 'lastError'>) => instance.status === 'down' && /\bTLS connection failed\b|secure TLS connection|TLS handshake/i.test(instance.lastError || '');
+  const statusLabel = (instance: DashboardInstance) => instance.status === 'up' ? 'UP' : isTlsConnectionError(instance) ? 'TLS / CONNECTION ERROR' : instance.status === 'down' ? 'NO CONNECTION' : instance.status === 'auth-error' ? 'AUTH ERROR' : instance.status === 'ssl-error' ? 'SSL WARNING' : instance.status.toUpperCase();
+  const availabilityLabel = (instance: OxyGenInstance) => isTlsConnectionError(instance) ? 'TLS / CONNECTION ERROR' : instance.status === 'down' ? 'NO CONNECTION' : formatHealthStatus(instance.status).toUpperCase();
   const sslCardLabel = (instance: OxyGenInstance) => instance.protocol !== 'https' ? 'Hidden' : instance.sslValid === null ? 'UNKNOWN' : instance.sslValid ? 'VALID' : 'INVALID';
   const sslCardDetail = (instance: OxyGenInstance, step?: ConnectivityStepDetail) => instance.protocol !== 'https' ? 'Skipped for HTTP.' : step?.skipped ? step.message || 'Skipped.' : instance.sslExpiresAt ? `Expires ${formatDateTime(instance.sslExpiresAt)}` : step?.message || 'No SSL detail collected.';
   const licenseCardLabel = (instance: OxyGenInstance) => instance.checkLicense ? instance.licenseStatus.toUpperCase() : 'Hidden';

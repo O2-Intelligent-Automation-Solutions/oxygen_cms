@@ -1342,10 +1342,10 @@ components:
             instancesWithIssues: { type: integer, minimum: 0 }
             upInstances: { type: integer, minimum: 0 }
             downInstances: { type: integer, minimum: 0 }
-            sslIssues: { type: integer, minimum: 0, description: Visible HTTPS instances with invalid certificates or SSL probe warnings. SSL issues are warnings, not connectivity failures. }
+            sslIssues: { type: integer, minimum: 0, description: Visible HTTPS instances with certificate-validation warnings that still allow a TLS connection. TLS handshake closures, resets, and timeouts are connectivity failures, not SSL warnings. }
             licenseIssues: { type: integer, minimum: 0, description: Visible instances with missing, warning, expired, or error license state. }
             disabledInstances: { type: integer, minimum: 0 }
-            connectivityIssues: { type: integer, minimum: 0, description: Visible instances whose availability status is down, auth-error, or another non-up/non-unknown connectivity state excluding SSL warnings. }
+            connectivityIssues: { type: integer, minimum: 0, description: Visible instances whose availability status is down, auth-error, TLS/connection failed, or another non-up/non-unknown connectivity state excluding certificate-only SSL warnings. }
             processingIssues: { type: integer, minimum: 0, description: Visible instances with processing, EMM queue, SMS, or Hangfire component status outside ok/unknown. }
             unknownInstances: { type: integer, minimum: 0, description: Visible instances with unknown availability, SSL, license, or processing component state. }
         instances:

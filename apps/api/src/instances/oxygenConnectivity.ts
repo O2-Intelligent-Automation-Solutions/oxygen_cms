@@ -429,13 +429,13 @@ export async function testOxyGenConnectivity(input: ConnectivityInput): Promise<
   }
 
   const ssl = await sslCheck(input);
-  const sslConnectionFailed = !ssl.ok && (ssl.errorCode === 'TLS_TIMEOUT' || ssl.expiresAt === null);
-  if (sslConnectionFailed) {
-    const authentication: ConnectivityStepResult = { ok: false, skipped: true, message: 'Authentication skipped because SSL connection failed.' };
+  const tlsConnectionFailed = !ssl.ok && (ssl.errorCode === 'TLS_TIMEOUT' || ssl.expiresAt === null);
+  if (tlsConnectionFailed) {
+    const authentication: ConnectivityStepResult = { ok: false, skipped: true, message: 'Authentication skipped because TLS connection failed.' };
     return {
       ok: false,
-      status: 'ssl-error',
-      message: ssl.message ?? 'SSL check failed.',
+      status: 'unreachable',
+      message: `TLS connection failed: ${ssl.message ?? 'SSL check failed.'}`,
       checkedAt,
       durationMs: Date.now() - startedAt,
       responseTimeMs: connectionResponseTime(dns, connect, ssl, authentication),
@@ -444,9 +444,9 @@ export async function testOxyGenConnectivity(input: ConnectivityInput): Promise<
       connect,
       ssl,
       authentication,
-      api: { ok: false, skipped: true, message: 'Settings probe skipped because SSL connection failed.' },
+      api: { ok: false, skipped: true, message: 'Settings probe skipped because TLS connection failed.' },
       settingsJson: null,
-      license: skippedLicense('License probe skipped because SSL connection failed.')
+      license: skippedLicense('License probe skipped because TLS connection failed.')
     };
   }
 

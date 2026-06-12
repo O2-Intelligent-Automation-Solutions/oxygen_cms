@@ -84,6 +84,16 @@ function licenseIssueLabel(instance: OxyGenInstance) {
   return `License ${instance.licenseStatus}`;
 }
 
+function isTlsConnectionError(instance: OxyGenInstance) {
+  return instance.status === 'down' && /TLS connection failed|secure TLS connection|TLS handshake/i.test(instance.lastError ?? '');
+}
+
+function connectivityIssueLabel(instance: OxyGenInstance) {
+  if (instance.status === 'auth-error') return 'Authentication failure';
+  if (isTlsConnectionError(instance)) return 'TLS / Connection Error';
+  return `Availability ${instance.status}`;
+}
+
 function normalizeIssueLabel(label: string) {
   const trimmed = label.trim();
   const networkMatch = trimmed.match(/\b(getaddrinfo\s+ENOTFOUND|ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket\s+hang\s+up|fetch\s+failed)\b/i);
@@ -95,7 +105,7 @@ function normalizeIssueLabel(label: string) {
 
 function instanceIssueDetails(instance: OxyGenInstance): DashboardIssue[] {
   const issues: DashboardIssue[] = [];
-  if (connectivityIssue(instance)) issues.push({ label: instance.status === 'auth-error' ? 'Authentication failure' : `Availability ${instance.status}`, severity: 'failure' });
+  if (connectivityIssue(instance)) issues.push({ label: connectivityIssueLabel(instance), severity: 'failure' });
   if (licenseFailure(instance)) issues.push({ label: licenseIssueLabel(instance), severity: 'failure' });
   if (processingFailure(instance)) issues.push({ label: 'Processing failure', severity: 'failure' });
   if (sslIssue(instance)) issues.push({ label: 'SSL warning', severity: 'warning' });
