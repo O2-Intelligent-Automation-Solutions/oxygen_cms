@@ -6058,6 +6058,13 @@ body.cms-notes-editor-active .k-actions .k-button-solid-primary {
   margin-bottom: 0;
 }
 
+.database-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .database-performance-kpis {
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
 }
@@ -6068,14 +6075,18 @@ body.cms-notes-editor-active .k-actions .k-button-solid-primary {
 }
 
 .database-performance-kpis .tenant-issue-card strong {
-  font-size: clamp(1.9rem, 2.55vw, 2.85rem);
+  max-width: 100%;
+  font-size: clamp(1.45rem, 2.25vw, 1.9rem);
   line-height: 0.98;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   overflow-wrap: normal;
   word-break: normal;
 }
 
 .database-performance-kpis .tenant-issue-card .database-status-value {
-  font-size: clamp(1.75rem, 2.4vw, 2.55rem);
+  font-size: clamp(1.45rem, 2.25vw, 1.9rem);
 }
 
 .database-detail-dialog .k-dialog-content {
@@ -6214,10 +6225,17 @@ body.cms-notes-editor-active .k-actions .k-button-solid-primary {
 .database-maintenance-action {
   display: grid;
   gap: 8px;
-  min-height: 132px;
+  min-height: 118px;
   padding: 16px;
   text-align: left;
   cursor: pointer;
+}
+
+.database-maintenance-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
 }
 
 .database-maintenance-action:hover,

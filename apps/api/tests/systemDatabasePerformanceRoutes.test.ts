@@ -10,6 +10,17 @@ function fakeSnapshot(overrides: Partial<DatabasePerformanceSnapshot> = {}): Dat
     database: 'O2IAS_CMS',
     generatedAt: '2026-06-11T12:00:00.000Z',
     error: null,
+    schema: {
+      currentVersion: '0.14',
+      targetVersion: '0.14',
+      current: true,
+      upgradeAvailable: false
+    },
+    queryDigestStatus: {
+      available: true,
+      state: 'available',
+      reason: null
+    },
     summary: {
       tableCount: 42,
       estimatedRows: 250000,
@@ -80,6 +91,17 @@ describe('database performance system API', () => {
       configured: true,
       connected: true,
       database: 'O2IAS_CMS',
+      schema: {
+        currentVersion: '0.14',
+        targetVersion: '0.14',
+        current: true,
+        upgradeAvailable: false
+      },
+      queryDigestStatus: {
+        available: true,
+        state: 'available',
+        reason: null
+      },
       summary: { tableCount: 42, estimatedRows: 250000 },
       server: { threadsConnected: 12, slowQueries: 7, longQueryTimeSeconds: 10, bufferPoolReadHitPercent: 99.93 },
       topTables: [{ tableName: 'instance_connectivity_history', totalSizeBytes: 419430400 }],

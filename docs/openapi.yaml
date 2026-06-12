@@ -1513,13 +1513,17 @@ components:
         error: { type: [string, 'null'], description: Non-secret update-check failure message when GitHub cannot be reached or returns an unusable response. }
     DatabasePerformanceSnapshot:
       type: object
-      required: [configured, connected, database, generatedAt, error, summary, server, topTables, queryDigests]
+      required: [configured, connected, database, generatedAt, error, schema, queryDigestStatus, summary, server, topTables, queryDigests]
       properties:
         configured: { type: boolean }
         connected: { type: boolean }
         database: { type: [string, 'null'] }
         generatedAt: { type: string, format: date-time }
         error: { type: [string, 'null'] }
+        schema:
+          $ref: '#/components/schemas/DatabaseSchemaPerformanceStatus'
+        queryDigestStatus:
+          $ref: '#/components/schemas/DatabaseQueryDigestStatus'
         summary:
           type: object
           required: [tableCount, estimatedRows, dataSizeBytes, indexSizeBytes, freeBytes, totalSizeBytes]
@@ -1551,6 +1555,21 @@ components:
           type: array
           description: Normalized statement patterns from performance_schema ordered by total execution time when available.
           items: { $ref: '#/components/schemas/DatabaseQueryDigestPerformance' }
+    DatabaseSchemaPerformanceStatus:
+      type: object
+      required: [currentVersion, targetVersion, current, upgradeAvailable]
+      properties:
+        currentVersion: { type: [string, 'null'], description: Highest applied CMS schema version from cms_schema_versions, or null when it cannot be read. }
+        targetVersion: { type: string, description: CMS schema version expected by the running API. }
+        current: { type: boolean, description: True when setup metadata and applied schema version both match the running API target. }
+        upgradeAvailable: { type: boolean, description: True when the applied schema version does not match the running API target. }
+    DatabaseQueryDigestStatus:
+      type: object
+      required: [available, state, reason]
+      properties:
+        available: { type: boolean, description: Whether MySQL performance_schema statement digest data could be queried. }
+        state: { type: string, enum: [available, empty, unavailable] }
+        reason: { type: [string, 'null'], description: Human-readable reason when digest data is empty or unavailable. }
     DatabaseTablePerformance:
       type: object
       required: [tableName, engine, rowEstimate, dataSizeBytes, indexSizeBytes, freeBytes, totalSizeBytes, updatedAt]

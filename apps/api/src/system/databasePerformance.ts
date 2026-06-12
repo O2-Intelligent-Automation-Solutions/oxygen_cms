@@ -1,5 +1,6 @@
 import knex, { type Knex } from 'knex';
 import type { DatabaseSettings, SetupSettingsStore } from '../setup/fileSetupSettingsStore.js';
+import { CURRENT_SCHEMA_VERSION } from '../setup/types.js';
 
 export type DatabaseTablePerformance = {
   tableName: string;
@@ -25,12 +26,27 @@ export type DatabaseQueryDigestPerformance = {
   lastSeen: string | null;
 };
 
+export type DatabaseQueryDigestStatus = {
+  available: boolean;
+  state: 'available' | 'empty' | 'unavailable';
+  reason: string | null;
+};
+
+export type DatabaseSchemaPerformanceStatus = {
+  currentVersion: string | null;
+  targetVersion: string;
+  current: boolean;
+  upgradeAvailable: boolean;
+};
+
 export type DatabasePerformanceSnapshot = {
   configured: boolean;
   connected: boolean;
   database: string | null;
   generatedAt: string;
   error: string | null;
+  schema: DatabaseSchemaPerformanceStatus;
+  queryDigestStatus: DatabaseQueryDigestStatus;
   summary: {
     tableCount: number;
     estimatedRows: number;
@@ -81,6 +97,19 @@ const emptyServer = {
   questions: null,
   abortedConnects: null,
   bufferPoolReadHitPercent: null
+};
+
+const unknownSchemaStatus: DatabaseSchemaPerformanceStatus = {
+  currentVersion: null,
+  targetVersion: CURRENT_SCHEMA_VERSION,
+  current: false,
+  upgradeAvailable: false
+};
+
+const unavailableQueryDigestStatus: DatabaseQueryDigestStatus = {
+  available: false,
+  state: 'unavailable',
+  reason: null
 };
 
 function createConnection(settings: DatabaseSettings): Knex {
@@ -143,7 +172,34 @@ async function readVariables(client: Knex) {
   }
 }
 
-async function readQueryDigests(client: Knex, database: string): Promise<DatabaseQueryDigestPerformance[]> {
+function compareSchemaVersions(left: string, right: string) {
+  const leftParts = left.split('.').map((part) => Number(part));
+  const rightParts = right.split('.').map((part) => Number(part));
+  const maxLength = Math.max(leftParts.length, rightParts.length);
+  for (let index = 0; index < maxLength; index += 1) {
+    const diff = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return left.localeCompare(right);
+}
+
+async function readSchemaStatus(client: Knex, schemaCurrent: boolean): Promise<DatabaseSchemaPerformanceStatus> {
+  try {
+    const rows = rowsFromRaw<{ version: string }>(await client.raw('SELECT version FROM cms_schema_versions ORDER BY version ASC'));
+    const versions = rows.map((row) => String(row.version)).filter(Boolean).sort(compareSchemaVersions);
+    const currentVersion = versions.length > 0 ? versions[versions.length - 1] : null;
+    return {
+      currentVersion,
+      targetVersion: CURRENT_SCHEMA_VERSION,
+      current: schemaCurrent && currentVersion === CURRENT_SCHEMA_VERSION,
+      upgradeAvailable: currentVersion !== CURRENT_SCHEMA_VERSION
+    };
+  } catch {
+    return { ...unknownSchemaStatus, current: schemaCurrent };
+  }
+}
+
+async function readQueryDigests(client: Knex, database: string): Promise<{ status: DatabaseQueryDigestStatus; digests: DatabaseQueryDigestPerformance[] }> {
   try {
     const rows = rowsFromRaw<NumericRow>(await client.raw(`
       SELECT
@@ -162,7 +218,7 @@ async function readQueryDigests(client: Knex, database: string): Promise<Databas
       ORDER BY SUM_TIMER_WAIT DESC
       LIMIT 8
     `, [database]));
-    return rows.map((row) => ({
+    const digests = rows.map((row) => ({
       digestText: String(row.digestText ?? ''),
       count: numberValue(row.count),
       totalTimeSeconds: Number((numberValue(row.totalTimerWait) / 1_000_000_000_000).toFixed(3)),
@@ -174,8 +230,21 @@ async function readQueryDigests(client: Knex, database: string): Promise<Databas
       firstSeen: row.firstSeen instanceof Date ? row.firstSeen.toISOString() : nullableString(row.firstSeen),
       lastSeen: row.lastSeen instanceof Date ? row.lastSeen.toISOString() : nullableString(row.lastSeen)
     })).filter((row) => row.digestText);
-  } catch {
-    return [];
+    return {
+      status: digests.length > 0
+        ? { available: true, state: 'available', reason: null }
+        : { available: true, state: 'empty', reason: 'No statement digest rows are currently available for this database.' },
+      digests
+    };
+  } catch (error) {
+    return {
+      status: {
+        available: false,
+        state: 'unavailable',
+        reason: error instanceof Error && error.message ? error.message : 'Statement digest data is unavailable.'
+      },
+      digests: []
+    };
   }
 }
 
@@ -198,6 +267,8 @@ export function createDatabasePerformanceReader(setupSettingsStore: SetupSetting
           database: null,
           generatedAt,
           error: 'Database settings have not been configured yet.',
+          schema: unknownSchemaStatus,
+          queryDigestStatus: unavailableQueryDigestStatus,
           summary: emptySummary,
           server: emptyServer,
           topTables: [],
@@ -207,7 +278,7 @@ export function createDatabasePerformanceReader(setupSettingsStore: SetupSetting
 
       const client = createConnection(settings);
       try {
-        const [summaryRows, tableRows, status, variables, queryDigests] = await Promise.all([
+        const [summaryRows, tableRows, status, variables, queryDigestResult, schemaCurrent] = await Promise.all([
           client('information_schema.tables')
             .where('table_schema', settings.database)
             .select(client.raw('COUNT(*) AS tableCount'))
@@ -226,8 +297,10 @@ export function createDatabasePerformanceReader(setupSettingsStore: SetupSetting
             .limit(8),
           readStatus(client),
           readVariables(client),
-          readQueryDigests(client, settings.database)
+          readQueryDigests(client, settings.database),
+          setupSettingsStore.isSchemaCurrent()
         ]);
+        const schema = await readSchemaStatus(client, schemaCurrent);
 
         const summaryRow = summaryRows[0] as NumericRow | undefined;
         const dataSizeBytes = numberValue(summaryRow?.dataSizeBytes);
@@ -240,6 +313,8 @@ export function createDatabasePerformanceReader(setupSettingsStore: SetupSetting
           database: settings.database,
           generatedAt,
           error: null,
+          schema,
+          queryDigestStatus: queryDigestResult.status,
           summary: {
             tableCount: numberValue(summaryRow?.tableCount),
             estimatedRows: numberValue(summaryRow?.estimatedRows),
@@ -274,7 +349,7 @@ export function createDatabasePerformanceReader(setupSettingsStore: SetupSetting
               updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : nullableString(row.updatedAt)
             };
           }),
-          queryDigests
+          queryDigests: queryDigestResult.digests
         };
       } catch (error) {
         return {
@@ -283,6 +358,8 @@ export function createDatabasePerformanceReader(setupSettingsStore: SetupSetting
           database: settings.database,
           generatedAt,
           error: error instanceof Error ? error.message : 'Unable to read database performance metrics.',
+          schema: unknownSchemaStatus,
+          queryDigestStatus: unavailableQueryDigestStatus,
           summary: emptySummary,
           server: emptyServer,
           topTables: [],
