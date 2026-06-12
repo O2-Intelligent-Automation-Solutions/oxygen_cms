@@ -221,7 +221,7 @@ describe('application logs API', () => {
 
     const cleared = await app.inject({ method: 'DELETE', url: '/api/logs', headers: { authorization: `Bearer ${token}` } });
     expect(cleared.statusCode).toBe(200);
-    expect(cleared.json()).toEqual({ deleted: 4 });
+    expect(cleared.json()).toEqual({ deleted: 4, tables: [{ tableName: 'application_logs', deleted: 4 }] });
 
     const remaining = await appLogRepository.list();
     expect(remaining.total).toBe(0);

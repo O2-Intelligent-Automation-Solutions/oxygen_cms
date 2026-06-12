@@ -91,6 +91,7 @@ type DatabasePerformanceSnapshot = { configured: boolean; connected: boolean; da
 type SystemVersionSnapshot = { current: { version: string; commit: string | null; buildDate: string | null; repository: string; sourceUrl: string; updateChannel: string }; update: { checkedAt: string; source: 'github-release' | 'github-tag' | 'github-branch' | 'unavailable'; available: boolean; currentVersion: string; latestVersion: string | null; latestName: string | null; releaseUrl: string | null; publishedAt: string | null; error: string | null } };
 type DatabaseDetailPanel = 'status' | 'storage' | 'tables' | 'connections' | 'queries' | 'cache';
 type DatabaseMaintenanceAction = 'purge-logs' | 'compress' | 'defrag' | 'backup' | 'restore';
+type LogPurgeResult = { deleted: number; tables?: Array<{ tableName: string; deleted: number }> };
 type DatabaseMode = 'managed-mysql' | 'local-mysql' | 'existing-mysql';
 type DbWizardStep = 'mode' | 'connection' | 'credentials' | 'review';
 type NavSection = 'dashboard' | 'organizations' | 'instances' | 'instance-dashboard' | 'users' | 'user-groups' | 'roles' | 'settings-general' | 'settings-logs' | 'settings-database' | 'settings-advanced';
@@ -702,13 +703,14 @@ export function App() {
 
   async function handleClearLogs() {
     if (!token || isClearingLogs) return;
-    if (!window.confirm('Clear all application logs? This cannot be undone.')) return;
+    if (!window.confirm('Purge CMS activity tables? This truncates application_logs and oxygen_instance_check_history and cannot be undone.')) return;
     clearStatus();
     setIsClearingLogs(true);
     try {
-      const res = await api<{ deleted: number }>('/api/logs', { method: 'DELETE', token });
+      const res = await api<LogPurgeResult>('/api/logs', { method: 'DELETE', token });
       setAppLogs([]);
-      showStatus(`Cleared ${res.deleted} activity row${res.deleted === 1 ? '' : 's'} from application logs and check history. Tables were truncated so MySQL can release/reuse the space immediately.`);
+      const tableSummary = res.tables?.length ? ` Affected tables: ${res.tables.map((table) => `${table.tableName} (${formatNumber(table.deleted)})`).join(', ')}.` : '';
+      showStatus(`Cleared ${formatNumber(res.deleted)} activity row${res.deleted === 1 ? '' : 's'} from application logs and check history.${tableSummary} Tables were truncated so MySQL can release/reuse the space immediately.`);
       await loadDatabasePerformance(token).catch(() => undefined);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to clear logs.');

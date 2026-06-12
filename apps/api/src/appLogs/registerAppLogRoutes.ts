@@ -35,7 +35,6 @@ export async function registerAppLogRoutes(app: FastifyInstance, authRepository:
   app.delete('/api/logs', { preHandler }, async (request, reply) => {
     const profile = request.authProfile as AuthProfile | undefined;
     if (!profile?.roles.includes('SystemAdmin')) return reply.code(403).send({ error: 'SystemAdmin role required.' });
-    const deleted = await repository.clear();
-    return { deleted };
+    return repository.clear();
   });
 }

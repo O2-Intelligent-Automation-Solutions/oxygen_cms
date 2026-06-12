@@ -42,9 +42,19 @@ export type AppLogListResult = {
   total: number;
 };
 
+export type AppLogClearTableResult = {
+  tableName: string;
+  deleted: number;
+};
+
+export type AppLogClearResult = {
+  deleted: number;
+  tables: AppLogClearTableResult[];
+};
+
 export type AppLogRepository = {
   append(entry: CreateAppLogEntry): Promise<AppLogEntry>;
   list(query?: AppLogQuery): Promise<AppLogListResult>;
   pruneOlderThan(days: number): Promise<number>;
-  clear(): Promise<number>;
+  clear(): Promise<AppLogClearResult>;
 };

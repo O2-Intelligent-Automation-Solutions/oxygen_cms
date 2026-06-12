@@ -52,7 +52,7 @@ export function createInMemoryAppLogRepository(): AppLogRepository {
     async clear() {
       const originalLength = logs.length;
       logs.splice(0, logs.length);
-      return originalLength;
+      return { deleted: originalLength, tables: [{ tableName: 'application_logs', deleted: originalLength }] };
     }
   };
 }

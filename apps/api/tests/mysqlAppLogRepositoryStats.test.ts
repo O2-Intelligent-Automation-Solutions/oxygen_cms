@@ -22,9 +22,15 @@ describe('mysql application log storage maintenance', () => {
     const { pool, calls } = fakePool({ application_logs: 12, oxygen_instance_check_history: 340 });
     const repository = createMysqlAppLogRepository(pool);
 
-    const deleted = await repository.clear();
+    const result = await repository.clear();
 
-    expect(deleted).toBe(352);
+    expect(result).toEqual({
+      deleted: 352,
+      tables: [
+        { tableName: 'application_logs', deleted: 12 },
+        { tableName: 'oxygen_instance_check_history', deleted: 340 }
+      ]
+    });
     expect(calls.map((call) => call.sql)).toEqual([
       'SELECT COUNT(*) AS total FROM application_logs',
       'SELECT COUNT(*) AS total FROM oxygen_instance_check_history',
@@ -41,9 +47,15 @@ describe('mysql application log storage maintenance', () => {
     const { pool, calls } = fakePool({ application_logs: 0, oxygen_instance_check_history: 0 });
     const repository = createMysqlAppLogRepository(pool);
 
-    const deleted = await repository.clear();
+    const result = await repository.clear();
 
-    expect(deleted).toBe(0);
+    expect(result).toEqual({
+      deleted: 0,
+      tables: [
+        { tableName: 'application_logs', deleted: 0 },
+        { tableName: 'oxygen_instance_check_history', deleted: 0 }
+      ]
+    });
     expect(calls.map((call) => call.sql)).toEqual([
       'SELECT COUNT(*) AS total FROM application_logs',
       'SELECT COUNT(*) AS total FROM oxygen_instance_check_history'

@@ -45,7 +45,7 @@ const activityTables = ['application_logs', 'oxygen_instance_check_history'] as 
 
 async function countTableRows(pool: Pool, tableName: typeof activityTables[number]) {
   const [rows] = await pool.query<(RowDataPacket & { total: number })[]>(`SELECT COUNT(*) AS total FROM ${tableName}`);
-  return Number(rows[0]?.total ?? 0);
+  return { tableName, deleted: Number(rows[0]?.total ?? 0) };
 }
 
 async function refreshActivityTableStats(pool: Pool) {
@@ -101,8 +101,9 @@ export function createMysqlAppLogRepository(pool: Pool): AppLogRepository {
       return result.affectedRows;
     },
     async clear() {
-      const deleted = (await Promise.all(activityTables.map((tableName) => countTableRows(pool, tableName)))).reduce((sum, count) => sum + count, 0);
-      if (deleted === 0) return 0;
+      const tables = await Promise.all(activityTables.map((tableName) => countTableRows(pool, tableName)));
+      const deleted = tables.reduce((sum, table) => sum + table.deleted, 0);
+      if (deleted === 0) return { deleted, tables };
       await pool.query('SET FOREIGN_KEY_CHECKS = 0');
       try {
         for (const tableName of activityTables) {
@@ -112,7 +113,7 @@ export function createMysqlAppLogRepository(pool: Pool): AppLogRepository {
         await pool.query('SET FOREIGN_KEY_CHECKS = 1');
       }
       await refreshActivityTableStats(pool);
-      return deleted;
+      return { deleted, tables };
     }
   };
 }
