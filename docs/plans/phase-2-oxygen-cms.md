@@ -19,4 +19,5 @@ This documentation has been migrated to the GitHub Wiki:
 - [ ] Add BullMQ/Redis queue orchestration as Phase 1.5 before Phase 2 fan-in/fan-out work: per-instance scheduled checks, database maintenance jobs, event ingestion, notification delivery, outbound webhook dispatch, SystemAdmin Bull Board visibility, and eventual native Jobs dashboard.
 - [ ] Revisit Milestone 7 after Phase 1.5 for worker/Redis/BullMQ deployment topology.
 - [ ] Add Milestone 9 event handling/support automation: global/Tenant severity mappings, custom inbound collectors, issue lifecycle/acknowledgement, queue dashboards, Unlayer email templates, and outbound integrations.
+- [ ] Add database-backed issue classification catalog tables for static categories, static severities, and discovered issue types, then expose a read-only Kendo managed-grid review page with affected-instance drill-through to the Instance Dashboard.
 - [ ] Add richer trend/history visualizations after collector data matures.
