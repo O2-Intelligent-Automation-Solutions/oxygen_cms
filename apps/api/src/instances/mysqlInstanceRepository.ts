@@ -232,6 +232,8 @@ export function createMysqlInstanceRepository(pool: Pool, credentialCipher?: Cre
     const availability = availabilityFromConnectivity(result);
     const lastSuccessAt = availability === 'up' ? result.checkedAt : null;
     const lastFailureAt = availability === 'up' ? null : result.checkedAt;
+    const tlsConnectionFailed = availability === 'down' && result.connect.ok && !result.ssl.ok && result.ssl.expiresAt === null;
+    const sslValid = tlsConnectionFailed ? null : (result.ssl.valid ?? null);
     await pool.execute(
       `UPDATE oxygen_instance_status
        SET availability_status = ?, ssl_valid = ?, ssl_expires_at = ?, last_checked_at = ?,
@@ -244,7 +246,7 @@ export function createMysqlInstanceRepository(pool: Pool, credentialCipher?: Cre
        WHERE instance_id = ?`,
       [
         availability,
-        result.ssl.valid ?? null,
+        sslValid,
         result.ssl.expiresAt ? new Date(result.ssl.expiresAt) : null,
         new Date(result.checkedAt),
         lastSuccessAt ? new Date(lastSuccessAt) : null,

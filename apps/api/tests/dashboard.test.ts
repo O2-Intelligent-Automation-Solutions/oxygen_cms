@@ -88,7 +88,7 @@ describe('dashboard API', () => {
       instanceRepository: createFakeInstanceRepository([
         instance({ id: 'acme-up', name: 'Acme Up', tenantId: tenant.id }),
         instance({ id: 'acme-down', name: 'Acme Down', tenantId: tenant.id, status: 'down', lastError: 'Offline', licenseKey: null, licenseStatus: 'unknown' }),
-        instance({ id: 'acme-tls', name: 'Acme TLS Reset', tenantId: tenant.id, status: 'down', lastError: 'TLS connection failed: Client network socket disconnected before secure TLS connection was established', licenseKey: null, licenseStatus: 'unknown', sslValid: null }),
+        instance({ id: 'acme-tls', name: 'Acme TLS Reset', tenantId: tenant.id, status: 'down', lastError: 'TLS connection failed: Client network socket disconnected before secure TLS connection was established', licenseKey: null, licenseStatus: 'unknown', sslValid: false }),
         instance({ id: 'acme-ssl', name: 'Acme SSL Warning', tenantId: tenant.id, status: 'ssl-error', sslValid: false }),
         instance({ id: 'acme-authssl', name: 'Acme SSL Auth Failure', tenantId: tenant.id, status: 'auth-error', sslValid: false, lastError: 'OxyGen authentication failed with HTTP 401.', licenseKey: null, licenseStatus: 'unknown' }),
         instance({ id: 'acme-license', name: 'Acme Missing License', tenantId: tenant.id, licenseKey: null, licenseStatus: 'unknown' }),

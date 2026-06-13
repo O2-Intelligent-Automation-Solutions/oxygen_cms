@@ -38,12 +38,16 @@ function componentWarning(status: string) {
   return status === 'warning';
 }
 
-function sslIssue(instance: OxyGenInstance) {
-  return instance.protocol === 'https' && (instance.sslValid === false || instance.status === 'ssl-error');
-}
-
 function connectivityIssue(instance: OxyGenInstance) {
   return instance.status !== 'up' && instance.status !== 'unknown' && instance.status !== 'ssl-error';
+}
+
+function isTlsConnectionError(instance: OxyGenInstance) {
+  return instance.status === 'down' && /\bTLS connection failed\b|secure TLS connection|TLS handshake/i.test(instance.lastError ?? '');
+}
+
+function sslIssue(instance: OxyGenInstance) {
+  return instance.protocol === 'https' && !isTlsConnectionError(instance) && (instance.sslValid === false || instance.status === 'ssl-error');
 }
 
 function licenseEvaluationEligible(instance: OxyGenInstance) {
@@ -82,10 +86,6 @@ function licenseIssueLabel(instance: OxyGenInstance) {
   if (instance.licenseStatus === 'error') return 'License invalid';
   if (instance.licenseStatus === 'warning') return 'License warning';
   return `License ${instance.licenseStatus}`;
-}
-
-function isTlsConnectionError(instance: OxyGenInstance) {
-  return instance.status === 'down' && /TLS connection failed|secure TLS connection|TLS handshake/i.test(instance.lastError ?? '');
 }
 
 function connectivityIssueLabel(instance: OxyGenInstance) {
