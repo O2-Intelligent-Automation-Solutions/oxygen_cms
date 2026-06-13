@@ -29,6 +29,7 @@ import { registerInstanceRoutes } from './instances/registerInstanceRoutes.js';
 import type { InstanceRepository } from './instances/types.js';
 import { registerSetupRoutes } from './setup/registerSetupRoutes.js';
 import { createDatabasePerformanceReader, type DatabasePerformanceReader } from './system/databasePerformance.js';
+import { createIssueCatalogReader, type IssueCatalogReader } from './system/issueCatalog.js';
 import { registerSystemRoutes } from './system/registerSystemRoutes.js';
 import { createUpdateChecker, type UpdateChecker } from './system/updateInfo.js';
 import { createMysqlDatabaseProvisioner, type DatabaseProvisioner } from './setup/databaseProvisioner.js';
@@ -48,6 +49,7 @@ type BuildAppOptions = FastifyServerOptions & {
   appLogRepository?: AppLogRepository;
   instancePoller?: InstancePoller;
   databasePerformanceReader?: DatabasePerformanceReader;
+  issueCatalogReader?: IssueCatalogReader;
   updateChecker?: UpdateChecker;
   enableBackgroundPolling?: boolean;
   backgroundPollingTickMs?: number;
@@ -246,6 +248,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     appLogRepository: providedAppLogRepository,
     instancePoller: providedInstancePoller,
     databasePerformanceReader: providedDatabasePerformanceReader,
+    issueCatalogReader: providedIssueCatalogReader,
     updateChecker: providedUpdateChecker,
     enableBackgroundPolling,
     backgroundPollingTickMs,
@@ -258,6 +261,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   const appSettingsRepository = providedAppSettingsRepository ?? createSetupAwareAppSettingsRepository(setupSettingsStore, defaultAppSettingsRepository);
   const appLogRepository = providedAppLogRepository ?? createSetupAwareAppLogRepository(setupSettingsStore, defaultAppLogRepository);
   const databasePerformanceReader = providedDatabasePerformanceReader ?? createDatabasePerformanceReader(setupSettingsStore);
+  const issueCatalogReader = providedIssueCatalogReader ?? createIssueCatalogReader(setupSettingsStore, instanceRepository);
   const updateChecker = providedUpdateChecker ?? createUpdateChecker();
   const app = Fastify(fastifyOptions);
   app.addHook('onSend', async (request, _reply, payload) => {
@@ -317,7 +321,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await registerGridPreferenceRoutes(app, authRepository, gridPreferenceRepository);
   await registerAppSettingsRoutes(app, authRepository, appSettingsRepository);
   await registerAppLogRoutes(app, authRepository, appLogRepository, appSettingsRepository);
-  await registerSystemRoutes(app, authRepository, instancePoller, databasePerformanceReader, updateChecker);
+  await registerSystemRoutes(app, authRepository, instancePoller, databasePerformanceReader, issueCatalogReader, updateChecker);
 
   async function pruneExpiredApplicationLogs() {
     try {

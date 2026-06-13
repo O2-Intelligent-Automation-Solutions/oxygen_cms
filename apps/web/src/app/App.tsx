@@ -90,6 +90,10 @@ type DatabaseQueryDigestPerformance = { digestText: string; count: number; total
 type DatabaseQueryDigestStatus = { available: boolean; state: 'available' | 'empty' | 'unavailable'; reason: string | null };
 type DatabaseSchemaPerformanceStatus = { currentVersion: string | null; targetVersion: string; current: boolean; upgradeAvailable: boolean };
 type DatabasePerformanceSnapshot = { configured: boolean; connected: boolean; database: string | null; generatedAt: string; error: string | null; schema: DatabaseSchemaPerformanceStatus; queryDigestStatus: DatabaseQueryDigestStatus; summary: { tableCount: number; estimatedRows: number; dataSizeBytes: number; indexSizeBytes: number; freeBytes: number; totalSizeBytes: number }; server: { version: string | null; uptimeSeconds: number | null; maxConnections: number | null; threadsConnected: number | null; maxUsedConnections: number | null; slowQueries: number | null; longQueryTimeSeconds: number | null; questions: number | null; abortedConnects: number | null; bufferPoolReadHitPercent: number | null }; topTables: DatabaseTablePerformance[]; queryDigests: DatabaseQueryDigestPerformance[] };
+type IssueCatalogAffectedInstance = { id: string; name: string; tenantId: TenantId; tenantName: string | null; status: string; lastCheckedAt: string | null; lastError: string | null; evidence: string };
+type IssueCatalogType = { id: string; code: string; label: string; description: string | null; matchKind: string; matchValue: string | null; enabled: boolean; sortOrder: number; category: { id: string; code: string; name: string; sortOrder: number }; severity: { id: string; code: string; name: string; rank: number; sortOrder: number }; affectedCount: number; affectedInstances: IssueCatalogAffectedInstance[] };
+type IssueCatalogSnapshot = { configured: boolean; connected: boolean; generatedAt: string; error: string | null; categories: Array<{ id: string; code: string; name: string; sortOrder: number }>; severities: Array<{ id: string; code: string; name: string; rank: number; sortOrder: number }>; issueTypes: IssueCatalogType[] };
+type IssueCatalogGridRow = { id: string; category: string; severity: string; code: string; label: string; description: string; condition: string; affectedCount: number; raw: IssueCatalogType };
 type SystemVersionSnapshot = { current: { version: string; commit: string | null; buildDate: string | null; repository: string; sourceUrl: string; updateChannel: string }; update: { checkedAt: string; source: 'github-release' | 'github-tag' | 'github-branch' | 'unavailable'; available: boolean; currentVersion: string; latestVersion: string | null; latestName: string | null; releaseUrl: string | null; publishedAt: string | null; error: string | null } };
 type DatabaseDetailPanel = 'schema' | 'status' | 'storage' | 'tables' | 'connections' | 'queries' | 'cache';
 type DatabaseMaintenanceAction = 'run-retention' | 'purge-logs' | 'compress' | 'defrag' | 'backup' | 'restore';
@@ -98,7 +102,7 @@ type LogPurgeResult = ActivityTableMaintenanceResult;
 type ActivityRetentionRunResult = ActivityTableMaintenanceResult & { retention: LogRetentionSettings };
 type DatabaseMode = 'managed-mysql' | 'local-mysql' | 'existing-mysql';
 type DbWizardStep = 'mode' | 'connection' | 'credentials' | 'review';
-type NavSection = 'dashboard' | 'organizations' | 'instances' | 'instance-dashboard' | 'users' | 'user-groups' | 'roles' | 'settings-general' | 'settings-logs' | 'settings-database' | 'settings-advanced';
+type NavSection = 'dashboard' | 'organizations' | 'instances' | 'instance-dashboard' | 'users' | 'user-groups' | 'roles' | 'settings-general' | 'settings-logs' | 'settings-database' | 'settings-issues' | 'settings-advanced';
 type ModalKind = 'user' | 'group' | 'role' | 'tenant' | 'instance';
 type ModalEntity = UserProfile | Group | Role | Tenant | OxyGenInstance;
 type ModalState = { kind: ModalKind; data?: ModalEntity } | null;
@@ -118,6 +122,7 @@ function cmsPathFor(section: NavSection, instanceId?: string) {
   if (section === 'roles') return '/Roles';
   if (section === 'settings-logs') return instanceId ? `/Logs/Entity/${instanceId}` : '/Logs';
   if (section === 'settings-database') return '/Settings/Database';
+  if (section === 'settings-issues') return '/Settings/Issue-Types';
   if (section === 'settings-general') return '/Settings';
   return '/Settings/Advanced';
 }
@@ -133,7 +138,7 @@ function sectionFromPath(pathname: string): { section: NavSection; entityId?: st
   if (first === 'groups' || first === 'user-groups') return { section: 'user-groups' };
   if (first === 'roles') return { section: 'roles' };
   if (first === 'logs') return parts[1]?.toLowerCase() === 'entity' && parts[2] ? { section: 'settings-logs', entityId: parts[2] } : { section: 'settings-logs' };
-  if (first === 'settings') return parts[1]?.toLowerCase() === 'advanced' ? { section: 'settings-advanced' } : parts[1]?.toLowerCase() === 'logs' ? { section: 'settings-logs' } : parts[1]?.toLowerCase() === 'database' ? { section: 'settings-database' } : { section: 'settings-general' };
+  if (first === 'settings') return parts[1]?.toLowerCase() === 'advanced' ? { section: 'settings-advanced' } : parts[1]?.toLowerCase() === 'logs' ? { section: 'settings-logs' } : parts[1]?.toLowerCase() === 'database' ? { section: 'settings-database' } : ['issue-types', 'issues'].includes(parts[1]?.toLowerCase() || '') ? { section: 'settings-issues' } : { section: 'settings-general' };
   return { section: 'dashboard' };
 }
 
@@ -322,6 +327,15 @@ const appLogColumnDefs: ManagedGridColumn<AppLogGridRow>[] = [
   { key: 'apiCall', title: 'API Call', width: 260, defaultVisible: false },
   { key: 'responseCode', title: 'API Response', width: 140, defaultVisible: false }
 ];
+const issueCatalogColumnDefs: ManagedGridColumn<IssueCatalogGridRow>[] = [
+  { key: 'category', title: 'Category', width: 150 },
+  { key: 'severity', title: 'Severity', width: 140 },
+  { key: 'code', title: 'Issue Code', width: 250 },
+  { key: 'label', title: 'Condition', width: 280 },
+  { key: 'affectedCount', title: 'Instances Affected', width: 170, filter: 'numeric' },
+  { key: 'description', title: 'Description', width: 480 },
+  { key: 'condition', title: 'Match Rule', width: 260, defaultVisible: false }
+];
 
 const logTypes: AppLogType[] = ['Audit', 'Service', 'CRUD', 'Connection', 'Security', 'UI'];
 const logSeverities: AppLogSeverity[] = ['Critical', 'Error', 'Warning', 'Logging', 'Verbose'];
@@ -453,6 +467,8 @@ export function App() {
   const [logRetention, setLogRetention] = useState<LogRetentionSettings>({ days: 90 });
   const [appLogs, setAppLogs] = useState<AppLogEntry[]>([]);
   const [databasePerformance, setDatabasePerformance] = useState<DatabasePerformanceSnapshot | null>(null);
+  const [issueCatalog, setIssueCatalog] = useState<IssueCatalogSnapshot | null>(null);
+  const [selectedIssueType, setSelectedIssueType] = useState<IssueCatalogType | null>(null);
   const [systemVersion, setSystemVersion] = useState<SystemVersionSnapshot | null>(null);
   const [isSystemVersionRefreshing, setIsSystemVersionRefreshing] = useState(false);
   const [databaseDetailPanel, setDatabaseDetailPanel] = useState<DatabaseDetailPanel>('storage');
@@ -467,6 +483,7 @@ export function App() {
   const [isClearingLogs, setIsClearingLogs] = useState(false);
   const [isLogsRefreshing, setIsLogsRefreshing] = useState(false);
   const [isDatabasePerformanceRefreshing, setIsDatabasePerformanceRefreshing] = useState(false);
+  const [isIssueCatalogRefreshing, setIsIssueCatalogRefreshing] = useState(false);
   const [isInstanceImporting, setIsInstanceImporting] = useState(false);
   const [isInstanceExporting, setIsInstanceExporting] = useState(false);
   const instanceImportFileRef = useRef<HTMLInputElement | null>(null);
@@ -687,6 +704,21 @@ export function App() {
     }
   }
 
+  async function loadIssueCatalog(t = token, mode: DashboardRefreshMode = 'quiet') {
+    if (!t) return;
+    if (mode === 'manual') clearStatus();
+    setIsIssueCatalogRefreshing(true);
+    try {
+      const res = await api<{ issueCatalog: IssueCatalogSnapshot }>('/api/system/issue-types', { token: t });
+      setIssueCatalog(res.issueCatalog);
+      if (mode === 'manual') showStatus(`Issue catalog refreshed: ${formatNumber(res.issueCatalog.issueTypes.length)} issue type${res.issueCatalog.issueTypes.length === 1 ? '' : 's'}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Issue catalog refresh failed.');
+    } finally {
+      setIsIssueCatalogRefreshing(false);
+    }
+  }
+
   async function loadSystemVersion(t = token, mode: DashboardRefreshMode = 'quiet') {
     if (!t) return;
     if (mode === 'manual') clearStatus();
@@ -890,6 +922,15 @@ export function App() {
   }, [token, profile, activeSection]);
 
   useEffect(() => {
+    if (!token || !profile || activeSection !== 'settings-issues') return undefined;
+    void loadIssueCatalog(token).catch((err) => setError(err instanceof Error ? err.message : 'Issue catalog refresh failed.'));
+    const refreshTimer = window.setInterval(() => {
+      void loadIssueCatalog(token).catch((err) => setError(err instanceof Error ? err.message : 'Issue catalog refresh failed.'));
+    }, 30000);
+    return () => window.clearInterval(refreshTimer);
+  }, [token, profile, activeSection]);
+
+  useEffect(() => {
     document.body.classList.toggle('cms-notes-editor-active', healthModal === 'notes');
     return () => document.body.classList.remove('cms-notes-editor-active');
   }, [healthModal]);
@@ -954,6 +995,17 @@ export function App() {
     setRoute('instances');
     setIsMobileDrawerOpen(false);
     void loadInstances(token);
+  }
+
+  function openIssueAffectedInstance(affected: IssueCatalogAffectedInstance) {
+    const instance = instances.find((item) => item.id === affected.id) || null;
+    setSelectedIssueType(null);
+    setInstanceDashboardBackTarget({ section: 'settings-issues', label: 'Issue Types' });
+    setSelectedInstanceId(affected.id);
+    setSelectedInstanceDetail(instance);
+    setRoute('instance-dashboard', affected.id);
+    setActiveSection('instance-dashboard');
+    setIsMobileDrawerOpen(false);
   }
 
   function revealDashboardInstances(filter: DashboardIssueFilter = dashboardIssueFilter) {
@@ -1202,7 +1254,7 @@ export function App() {
   async function openInstanceDashboard(instance: OxyGenInstance) {
     clearStatus();
     if (activeSection === 'dashboard') setInstanceDashboardBackTarget({ section: 'dashboard', label: 'Dashboard' });
-    else if (activeSection !== 'instance-dashboard') setInstanceDashboardBackTarget({ section: activeSection, label: activeSection === 'settings-logs' ? 'Logs' : activeSection === 'instances' ? 'Instances' : 'Previous view' });
+    else if (activeSection !== 'instance-dashboard') setInstanceDashboardBackTarget({ section: activeSection, label: activeSection === 'settings-logs' ? 'Logs' : activeSection === 'settings-issues' ? 'Issue Types' : activeSection === 'instances' ? 'Instances' : 'Previous view' });
     setSelectedInstanceId(instance.id);
     setSelectedInstanceDetail(instance);
     setRoute('instance-dashboard', instance.id);
@@ -1329,6 +1381,18 @@ export function App() {
       raw: entry
     };
   }), [appLogs, tenants]);
+  const issueCatalogRows = useMemo<IssueCatalogGridRow[]>(() => (issueCatalog?.issueTypes ?? []).map((issueType) => ({
+    id: issueType.id,
+    category: issueType.category.name,
+    severity: issueType.severity.name,
+    code: issueType.code,
+    label: issueType.label,
+    description: issueType.description || '',
+    condition: issueType.matchValue ? `${issueType.matchKind}: ${issueType.matchValue}` : issueType.matchKind,
+    affectedCount: issueType.affectedCount,
+    raw: issueType
+  })), [issueCatalog]);
+
 
   const cell = <T extends { raw: ModalEntity }>(edit: (raw: T['raw']) => void, remove?: (raw: T['raw']) => void) => ({ dataItem, tdProps }: GridCustomCellProps) => {
     const row = dataItem as T;
@@ -1403,6 +1467,11 @@ export function App() {
   function InstanceActionCell({ dataItem, tdProps }: GridCustomCellProps) {
     const row = dataItem as InstanceGridRow;
     return <td {...tdProps} className="k-command-cell"><InstanceActionMenu instance={row.raw} /></td>;
+  }
+
+  function IssueCatalogActionCell({ dataItem, tdProps }: GridCustomCellProps) {
+    const row = dataItem as IssueCatalogGridRow;
+    return <td {...tdProps} className="k-command-cell"><Button className="compact-button" type="button" fillMode="flat" onClick={() => setSelectedIssueType(row.raw)}><ClipboardList /> View</Button></td>;
   }
 
   function MobileStandardActions({ onEdit, onDelete, protectedOnly = false }: { onEdit: () => void; onDelete?: () => void; protectedOnly?: boolean }) {
@@ -1945,6 +2014,32 @@ export function App() {
     />;
   }
 
+  function renderIssueCatalog() {
+    const snapshot = issueCatalog;
+    if (!snapshot) return <article className="panel"><p className="panel-copy">Loading issue type catalog…</p></article>;
+    if (snapshot.error) return <article className="panel database-performance-alert"><p className="panel-copy">{snapshot.error}</p><Button className="compact-button" type="button" onClick={() => void loadIssueCatalog(token, 'manual')}><RotateCw /> Retry</Button></article>;
+    const affectedTotal = snapshot.issueTypes.reduce((total, issueType) => total + issueType.affectedCount, 0);
+    return <div className="settings-basic-stack issue-catalog-stack">
+      <section className="tenant-dashboard-hero compact database-performance-hero">
+        <div><p className="eyebrow small">Issue classification</p><h3>Discovered Issue Types</h3><small className="dashboard-refresh-stamp">{formatNumber(snapshot.categories.length)} categories · {formatNumber(snapshot.severities.length)} severities · {formatNumber(affectedTotal)} current instance matches · Last refreshed: {formatDateTime(snapshot.generatedAt)}</small></div>
+        <Button className="compact-button dashboard-refresh-button" type="button" onClick={() => void loadIssueCatalog(token, 'manual')} disabled={isIssueCatalogRefreshing}><RotateCw className={isIssueCatalogRefreshing ? 'spin-icon' : ''} /> Refresh</Button>
+      </section>
+      <ManagedGrid gridKey="issue-types" token={token!} rows={issueCatalogRows} columns={issueCatalogColumnDefs} actionCell={IssueCatalogActionCell} actionWidth={120} toolbar={<p className="panel-copy small-copy">Read-only static mapping of issue codes/conditions to category and severity. Open a row to review affected instances.</p>} />
+    </div>;
+  }
+
+  function renderIssueCatalogDialog() {
+    if (!selectedIssueType) return null;
+    return <Dialog className="cms-dialog issue-catalog-dialog" title={`${selectedIssueType.label} (${selectedIssueType.code})`} onClose={() => setSelectedIssueType(null)} width={920}>
+      <div className="issue-catalog-dialog-body">
+        <dl className="detail-list database-detail-list"><dt>Category</dt><dd>{selectedIssueType.category.name}</dd><dt>Severity</dt><dd>{selectedIssueType.severity.name}</dd><dt>Match rule</dt><dd>{selectedIssueType.matchValue ? `${selectedIssueType.matchKind}: ${selectedIssueType.matchValue}` : selectedIssueType.matchKind}</dd><dt>Description</dt><dd>{selectedIssueType.description || 'No description provided.'}</dd></dl>
+        <h3>Affected Instances ({formatNumber(selectedIssueType.affectedCount)})</h3>
+        {selectedIssueType.affectedInstances.length === 0 ? <p className="panel-copy">No enabled, active instances currently match this condition.</p> : <div className="issue-affected-list">{selectedIssueType.affectedInstances.map((affected) => <button type="button" key={affected.id} className="issue-affected-row" onClick={() => openIssueAffectedInstance(affected)}><span><strong>{affected.name}</strong><small>{affected.tenantName || 'Global'} · {affected.status} · Last checked {formatDateTime(affected.lastCheckedAt)}</small><small>{affected.evidence}</small></span><ChevronRight /></button>)}</div>}
+      </div>
+      <DialogActionsBar><Button className="compact-button" type="button" fillMode="flat" onClick={() => setSelectedIssueType(null)}>Close</Button></DialogActionsBar>
+    </Dialog>;
+  }
+
   function renderDatabasePerformance() {
     const snapshot = databasePerformance;
     if (!snapshot) return <article className="panel database-performance-panel"><p className="panel-copy">Loading database performance metrics…</p></article>;
@@ -2011,11 +2106,12 @@ export function App() {
       case 'settings-general': return { eyebrow: 'Settings', heading: 'General' };
       case 'settings-logs': return { eyebrow: 'Settings', heading: 'Logs' };
       case 'settings-database': return { eyebrow: 'Settings', heading: 'Database' };
+      case 'settings-issues': return { eyebrow: 'Settings', heading: 'Issue Types' };
       case 'settings-advanced': return { eyebrow: 'Settings', heading: 'Advanced' };
     }
   })();
 
-  const gridSection = activeSection === 'users' || activeSection === 'user-groups' || activeSection === 'roles' || activeSection === 'organizations' || activeSection === 'instances' || activeSection === 'settings-logs';
+  const gridSection = activeSection === 'users' || activeSection === 'user-groups' || activeSection === 'roles' || activeSection === 'organizations' || activeSection === 'instances' || activeSection === 'settings-logs' || activeSection === 'settings-issues';
 
   function TenantSelect({ disabled = false }: { disabled?: boolean }) {
     return <label>{tenantLabel}<select value={selectedTenantId} disabled={disabled} onChange={(e) => setSelectedTenantId(e.target.value)}><option value="">Global</option>{tenants.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenantOptionLabel(tenant)}</option>)}</select>{disabled && <small>{tenantLabel} assignment is locked after creation.</small>}</label>;
@@ -2122,7 +2218,7 @@ export function App() {
 
       {profile && isMobileViewport && isMobileDrawerOpen && <button className="mobile-drawer-backdrop" type="button" aria-label="Close navigation" onClick={() => setIsMobileDrawerOpen(false)} />}
 
-      {profile && (<div className={`admin-layout ${isDrawerExpanded ? 'drawer-expanded' : 'drawer-collapsed'} ${isMobileDrawerOpen ? 'mobile-drawer-open' : ''}`}><aside className={`admin-sidebar ${isDrawerExpanded ? 'expanded' : 'collapsed'} ${isMobileDrawerOpen ? 'mobile-open' : ''}`}><button className="mobile-drawer-close" type="button" onClick={() => setIsMobileDrawerOpen(false)} aria-label="Close navigation"><X /></button><button className="sidebar-toggle" type="button" onClick={() => setIsDrawerExpanded((v) => !v)} aria-label={isDrawerExpanded ? 'Collapse navigation' : 'Expand navigation'}>{isDrawerExpanded ? <ChevronLeft /> : <ChevronRight />}</button><div className="sidebar-user"><UserCircle /><div><span className="su-name">{profile.user.displayName}</span><span className="su-role">{profile.roles[0]}</span></div></div><nav className="sidebar-nav"><button className={`nav-link${activeSection === 'dashboard' ? ' active' : ''}`} onClick={() => nav('dashboard')}><LayoutDashboard /><span>Dashboard</span></button><div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => handleSidebarParentClick('organizations')}><Server /><span>Organizations</span>{openAccordions.has('organizations') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('organizations') && (<div className="nav-accordion-children"><button className={`nav-link child${activeSection === 'organizations' ? ' active' : ''}`} onClick={() => nav('organizations')}><span>{tenantLabelPlural}</span></button><button className={`nav-link child${activeSection === 'instances' ? ' active' : ''}`} onClick={() => { nav('instances'); loadInstances(); }}><span>Instances</span></button></div>)}</div><div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => handleSidebarParentClick('security')}><ShieldCheck /><span>Security</span>{openAccordions.has('security') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('security') && (<div className="nav-accordion-children"><button className={`nav-link child${activeSection === 'users' ? ' active' : ''}`} onClick={() => nav('users')}><span>Users</span></button><button className={`nav-link child${activeSection === 'user-groups' ? ' active' : ''}`} onClick={() => nav('user-groups')}><span>User Groups</span></button><button className={`nav-link child${activeSection === 'roles' ? ' active' : ''}`} onClick={() => nav('roles')}><span>Roles</span></button></div>)}</div><div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => handleSidebarParentClick('settings')}><Settings /><span>Settings</span>{openAccordions.has('settings') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('settings') && (<div className="nav-accordion-children"><button className={`nav-link child${activeSection === 'settings-general' ? ' active' : ''}`} onClick={() => nav('settings-general')}><span>General</span></button><button className={`nav-link child${activeSection === 'settings-logs' ? ' active' : ''}`} onClick={() => nav('settings-logs')}><span>Logs</span></button><button className={`nav-link child${activeSection === 'settings-database' ? ' active' : ''}`} onClick={() => nav('settings-database')}><span>Database</span></button><button className={`nav-link child${activeSection === 'settings-advanced' ? ' active' : ''}`} onClick={() => nav('settings-advanced', false, 'Advanced Settings')}><span>Advanced</span></button></div>)}</div></nav><button className="sidebar-logout" onClick={handleLogout}><LogOut /><span>Sign out</span></button></aside>
+      {profile && (<div className={`admin-layout ${isDrawerExpanded ? 'drawer-expanded' : 'drawer-collapsed'} ${isMobileDrawerOpen ? 'mobile-drawer-open' : ''}`}><aside className={`admin-sidebar ${isDrawerExpanded ? 'expanded' : 'collapsed'} ${isMobileDrawerOpen ? 'mobile-open' : ''}`}><button className="mobile-drawer-close" type="button" onClick={() => setIsMobileDrawerOpen(false)} aria-label="Close navigation"><X /></button><button className="sidebar-toggle" type="button" onClick={() => setIsDrawerExpanded((v) => !v)} aria-label={isDrawerExpanded ? 'Collapse navigation' : 'Expand navigation'}>{isDrawerExpanded ? <ChevronLeft /> : <ChevronRight />}</button><div className="sidebar-user"><UserCircle /><div><span className="su-name">{profile.user.displayName}</span><span className="su-role">{profile.roles[0]}</span></div></div><nav className="sidebar-nav"><button className={`nav-link${activeSection === 'dashboard' ? ' active' : ''}`} onClick={() => nav('dashboard')}><LayoutDashboard /><span>Dashboard</span></button><div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => handleSidebarParentClick('organizations')}><Server /><span>Organizations</span>{openAccordions.has('organizations') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('organizations') && (<div className="nav-accordion-children"><button className={`nav-link child${activeSection === 'organizations' ? ' active' : ''}`} onClick={() => nav('organizations')}><span>{tenantLabelPlural}</span></button><button className={`nav-link child${activeSection === 'instances' ? ' active' : ''}`} onClick={() => { nav('instances'); loadInstances(); }}><span>Instances</span></button></div>)}</div><div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => handleSidebarParentClick('security')}><ShieldCheck /><span>Security</span>{openAccordions.has('security') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('security') && (<div className="nav-accordion-children"><button className={`nav-link child${activeSection === 'users' ? ' active' : ''}`} onClick={() => nav('users')}><span>Users</span></button><button className={`nav-link child${activeSection === 'user-groups' ? ' active' : ''}`} onClick={() => nav('user-groups')}><span>User Groups</span></button><button className={`nav-link child${activeSection === 'roles' ? ' active' : ''}`} onClick={() => nav('roles')}><span>Roles</span></button></div>)}</div><div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => handleSidebarParentClick('settings')}><Settings /><span>Settings</span>{openAccordions.has('settings') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('settings') && (<div className="nav-accordion-children"><button className={`nav-link child${activeSection === 'settings-general' ? ' active' : ''}`} onClick={() => nav('settings-general')}><span>General</span></button><button className={`nav-link child${activeSection === 'settings-logs' ? ' active' : ''}`} onClick={() => nav('settings-logs')}><span>Logs</span></button><button className={`nav-link child${activeSection === 'settings-database' ? ' active' : ''}`} onClick={() => nav('settings-database')}><span>Database</span></button><button className={`nav-link child${activeSection === 'settings-issues' ? ' active' : ''}`} onClick={() => nav('settings-issues')}><span>Issue Types</span></button><button className={`nav-link child${activeSection === 'settings-advanced' ? ' active' : ''}`} onClick={() => nav('settings-advanced', false, 'Advanced Settings')}><span>Advanced</span></button></div>)}</div></nav><button className="sidebar-logout" onClick={handleLogout}><LogOut /><span>Sign out</span></button></aside>
         <section className={`admin-content ${gridSection ? 'grid-section' : ''}`}>{activeSection !== 'dashboard' && <div className="page-header"><p className="eyebrow small">{sectionMeta.eyebrow}</p><h2>{sectionMeta.heading}</h2></div>}
           {activeSection !== 'settings-general' && renderUpdateNotice()}
           {activeSection === 'dashboard' && renderDashboard()}
@@ -2133,7 +2229,7 @@ export function App() {
           {activeSection === 'user-groups' && isSystemAdmin && <ManagedGrid gridKey="user-groups" token={token!} rows={groupRows} columns={labeledGroupColumnDefs} actionCell={GroupActionCell} mobileActions={(row) => <MobileStandardActions onEdit={() => openEditGroupModal(row.raw)} onDelete={() => deleteItem('group', row.raw.id, `group ${row.raw.name}`)} />} toolbar={<Button className="btn-create" onClick={openCreateGroupModal} type="button" themeColor="primary"><Plus /> Create &quot;Group&quot;</Button>} />}
           {activeSection === 'users' && isSystemAdmin && <ManagedGrid gridKey="users" token={token!} rows={userRows} columns={labeledUserColumnDefs} actionCell={UserActionCell} mobileActions={(row) => <MobileStandardActions onEdit={() => openEditUserModal(row.raw)} onDelete={() => deleteItem('user', row.raw.user.id, `user ${row.raw.user.email}`)} />} toolbar={<Button className="btn-create" onClick={openCreateUserModal} type="button" themeColor="primary"><Plus /> Create &quot;User&quot;</Button>} />}
           {activeSection === 'roles' && isSystemAdmin && <ManagedGrid gridKey="roles" token={token!} rows={roleRows} columns={labeledRoleColumnDefs} actionCell={RoleActionCell} mobileActions={(row) => row.raw.isSystem ? <MobileStandardActions protectedOnly onEdit={() => setMessage(`${row.raw.name} is a protected global role and cannot be modified/deleted.`)} /> : <MobileStandardActions onEdit={() => openEditRoleModal(row.raw)} onDelete={() => deleteItem('role', row.raw.id, `role ${row.raw.name}`)} />} toolbar={<Button className="btn-create" onClick={openCreateRoleModal} type="button" themeColor="primary"><Plus /> Create &quot;Role&quot;</Button>} />}
-          {activeSection === 'settings-general' && renderSettingsGeneral()}{activeSection === 'settings-logs' && renderSettingsLogs()}{activeSection === 'settings-database' && renderDatabasePerformance()}{activeSection === 'settings-advanced' && <article className="panel"><p className="panel-copy">Advanced settings: Not Implemented.</p></article>}
+          {activeSection === 'settings-general' && renderSettingsGeneral()}{activeSection === 'settings-logs' && renderSettingsLogs()}{activeSection === 'settings-database' && renderDatabasePerformance()}{activeSection === 'settings-issues' && renderIssueCatalog()}{activeSection === 'settings-advanced' && <article className="panel"><p className="panel-copy">Advanced settings: Not Implemented.</p></article>}
         </section></div>)}
 
       {profile && !modal && !healthModal && <nav className="mobile-bottom-bar" aria-label="Mobile actions">
@@ -2151,6 +2247,8 @@ export function App() {
         </>}
       </nav>}
 
+
+      {renderIssueCatalogDialog()}
 
       {renderRowActionMenu()}
 

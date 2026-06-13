@@ -346,6 +346,95 @@ PREPARE add_check_history_retention_index_stmt FROM @add_check_history_retention
 EXECUTE add_check_history_retention_index_stmt;
 DEALLOCATE PREPARE add_check_history_retention_index_stmt;`;
 
+
+const issueClassificationCatalogSql = `CREATE TABLE IF NOT EXISTS issue_categories (
+  id VARCHAR(32) NOT NULL PRIMARY KEY,
+  code VARCHAR(64) NOT NULL,
+  name VARCHAR(128) NOT NULL,
+  description TEXT NULL,
+  sort_order INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_issue_categories_code (code)
+);
+
+CREATE TABLE IF NOT EXISTS issue_severities (
+  id VARCHAR(32) NOT NULL PRIMARY KEY,
+  code VARCHAR(64) NOT NULL,
+  name VARCHAR(128) NOT NULL,
+  description TEXT NULL,
+  severity_rank INT NOT NULL,
+  sort_order INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_issue_severities_code (code)
+);
+
+CREATE TABLE IF NOT EXISTS discovered_issue_types (
+  id VARCHAR(64) NOT NULL PRIMARY KEY,
+  code VARCHAR(128) NOT NULL,
+  label VARCHAR(255) NOT NULL,
+  description TEXT NULL,
+  category_id VARCHAR(32) NOT NULL,
+  severity_id VARCHAR(32) NOT NULL,
+  match_kind VARCHAR(64) NOT NULL,
+  match_value VARCHAR(255) NULL,
+  enabled TINYINT(1) NOT NULL DEFAULT 1,
+  sort_order INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_discovered_issue_types_code (code),
+  KEY idx_discovered_issue_types_category (category_id),
+  KEY idx_discovered_issue_types_severity (severity_id),
+  KEY idx_discovered_issue_types_enabled (enabled),
+  CONSTRAINT fk_discovered_issue_types_category FOREIGN KEY (category_id) REFERENCES issue_categories(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_discovered_issue_types_severity FOREIGN KEY (severity_id) REFERENCES issue_severities(id) ON DELETE RESTRICT
+);
+
+INSERT INTO issue_categories (id, code, name, description, sort_order) VALUES
+  ('connectivity', 'connectivity', 'Connectivity', 'DNS, TCP, TLS connection, authentication, and remote API reachability failures that block normal CMS utilization.', 10),
+  ('ssl', 'ssl', 'SSL', 'Certificate validation warnings after the remote HTTPS endpoint is reachable.', 20),
+  ('license', 'license', 'License', 'License status problems after application reachability and license evaluation are available.', 30),
+  ('processing', 'processing', 'Processing', 'Workflow, queue, SMS, EMM, and Hangfire processing component warnings or failures.', 40)
+ON DUPLICATE KEY UPDATE name = VALUES(name), description = VALUES(description), sort_order = VALUES(sort_order);
+
+INSERT INTO issue_severities (id, code, name, description, severity_rank, sort_order) VALUES
+  ('critical', 'critical', 'Critical', 'Immediate outage or data-risk condition requiring urgent action.', 10, 10),
+  ('error', 'error', 'Error', 'Active failure that requires correction.', 20, 20),
+  ('warning', 'warning', 'Warning', 'Degraded, expiring, disabled, or at-risk condition.', 30, 30),
+  ('logging', 'logging', 'Logging', 'Informational condition retained for audit/history.', 40, 40),
+  ('verbose', 'verbose', 'Verbose', 'Low-level diagnostic condition.', 50, 50)
+ON DUPLICATE KEY UPDATE name = VALUES(name), description = VALUES(description), severity_rank = VALUES(severity_rank), sort_order = VALUES(sort_order);
+
+INSERT INTO discovered_issue_types (id, code, label, description, category_id, severity_id, match_kind, match_value, sort_order) VALUES
+  ('dns-enotfound', 'DNS_ENOTFOUND', 'DNS host not found', 'Hostname resolution failed with ENOTFOUND.', 'connectivity', 'error', 'last-error-contains', 'ENOTFOUND', 10),
+  ('tcp-refused', 'ECONNREFUSED', 'TCP connection refused', 'Remote host actively refused the TCP connection.', 'connectivity', 'error', 'last-error-contains', 'ECONNREFUSED', 20),
+  ('tcp-timeout', 'CONNECT_TIMEOUT', 'TCP connection timed out', 'Remote host did not accept the TCP connection before timeout.', 'connectivity', 'error', 'last-error-contains', 'CONNECT_TIMEOUT', 30),
+  ('tcp-reset', 'ECONNRESET', 'TCP/TLS connection reset', 'Remote host reset the connection before the health check completed.', 'connectivity', 'error', 'last-error-contains', 'ECONNRESET', 40),
+  ('tls-connection-failed', 'TLS_CONNECTION_FAILED', 'TLS connection failed', 'TLS failed before certificate validation completed; classify as connectivity, not SSL certificate warning.', 'connectivity', 'error', 'tls-connection-error', NULL, 50),
+  ('authentication-failure', 'AUTHENTICATION_FAILURE', 'OxyGen authentication failed', 'CMS reached OxyGen but could not establish an authenticated session.', 'connectivity', 'error', 'instance-status', 'auth-error', 60),
+  ('http-502', 'HTTP_502', 'Remote HTTP 502', 'Remote OxyGen endpoint returned HTTP 502 during a health-check phase.', 'connectivity', 'error', 'last-error-contains', 'HTTP 502', 70),
+  ('http-500', 'HTTP_500', 'Remote HTTP 500', 'Remote OxyGen endpoint returned HTTP 500 during a health-check phase.', 'connectivity', 'error', 'last-error-contains', 'HTTP 500', 80),
+  ('availability-down', 'AVAILABILITY_DOWN', 'Availability down', 'Instance availability is down without a more specific mapped connectivity code.', 'connectivity', 'error', 'instance-status', 'down', 90),
+  ('ssl-expired', 'CERT_HAS_EXPIRED', 'SSL certificate expired', 'Remote HTTPS certificate has expired.', 'ssl', 'warning', 'last-error-contains', 'CERT_HAS_EXPIRED', 110),
+  ('ssl-untrusted-chain', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'SSL untrusted certificate chain', 'Remote HTTPS certificate chain cannot be verified.', 'ssl', 'warning', 'last-error-contains', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 120),
+  ('ssl-invalid', 'SSL_CERTIFICATE_INVALID', 'SSL certificate validation failed', 'Generic SSL certificate warning when no more specific certificate code is mapped.', 'ssl', 'warning', 'ssl-invalid', NULL, 130),
+  ('license-expired', 'LICENSE_EXPIRED', 'License expired', 'Instance license status is expired.', 'license', 'error', 'license-status', 'expired', 210),
+  ('license-invalid', 'LICENSE_INVALID', 'License invalid', 'Instance license status is error/invalid after reachability was confirmed.', 'license', 'error', 'license-status', 'error', 220),
+  ('license-missing', 'LICENSE_MISSING', 'License missing or blank', 'License key is missing, blank, or unavailable after license evaluation.', 'license', 'error', 'license-missing', NULL, 230),
+  ('license-warning', 'LICENSE_WARNING', 'License warning', 'Instance license status is warning.', 'license', 'warning', 'license-status', 'warning', 240),
+  ('processing-failure', 'PROCESSING_FAILURE', 'Processing component failure', 'One or more monitored processing components are in error.', 'processing', 'error', 'processing-status', 'error', 310),
+  ('processing-warning', 'PROCESSING_WARNING', 'Processing component warning', 'One or more monitored processing components are warning or disabled.', 'processing', 'warning', 'processing-warning', NULL, 320)
+ON DUPLICATE KEY UPDATE
+  label = VALUES(label),
+  description = VALUES(description),
+  category_id = VALUES(category_id),
+  severity_id = VALUES(severity_id),
+  match_kind = VALUES(match_kind),
+  match_value = VALUES(match_value),
+  sort_order = VALUES(sort_order),
+  enabled = VALUES(enabled);`;
+
 export const schemaMigrations: SchemaMigration[] = [
   {
     version: '0.01',
@@ -430,5 +519,11 @@ export const schemaMigrations: SchemaMigration[] = [
     name: 'instance check history retention index',
     checksum: 'd96e12e58cb7cc3a00f2daf3b9336fe4de9326531ccfba4be86d7bb39e3f666a',
     upSql: checkHistoryRetentionIndexSql
+  },
+  {
+    version: '0.15',
+    name: 'issue classification catalog',
+    checksum: '0d54ae1077b9b48c87a3c5188c4b2acafc36b4a0fa6f83b319e717bac8b2378c',
+    upSql: issueClassificationCatalogSql
   }
 ];

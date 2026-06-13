@@ -12,6 +12,7 @@ This documentation has been migrated to the GitHub Wiki:
 - [x] Move queue enable/paused indicators to Workflow & Components.
 - [x] Normalize noisy timeout issue labels in the dashboard issue filter.
 - [x] Add Settings → Database performance visibility for CMS MySQL storage, server counters, slow queries, buffer-pool health, and table/query hotspots.
+- [x] Add Settings → Issue Types read-only issue classification grid backed by static catalog tables and affected-instance drill-through.
 - [x] Add dashboard KPI-to-grid drill-downs and Tenant row Dashboard actions for scoped triage.
 - [ ] Revisit RBAC/Tenant security before Phase 1 closeout: confirmed Tenant filters, authorized navigation/actions only, configurable roles/permission sets, and cross-Tenant regression tests.
 - [ ] Complete trigger/workflow error MVP: surface trigger errors, correlate to Workflow/Workflow Event/Service Event details, and track completion/recovery.

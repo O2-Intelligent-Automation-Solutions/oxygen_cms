@@ -6275,3 +6275,66 @@ body.cms-notes-editor-active .k-actions .k-button-solid-primary {
     justify-self: start;
   }
 }
+
+.issue-catalog-dialog-body {
+  display: grid;
+  gap: 18px;
+}
+
+.issue-catalog-dialog-body h3 {
+  margin: 0;
+  color: var(--brand-text);
+  font-size: 1rem;
+}
+
+.issue-affected-list {
+  display: grid;
+  gap: 10px;
+  max-height: min(420px, 52vh);
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.issue-affected-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid rgba(125, 160, 188, 0.22);
+  border-radius: 16px;
+  background: rgba(5, 14, 26, 0.72);
+  color: var(--brand-text);
+  padding: 12px 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.18s ease, transform 0.18s ease, background 0.18s ease;
+}
+
+.issue-affected-row:hover {
+  border-color: rgba(32, 214, 210, 0.54);
+  background: rgba(8, 25, 42, 0.9);
+  transform: translateY(-1px);
+}
+
+.issue-affected-row span {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.issue-affected-row strong {
+  color: var(--brand-text);
+  font-weight: 800;
+}
+
+.issue-affected-row small {
+  color: var(--brand-muted-2);
+  overflow-wrap: anywhere;
+}
+
+.issue-affected-row svg {
+  width: 18px;
+  height: 18px;
+  color: var(--brand-primary);
+}

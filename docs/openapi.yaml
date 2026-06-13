@@ -711,6 +711,23 @@ paths:
                   databasePerformance: { $ref: '#/components/schemas/DatabasePerformanceSnapshot' }
         '401': { $ref: '#/components/responses/Error' }
         '403': { $ref: '#/components/responses/Error' }
+  /api/system/issue-types:
+    get:
+      tags: [System]
+      summary: Get discovered issue type catalog
+      description: SystemAdmin only. Returns the static issue category/severity/type catalog plus a current affected-instance list for each enabled issue type. The endpoint uses the configured CMS database connection and returns a non-throwing snapshot with `connected=false` and `error` when the catalog cannot be read.
+      responses:
+        '200':
+          description: Issue type catalog snapshot.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [issueCatalog]
+                properties:
+                  issueCatalog: { $ref: '#/components/schemas/IssueCatalogSnapshot' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
   /api/system/poller/pause:
     post:
       tags: [System]
@@ -1511,6 +1528,70 @@ components:
         releaseUrl: { type: [string, 'null'], format: uri }
         publishedAt: { type: [string, 'null'], format: date-time }
         error: { type: [string, 'null'], description: Non-secret update-check failure message when GitHub cannot be reached or returns an unusable response. }
+    IssueCatalogSnapshot:
+      type: object
+      required: [configured, connected, generatedAt, error, categories, severities, issueTypes]
+      properties:
+        configured: { type: boolean }
+        connected: { type: boolean }
+        generatedAt: { type: string, format: date-time }
+        error: { type: [string, 'null'] }
+        categories:
+          type: array
+          items: { $ref: '#/components/schemas/IssueCategory' }
+        severities:
+          type: array
+          items: { $ref: '#/components/schemas/IssueSeverity' }
+        issueTypes:
+          type: array
+          items: { $ref: '#/components/schemas/DiscoveredIssueType' }
+    IssueCategory:
+      type: object
+      required: [id, code, name, sortOrder]
+      properties:
+        id: { type: string }
+        code: { type: string }
+        name: { type: string }
+        sortOrder: { type: integer }
+    IssueSeverity:
+      type: object
+      required: [id, code, name, rank, sortOrder]
+      properties:
+        id: { type: string }
+        code: { type: string }
+        name: { type: string }
+        rank: { type: integer, description: Operational severity ranking from most urgent to least urgent. Backed by issue_severities.severity_rank. }
+        sortOrder: { type: integer }
+    DiscoveredIssueType:
+      type: object
+      required: [id, code, label, description, matchKind, matchValue, enabled, sortOrder, category, severity, affectedCount, affectedInstances]
+      properties:
+        id: { type: string }
+        code: { type: string }
+        label: { type: string }
+        description: { type: [string, 'null'] }
+        matchKind: { type: string }
+        matchValue: { type: [string, 'null'] }
+        enabled: { type: boolean }
+        sortOrder: { type: integer }
+        category: { $ref: '#/components/schemas/IssueCategory' }
+        severity: { $ref: '#/components/schemas/IssueSeverity' }
+        affectedCount: { type: integer, minimum: 0 }
+        affectedInstances:
+          type: array
+          items: { $ref: '#/components/schemas/IssueAffectedInstance' }
+    IssueAffectedInstance:
+      type: object
+      required: [id, name, tenantId, tenantName, status, lastCheckedAt, lastError, evidence]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        tenantId: { type: [string, 'null'], format: uuid }
+        tenantName: { type: [string, 'null'] }
+        status: { $ref: '#/components/schemas/InstanceStatus' }
+        lastCheckedAt: { type: [string, 'null'], format: date-time }
+        lastError: { type: [string, 'null'] }
+        evidence: { type: string, description: Current status/error evidence that matched the issue type. }
     DatabasePerformanceSnapshot:
       type: object
       required: [configured, connected, database, generatedAt, error, schema, queryDigestStatus, summary, server, topTables, queryDigests]

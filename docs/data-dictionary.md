@@ -74,33 +74,19 @@ Schema `0.13` adds `idx_oxygen_instance_check_history_instance_started_id_type (
 Dashboard issue filters normalize noisy endpoint-specific connectivity errors before display. In particular, labels matching `Connection timed out: <ip>:<port>` are displayed and filtered as `Connecting time out` while raw endpoint-specific details remain in logs/history.
 
 
-### Planned issue classification catalog
+### Issue classification catalog
 
-The issue support/notification foundation will use three static/reference tables rather than hard-coded UI-only labels:
+Schema version `0.15` adds static/reference tables for issue support, notification mapping, and the read-only Settings → Issue Types grid. The catalog is database-backed so normalized issue mapping is not duplicated only in UI conditionals.
 
 | Table | Purpose |
 | --- | --- |
-| `issue_categories` | Static four-row category set: `Connectivity`, `SSL`, `License`, `Processing Issues`. |
-| `issue_severities` | Static five-row severity set: `Critical`, `Error`, `Warning`, `Info`, `Verbose`. |
-| `discovered_issue_types` | Static mapping catalog for normalized issue codes/conditions. Each row maps one discovered condition to one category and one severity, stores one or more raw error codes/condition tokens, a normalized display label, description, phase/gating rules, and future notification/support defaults. |
+| `issue_categories` | Static four-row category set: `Connectivity`, `SSL`, `License`, `Processing`. |
+| `issue_severities` | Static five-row severity set: `Critical`, `Error`, `Warning`, `Logging`, `Verbose`; the operational rank is stored in `severity_rank`. |
+| `discovered_issue_types` | Static mapping catalog for normalized issue codes/conditions. Each row maps one condition to one category and one severity, stores the matching kind/value used by the current reader, and remains stable for future notification/support defaults. |
 
-Initial catalog rows should be seeded from the current health-check evidence:
+Initial seeded issue type rows cover DNS failures, TCP refused/timeout/reset conditions, TLS connection failures before certificate evaluation, OxyGen authentication failures, HTTP 500/502 remote errors, generic availability down, SSL certificate expired/untrusted/invalid warnings, license expired/invalid/missing/warning conditions, and processing warning/error component states.
 
-| Issue type | Category | Severity | Source codes/conditions |
-| --- | --- | --- | --- |
-| DNS resolution failed | Connectivity | Error | `ENOTFOUND`, failed Resolve phase |
-| TCP connection refused / port closed | Connectivity | Error | `ECONNREFUSED`, failed Connect phase |
-| TCP connection timed out / port filtered | Connectivity | Error | `CONNECT_TIMEOUT`, failed Connect phase |
-| TLS handshake failed before certificate evaluation | Connectivity | Error | `ECONNRESET`, `TLS_TIMEOUT`, secure TLS connection not established |
-| OxyGen authentication failed: no session cookie | Connectivity | Error | `AUTH_NO_SESSION_COOKIE` |
-| OxyGen authentication endpoint HTTP error | Connectivity | Error | `AUTH_HTTP_ERROR` |
-| OxyGen authentication timed out | Connectivity | Error | login/auth request timeout |
-| OxyGen Settings/API unavailable after authentication | Connectivity | Error | `SETTINGS_HTTP_ERROR` |
-| SSL certificate expired | SSL | Warning | `CERT_HAS_EXPIRED` after certificate evaluation |
-| SSL certificate issuer/chain not trusted | SSL | Warning | `UNABLE_TO_VERIFY_LEAF_SIGNATURE` after certificate evaluation |
-| OxyGen license expired | License | Error | `LICENSE_STATUS_ERROR` with expired license |
-| OxyGen license missing/blank/invalid | License | Error | `LICENSE_STATUS_ERROR` with missing, blank, or invalid license |
-| OxyGen license check failed | License | Error | license probe timeout/request failure after successful reachability/auth |
+`GET /api/system/issue-types` returns a SystemAdmin-only read-only snapshot with `categories`, `severities`, `issueTypes`, and per-issue `affectedInstances`. The affected-instance list is computed from current enabled/non-archived instance status, license status, processing component statuses, SSL flags, and last-error evidence. Settings → Issue Types shows the mapping in a managed grid; the row dialog lists affected instances and links through to each instance dashboard.
 
 Gating rule: Resolve/Connect/TLS/auth blockers are Connectivity Errors and suppress downstream License/Settings issue assignment for that check. SSL issues are warnings only when HTTPS reaches certificate evaluation. License issues require `check_license=true` and sufficient reachability/authentication to execute the License probe.
 
