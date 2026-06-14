@@ -3,10 +3,11 @@
 This documentation has been migrated to the GitHub Wiki:
 
 - [Current Status](https://github.com/O2-Intelligent-Automation-Solutions/oxygen_cms/wiki/Current-Status)
+- [RBAC Security Refinement Plan](https://github.com/O2-Intelligent-Automation-Solutions/oxygen_cms/wiki/RBAC-Security-Refinement-Plan)
 
 ## Local repo status summary
 
-Current CMS schema version: `0.14`.
+Current CMS schema version: `0.15`.
 
 Recent dashboard/service-log work adds:
 
