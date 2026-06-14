@@ -1578,8 +1578,8 @@ export function App() {
       if (!tenant) return null;
       return <div className={`instance-action-menu-panel row-action-menu-portal${activeRowActionMenu.mobile ? ' mobile' : ''}`} style={style} role="menu" onClick={(event) => event.stopPropagation()}>
         <button type="button" role="menuitem" onClick={() => { closeRowActionMenu(); openTenantDashboard(tenant.id); }}><LayoutDashboard /> Dashboard</button>
-        <button type="button" role="menuitem" onClick={() => { closeRowActionMenu(); openEditTenantModal(tenant); }}><Pencil /> Edit</button>
-        <button className="danger" type="button" role="menuitem" onClick={() => { closeRowActionMenu(); void deleteItem('tenant', tenant.id, `${tenantLabelLower} ${tenant.name}`); }}><Trash2 /> Delete</button>
+        {canManageTenants && <button type="button" role="menuitem" onClick={() => { closeRowActionMenu(); openEditTenantModal(tenant); }}><Pencil /> Edit</button>}
+        {canManageTenants && <button className="danger" type="button" role="menuitem" onClick={() => { closeRowActionMenu(); void deleteItem('tenant', tenant.id, `${tenantLabelLower} ${tenant.name}`); }}><Trash2 /> Delete</button>}
       </div>;
     }
     const instance = instances.find((item) => item.id === activeRowActionMenu.id) || selectedInstanceDetail;

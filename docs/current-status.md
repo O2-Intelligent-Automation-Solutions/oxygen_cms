@@ -12,6 +12,7 @@ This documentation has been migrated to the GitHub Wiki:
 - Schema target advanced to `0.16` with durable `role_permissions` assignments.
 - Auth profiles return effective permission keys; role create/update persists permission selections.
 - Current protected API routes use permission + Tenant/global/instance scope checks.
+- TenantAdmin users inherit all same-Tenant instance visibility by default when direct instance access is `inherit`; explicit `none` still denies instance visibility, and cross-Tenant/global instances remain hidden.
 - Desktop/mobile UI navigation/actions/forms are capability-gated from auth permissions.
 - Role editors use a condensed searchable permission grid grouped by type, with `Checkbox | Name | Description | Code` columns, group select-all counts, and an Apply Preset dropdown; user/group instance access uses the searchable pill/tag selector for specific instance assignments.
 - Validation: `npm run typecheck --workspace @oxygen-cms/api`, `npm run typecheck --workspace @oxygen-cms/web`, targeted RBAC/app-log/instance suites, and full API suite are green. Remaining closeout: live MySQL migration validation, browser/UAT review, dependency-audit remediation/acceptance.

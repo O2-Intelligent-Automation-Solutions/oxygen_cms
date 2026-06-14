@@ -14,7 +14,7 @@ function fakeDatabaseSnapshot(): DatabasePerformanceSnapshot {
     database: 'O2IAS_CMS',
     generatedAt: '2026-06-14T12:00:00.000Z',
     error: null,
-    schema: { currentVersion: '0.15', targetVersion: '0.15', current: true, upgradeAvailable: false },
+    schema: { currentVersion: '0.16', targetVersion: '0.16', current: true, upgradeAvailable: false },
     queryDigestStatus: { available: true, state: 'empty', reason: null },
     summary: { tableCount: 0, estimatedRows: 0, dataSizeBytes: 0, indexSizeBytes: 0, freeBytes: 0, totalSizeBytes: 0 },
     server: { version: null, uptimeSeconds: null, maxConnections: null, threadsConnected: null, maxUsedConnections: null, slowQueries: null, longQueryTimeSeconds: null, questions: null, abortedConnects: null, bufferPoolReadHitPercent: null },
@@ -68,11 +68,13 @@ async function seedSecurityFixture() {
   await authRepository.createRole({ name: 'Tenant A Reviewer', description: 'Tenant scoped custom role', tenantId: tenantA.id, permissionKeys: ['dashboard.view', 'instances.view', 'logs.view'] });
 
   await authRepository.createUser({ email: 'tenant-admin-a@example.com', displayName: 'Tenant Admin A', password: 'TenantAdminPassword!42', roleNames: ['TenantAdmin'], groupIds: [groupA.id], tenantId: tenantA.id, instanceAccessMode: 'all', instanceIds: [] });
+  await authRepository.createUser({ email: 'tenant-admin-inherit-a@example.com', displayName: 'Tenant Admin Inherit A', password: 'TenantAdminPassword!42', roleNames: ['TenantAdmin'], groupIds: [], tenantId: tenantA.id, instanceAccessMode: 'inherit', instanceIds: [] });
   await authRepository.createUser({ email: 'operator-a@example.com', displayName: 'Operator A', password: 'OperatorPassword!42', roleNames: ['Operator'], groupIds: [groupA.id], tenantId: tenantA.id, instanceAccessMode: 'all', instanceIds: [] });
   await authRepository.createUser({ email: 'viewer-a@example.com', displayName: 'Viewer A', password: 'ViewerPassword!42', roleNames: ['Viewer'], groupIds: [groupA.id], tenantId: tenantA.id, instanceAccessMode: 'all', instanceIds: [] });
   await authRepository.createUser({ email: 'operator-b@example.com', displayName: 'Operator B', password: 'OperatorPassword!42', roleNames: ['Operator'], groupIds: [groupB.id], tenantId: tenantB.id, instanceAccessMode: 'all', instanceIds: [] });
 
   const tenantAdminLogin = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: 'tenant-admin-a@example.com', password: 'TenantAdminPassword!42' } });
+  const tenantAdminInheritLogin = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: 'tenant-admin-inherit-a@example.com', password: 'TenantAdminPassword!42' } });
   const operatorLogin = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: 'operator-a@example.com', password: 'OperatorPassword!42' } });
   const viewerLogin = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: 'viewer-a@example.com', password: 'ViewerPassword!42' } });
 
@@ -85,7 +87,7 @@ async function seedSecurityFixture() {
     authRepository,
     instanceRepository,
     appLogRepository,
-    tokens: { admin: adminToken, tenantAdmin: tenantAdminLogin.json().token as string, operator: operatorLogin.json().token as string, viewer: viewerLogin.json().token as string },
+    tokens: { admin: adminToken, tenantAdmin: tenantAdminLogin.json().token as string, tenantAdminInherit: tenantAdminInheritLogin.json().token as string, operator: operatorLogin.json().token as string, viewer: viewerLogin.json().token as string },
     tenantA,
     tenantB,
     groupA,
@@ -154,6 +156,17 @@ describe('Phase 1 RBAC security controls', () => {
       payload: { name: 'Tenant A Managed', description: null, tenantId: fixture.tenantA.id, host: 'managed-a.example.com', password: 'RemotePassword!42' }
     });
     expect(createSameTenantInstance.statusCode).toBe(201);
+
+    const inheritedTenantAdminInstances = await fixture.app.inject({ method: 'GET', url: '/api/instances', headers: { authorization: `Bearer ${fixture.tokens.tenantAdminInherit}` } });
+    expect(inheritedTenantAdminInstances.statusCode).toBe(200);
+    expect(inheritedTenantAdminInstances.json().instances.map((entry: { name: string }) => entry.name)).toEqual(expect.arrayContaining(['Tenant A Instance', 'Tenant A Managed']));
+    expect(inheritedTenantAdminInstances.json().instances.map((entry: { name: string }) => entry.name)).not.toContain('Tenant B Instance');
+    expect(inheritedTenantAdminInstances.json().instances.map((entry: { name: string }) => entry.name)).not.toContain('Global Instance');
+
+    const inheritedTenantAdminDashboard = await fixture.app.inject({ method: 'GET', url: '/api/dashboard', headers: { authorization: `Bearer ${fixture.tokens.tenantAdminInherit}` } });
+    expect(inheritedTenantAdminDashboard.statusCode).toBe(200);
+    expect(inheritedTenantAdminDashboard.json().dashboard.instances.map((entry: { name: string }) => entry.name)).toEqual(expect.arrayContaining(['Tenant A Instance', 'Tenant A Managed']));
+    expect(inheritedTenantAdminDashboard.json().dashboard.instances.map((entry: { name: string }) => entry.name)).not.toContain('Tenant B Instance');
 
     const updateCrossTenantInstance = await fixture.app.inject({
       method: 'PATCH',

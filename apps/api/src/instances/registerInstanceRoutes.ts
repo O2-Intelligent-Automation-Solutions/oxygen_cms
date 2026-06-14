@@ -23,7 +23,7 @@ function includeArchivedFromRequest(request: FastifyRequest) {
 }
 
 function instanceScope(profile: AuthProfile, includeArchived = false) {
-  if (profileHasPermission(profile, 'tenants.manage') || profile.user.instanceAccessMode === 'all') return { includeAll: true, includeArchived };
+  if (profileHasPermission(profile, 'tenants.manage') || profile.roles.includes('TenantAdmin') || profile.user.instanceAccessMode === 'all') return { includeAll: true, includeArchived };
   if (profile.user.instanceAccessMode === 'none') return { instanceIds: [], includeArchived };
 
   const instanceIds = new Set<string>();

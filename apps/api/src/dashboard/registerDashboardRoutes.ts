@@ -9,7 +9,7 @@ type AuthenticatedRequest = FastifyRequest & { authProfile: AuthProfile };
 type DashboardScope = 'tenant' | 'global';
 
 function instanceScope(profile: AuthProfile) {
-  if (profile.roles.includes('SystemAdmin') || profile.user.instanceAccessMode === 'all') return { includeAll: true };
+  if (profile.roles.includes('SystemAdmin') || profile.roles.includes('TenantAdmin') || profile.user.instanceAccessMode === 'all') return { includeAll: true };
   if (profile.user.instanceAccessMode === 'none') return { instanceIds: [] };
 
   const instanceIds = new Set<string>();
