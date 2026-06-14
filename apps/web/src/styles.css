@@ -1415,6 +1415,219 @@ button.secondary {
   text-transform: uppercase;
 }
 
+.permission-builder,
+.access-selector,
+.access-summary-card {
+  background: linear-gradient(180deg, rgba(8, 21, 35, 0.88), rgba(5, 14, 25, 0.94));
+}
+
+.permission-toolbar,
+.access-selector-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.permission-toolbar strong,
+.access-selector-header strong,
+.access-summary-card strong {
+  display: block;
+  color: var(--brand-text);
+  font-size: 0.9rem;
+}
+
+.permission-toolbar span,
+.access-selector-header span,
+.access-summary-card span {
+  display: block;
+  margin-top: 4px;
+  color: var(--brand-muted-2);
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+.permission-preset-row,
+.access-selector-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.permission-preset-row button,
+.access-selector-actions button,
+.permission-card-header button {
+  border: 1px solid rgba(95, 197, 255, 0.28);
+  border-radius: 999px;
+  background: rgba(47, 139, 204, 0.14);
+  color: var(--brand-text);
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 6px 10px;
+}
+
+.permission-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.permission-card {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(125, 160, 188, 0.2);
+  border-radius: 12px;
+  background: rgba(2, 9, 18, 0.5);
+}
+
+.permission-card.active {
+  border-color: rgba(32, 214, 210, 0.42);
+  box-shadow: inset 0 0 0 1px rgba(32, 214, 210, 0.08);
+}
+
+.permission-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.permission-card-header strong {
+  color: var(--brand-text);
+}
+
+.permission-card-header span {
+  display: block;
+  margin-top: 2px;
+  color: var(--brand-muted-2);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.permission-toggle-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.permission-toggle,
+.selected-chip,
+.access-instance-row {
+  border: 1px solid rgba(125, 160, 188, 0.24);
+  background: rgba(6, 18, 31, 0.78);
+  color: var(--brand-text);
+  cursor: pointer;
+}
+
+.permission-toggle {
+  display: grid;
+  gap: 2px;
+  min-width: min(100%, 176px);
+  padding: 8px 9px;
+  border-radius: 10px;
+  text-align: left;
+}
+
+.permission-toggle.selected {
+  border-color: rgba(32, 214, 210, 0.68);
+  background: rgba(32, 214, 210, 0.16);
+}
+
+.permission-toggle span {
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.permission-toggle small {
+  margin: 0;
+  font-size: 0.66rem;
+}
+
+.access-summary-card {
+  display: grid;
+  gap: 2px;
+  padding: 12px;
+  border: 1px solid rgba(125, 160, 188, 0.2);
+  border-radius: 14px;
+}
+
+.access-selector {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(125, 160, 188, 0.22);
+  border-radius: 14px;
+}
+
+.access-search input {
+  width: 100%;
+}
+
+.selected-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.selected-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 6px 9px;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.selected-chip.muted {
+  color: var(--brand-muted);
+  cursor: default;
+}
+
+.access-instance-list {
+  display: grid;
+  max-height: 280px;
+  overflow: auto;
+  gap: 6px;
+  padding-right: 4px;
+}
+
+.access-instance-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 12px;
+  text-align: left;
+}
+
+.access-instance-row.selected {
+  border-color: rgba(32, 214, 210, 0.62);
+  background: rgba(32, 214, 210, 0.14);
+}
+
+.access-instance-row strong,
+.access-instance-row small {
+  display: block;
+}
+
+.access-instance-row small {
+  margin: 3px 0 0;
+  color: var(--brand-muted-2);
+  font-size: 0.68rem;
+}
+
+.empty-state {
+  color: var(--brand-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
 .form-row {
   display: grid;
   gap: 12px;

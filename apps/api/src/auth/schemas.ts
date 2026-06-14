@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 const tenantIdSchema = z.string().uuid().nullable().optional().transform((value) => value ?? null);
 const instanceIdsSchema = z.array(z.string().uuid()).default([]);
+const permissionKeysSchema = z.array(z.string().trim().min(1)).default([]);
 const groupInstanceAccessModeSchema = z.enum(['none', 'all', 'specific']).default('none');
 const userInstanceAccessModeSchema = z.enum(['inherit', 'none', 'all', 'specific']).default('inherit');
 
@@ -26,7 +27,8 @@ export const updateTenantSchema = createTenantSchema;
 export const createRoleSchema = z.object({
   name: z.string().trim().min(1),
   description: z.string().trim().optional().nullable(),
-  tenantId: tenantIdSchema
+  tenantId: tenantIdSchema,
+  permissionKeys: permissionKeysSchema.optional()
 });
 
 export const updateRoleSchema = createRoleSchema;

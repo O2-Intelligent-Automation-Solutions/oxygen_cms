@@ -86,7 +86,7 @@ async function bootstrap(app: Awaited<ReturnType<typeof buildApp>>, authReposito
   const tenant = await authRepository.createTenant({ name: 'Acme Tenant', description: null });
   const groupA = await authRepository.createGroup({ name: 'Customer Group A', description: null, tenantId: tenant.id, instanceAccessMode: 'none', instanceIds: [] });
   const groupB = await authRepository.createGroup({ name: 'Customer Group B', description: null, instanceAccessMode: 'none', instanceIds: [] });
-  await authRepository.createUser({ email: 'operator@example.com', displayName: 'Operator User', password: 'OperatorPassword!42', roleNames: ['Operator'], groupIds: [groupA.id], tenantId: tenant.id, instanceAccessMode: 'inherit', instanceIds: [] });
+  await authRepository.createUser({ email: 'operator@example.com', displayName: 'Operator User', password: 'OperatorPassword!42', roleNames: ['Viewer'], groupIds: [groupA.id], tenantId: tenant.id, instanceAccessMode: 'inherit', instanceIds: [] });
   const operatorLogin = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: 'operator@example.com', password: 'OperatorPassword!42' } });
   return { adminToken, operatorToken: operatorLogin.json().token as string, tenant, groupA, groupB };
 }

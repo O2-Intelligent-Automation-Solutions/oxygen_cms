@@ -113,7 +113,7 @@ describe('application logs API', () => {
     await app.close();
   });
 
-  it('requires SystemAdmin to run activity retention manually', async () => {
+  it('requires log maintenance permission to run activity retention manually', async () => {
     const { app, token } = await bootApp();
     const created = await app.inject({ method: 'POST', url: '/api/users', headers: { authorization: `Bearer ${token}` }, payload: { email: 'viewer@example.com', displayName: 'Viewer', password: 'ViewerPassword!42', roleNames: ['Viewer'], groupIds: [], tenantId: null, instanceAccessMode: 'none', instanceIds: [] } });
     expect(created.statusCode).toBe(201);
@@ -122,7 +122,7 @@ describe('application logs API', () => {
     const response = await app.inject({ method: 'POST', url: '/api/logs/retention/run', headers: { authorization: `Bearer ${login.json().token}` } });
 
     expect(response.statusCode).toBe(403);
-    expect(response.json()).toEqual({ error: 'SystemAdmin role required.' });
+    expect(response.json()).toEqual({ error: 'Permission required: logs.maintain.' });
 
     await app.close();
   });

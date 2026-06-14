@@ -347,6 +347,35 @@ EXECUTE add_check_history_retention_index_stmt;
 DEALLOCATE PREPARE add_check_history_retention_index_stmt;`;
 
 
+const rolePermissionsSchemaSql = `CREATE TABLE IF NOT EXISTS role_permissions (
+  role_id CHAR(36) NOT NULL,
+  permission_key VARCHAR(128) NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (role_id, permission_key),
+  KEY idx_role_permissions_permission_key (permission_key),
+  CONSTRAINT fk_role_permissions_role FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE
+);
+
+INSERT IGNORE INTO role_permissions (role_id, permission_key)
+SELECT id, 'dashboard.view' FROM roles WHERE name IN ('SystemAdmin', 'TenantAdmin', 'Operator', 'Viewer')
+UNION ALL SELECT id, 'instances.view' FROM roles WHERE name IN ('SystemAdmin', 'TenantAdmin', 'Operator', 'Viewer')
+UNION ALL SELECT id, 'instances.manage' FROM roles WHERE name IN ('SystemAdmin', 'TenantAdmin', 'Operator')
+UNION ALL SELECT id, 'instances.importExport' FROM roles WHERE name IN ('SystemAdmin', 'TenantAdmin')
+UNION ALL SELECT id, 'users.manage' FROM roles WHERE name IN ('SystemAdmin', 'TenantAdmin')
+UNION ALL SELECT id, 'groups.manage' FROM roles WHERE name IN ('SystemAdmin', 'TenantAdmin')
+UNION ALL SELECT id, 'roles.manage' FROM roles WHERE name IN ('SystemAdmin', 'TenantAdmin')
+UNION ALL SELECT id, 'tenants.view' FROM roles WHERE name IN ('SystemAdmin', 'TenantAdmin')
+UNION ALL SELECT id, 'tenants.manage' FROM roles WHERE name = 'SystemAdmin'
+UNION ALL SELECT id, 'logs.view' FROM roles WHERE name IN ('SystemAdmin', 'TenantAdmin', 'Operator')
+UNION ALL SELECT id, 'logs.maintain' FROM roles WHERE name = 'SystemAdmin'
+UNION ALL SELECT id, 'settings.manage' FROM roles WHERE name = 'SystemAdmin'
+UNION ALL SELECT id, 'settings.database.view' FROM roles WHERE name = 'SystemAdmin'
+UNION ALL SELECT id, 'settings.database.maintain' FROM roles WHERE name = 'SystemAdmin'
+UNION ALL SELECT id, 'system.poller.manage' FROM roles WHERE name = 'SystemAdmin'
+UNION ALL SELECT id, 'system.version.view' FROM roles WHERE name IN ('SystemAdmin', 'TenantAdmin', 'Operator', 'Viewer')
+UNION ALL SELECT id, 'issueTypes.view' FROM roles WHERE name IN ('SystemAdmin', 'TenantAdmin', 'Operator', 'Viewer')
+UNION ALL SELECT id, 'gridPreferences.manage' FROM roles WHERE name IN ('SystemAdmin', 'TenantAdmin', 'Operator', 'Viewer');`;
+
 const issueClassificationCatalogSql = `CREATE TABLE IF NOT EXISTS issue_categories (
   id VARCHAR(32) NOT NULL PRIMARY KEY,
   code VARCHAR(64) NOT NULL,
@@ -525,5 +554,11 @@ export const schemaMigrations: SchemaMigration[] = [
     name: 'issue classification catalog',
     checksum: '0d54ae1077b9b48c87a3c5188c4b2acafc36b4a0fa6f83b319e717bac8b2378c',
     upSql: issueClassificationCatalogSql
+  },
+  {
+    version: '0.16',
+    name: 'role permission catalog assignments',
+    checksum: '32f2ea9cf2621d6770a5fbd63122a1ae2906661762d2fb9433635b4419f3f16c',
+    upSql: rolePermissionsSchemaSql
   }
 ];

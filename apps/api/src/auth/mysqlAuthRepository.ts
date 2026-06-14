@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Pool, RowDataPacket } from 'mysql2/promise';
 import { createPool } from 'mysql2/promise';
 import { hashPassword, verifyPassword } from './password.js';
+import { defaultPermissionsForRole, normalizePermissionKeys } from './permissions.js';
 import {
   SYSTEM_ROLE_NAMES,
   toPublicUser,
@@ -15,6 +16,7 @@ import {
   type CreateRoleInput,
   type CreateTenantInput,
   type CreateUserInput,
+  type PermissionKey,
   type RoleName,
   type TenantId,
   type UpdateGroupInput,
@@ -47,13 +49,14 @@ type RoleRow = RowDataPacket & { id: string; name: string; description: string |
 type GroupRow = RowDataPacket & { id: string; name: string; description: string | null; tenant_id: string | null; instance_access_mode: CmsGroup['instanceAccessMode']; created_at: Date | string; updated_at: Date | string };
 type UserRow = RowDataPacket & { id: string; email: string; display_name: string; password_hash: string; password_salt: string; tenant_id: string | null; instance_access_mode: CmsUser['instanceAccessMode']; is_active: number | boolean; created_at: Date | string; updated_at: Date | string };
 type InstanceAccessRow = RowDataPacket & { instance_id: string };
+type RolePermissionRow = RowDataPacket & { permission_key: string };
 
 function mapTenant(row: TenantRow): CmsTenant {
   return { id: row.id, name: row.name, description: row.description, createdAt: toIso(row.created_at), updatedAt: toIso(row.updated_at) };
 }
 
-function mapRole(row: RoleRow): CmsRole {
-  return { id: row.id, name: row.name, description: row.description, tenantId: row.tenant_id, isSystem: Boolean(row.protected), createdAt: toIso(row.created_at), updatedAt: toIso(row.updated_at) };
+function mapRole(row: RoleRow, permissionKeys: PermissionKey[] = defaultPermissionsForRole(row.name)): CmsRole {
+  return { id: row.id, name: row.name, description: row.description, tenantId: row.tenant_id, isSystem: Boolean(row.protected), permissionKeys, createdAt: toIso(row.created_at), updatedAt: toIso(row.updated_at) };
 }
 
 function mapGroup(row: GroupRow, instanceIds: string[] = []): CmsGroup {
@@ -106,6 +109,24 @@ export function createMysqlAuthRepository(pool: Pool): AuthRepository {
     return (await many<InstanceAccessRow>('SELECT instance_id FROM user_group_instance_access WHERE group_id = ? ORDER BY instance_id ASC', [groupId])).map((row) => row.instance_id);
   }
 
+
+  async function listRolePermissionKeys(roleId: string, roleName: string) {
+    const rows = await many<RolePermissionRow>('SELECT permission_key FROM role_permissions WHERE role_id = ? ORDER BY permission_key ASC', [roleId]);
+    const persisted = normalizePermissionKeys(rows.map((row) => row.permission_key));
+    return persisted.length > 0 ? persisted : defaultPermissionsForRole(roleName);
+  }
+
+  async function mapRoleWithPermissions(row: RoleRow) {
+    return mapRole(row, await listRolePermissionKeys(row.id, row.name));
+  }
+
+  async function replaceRolePermissions(roleId: string, permissionKeys: PermissionKey[]) {
+    await pool.execute('DELETE FROM role_permissions WHERE role_id = ?', [roleId]);
+    for (const permissionKey of permissionKeys) {
+      await pool.execute('INSERT INTO role_permissions (role_id, permission_key) VALUES (?, ?)', [roleId, permissionKey]);
+    }
+  }
+
   async function replaceUserInstanceAccess(userId: string, instanceIds: string[]) {
     await pool.execute('DELETE FROM user_instance_access WHERE user_id = ?', [userId]);
     for (const instanceId of instanceIds) {
@@ -130,9 +151,14 @@ export function createMysqlAuthRepository(pool: Pool): AuthRepository {
     return row ? mapUser(row) : null;
   }
 
+  async function findRoleById(roleId: string) {
+    const row = await one<RoleRow>('SELECT * FROM roles WHERE id = ? LIMIT 1', [roleId]);
+    return row ? mapRoleWithPermissions(row) : null;
+  }
+
   async function findRoleByName(name: string) {
     const row = await one<RoleRow>('SELECT * FROM roles WHERE name = ? ORDER BY tenant_id IS NOT NULL ASC LIMIT 1', [name.trim()]);
-    return row ? mapRole(row) : null;
+    return row ? mapRoleWithPermissions(row) : null;
   }
 
   async function findGroupById(groupId: string) {
@@ -189,10 +215,12 @@ export function createMysqlAuthRepository(pool: Pool): AuthRepository {
       instanceAccessMode: group.instance_access_mode ?? 'none',
       instanceIds: await listGroupInstanceIds(group.id)
     })));
+    const profileRoles = await Promise.all(roleRows.map(mapRoleWithPermissions));
 
     return {
       user: toPublicUser({ ...user, instanceIds: await listUserInstanceIds(user.id) }),
-      roles: roleRows.map((role) => role.name),
+      roles: profileRoles.map((role) => role.name),
+      permissions: Array.from(new Set(profileRoles.flatMap((role) => role.permissionKeys))).sort(),
       groups: profileGroups
     };
   }
@@ -325,16 +353,18 @@ export function createMysqlAuthRepository(pool: Pool): AuthRepository {
       await assertTenantExists(tenantId);
       if (await findRoleByName(input.name)) throw new Error('A role with this name already exists.');
       if (SYSTEM_ROLE_NAMES.includes(input.name as (typeof SYSTEM_ROLE_NAMES)[number])) throw new Error('System role names are reserved.');
+      const permissionKeys = normalizePermissionKeys(input.permissionKeys);
       const id = randomUUID();
       await pool.execute('INSERT INTO roles (id, name, description, tenant_id, protected) VALUES (?, ?, ?, ?, 0)', [id, input.name.trim(), input.description?.trim() || null, tenantId]);
-      const row = await one<RoleRow>('SELECT * FROM roles WHERE id = ?', [id]);
-      if (!row) throw new Error('Role not found.');
-      return mapRole(row);
+      await replaceRolePermissions(id, permissionKeys);
+      const role = await findRoleById(id);
+      if (!role) throw new Error('Role not found.');
+      return role;
     },
     async updateRole(roleId: string, input: UpdateRoleInput) {
       const existingRow = await one<RoleRow>('SELECT * FROM roles WHERE id = ?', [roleId]);
       if (!existingRow) throw new Error('Role not found.');
-      const existing = mapRole(existingRow);
+      const existing = await mapRoleWithPermissions(existingRow);
       if (existing.isSystem) throw new Error('System roles cannot be modified.');
       const tenantId = normalizeTenantId(input.tenantId);
       assertTenantUnchanged(existing, tenantId);
@@ -342,10 +372,12 @@ export function createMysqlAuthRepository(pool: Pool): AuthRepository {
       const duplicate = await findRoleByName(input.name);
       if (duplicate && duplicate.id !== roleId) throw new Error('A role with this name already exists.');
       if (SYSTEM_ROLE_NAMES.includes(input.name as (typeof SYSTEM_ROLE_NAMES)[number])) throw new Error('System role names are reserved.');
+      const permissionKeys = normalizePermissionKeys(input.permissionKeys);
       await pool.execute('UPDATE roles SET name = ?, description = ? WHERE id = ?', [input.name.trim(), input.description?.trim() || null, roleId]);
-      const row = await one<RoleRow>('SELECT * FROM roles WHERE id = ?', [roleId]);
-      if (!row) throw new Error('Role not found.');
-      return mapRole(row);
+      await replaceRolePermissions(roleId, permissionKeys);
+      const role = await findRoleById(roleId);
+      if (!role) throw new Error('Role not found.');
+      return role;
     },
     async deleteRole(roleId: string) {
       const role = await one<RoleRow>('SELECT * FROM roles WHERE id = ?', [roleId]);
@@ -355,7 +387,8 @@ export function createMysqlAuthRepository(pool: Pool): AuthRepository {
       await pool.execute('DELETE FROM roles WHERE id = ?', [roleId]);
     },
     async listRoles() {
-      return (await many<RoleRow>('SELECT * FROM roles ORDER BY name ASC')).map(mapRole);
+      const rows = await many<RoleRow>('SELECT * FROM roles ORDER BY name ASC');
+      return Promise.all(rows.map(mapRoleWithPermissions));
     },
     async createGroup(input: CreateGroupInput) {
       const tenantId = normalizeTenantId(input.tenantId);

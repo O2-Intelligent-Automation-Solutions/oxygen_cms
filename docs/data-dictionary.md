@@ -8,7 +8,19 @@ This documentation has been migrated to the GitHub Wiki:
 
 ### Schema version
 
-Current CMS schema version: `0.14`.
+Current CMS schema version: `0.16`.
+
+### `role_permissions`
+
+Durable role-to-permission assignments introduced in schema `0.16`.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `role_id` | `CHAR(36)` | FK to `roles.id`; cascades on role delete. |
+| `permission_key` | `VARCHAR(128)` | Stable permission catalog key validated by application code. |
+| `created_at` | `TIMESTAMP` | Assignment creation timestamp. |
+
+Primary key: `(role_id, permission_key)`. Index: `idx_role_permissions_permission_key`.
 
 ### `application_logs`
 

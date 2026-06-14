@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { AppLogRepository } from '../appLogs/types.js';
-import { requireAuth, requireRole } from '../auth/registerAuthRoutes.js';
+import { canAccessTenant, profileHasPermission } from '../auth/permissions.js';
+import { requireAuth, requirePermission } from '../auth/registerAuthRoutes.js';
 import type { AuthProfile, AuthRepository } from '../auth/types.js';
 import { exportInstancesToCsv } from './csv.js';
 import { importInstancesFromCsv } from './importInstances.js';
@@ -13,7 +14,7 @@ type AuthenticatedRequest = FastifyRequest & { authProfile: AuthProfile };
 
 function errorReply(reply: FastifyReply, error: unknown, fallback: string, notFoundMessage?: string) {
   const message = error instanceof Error ? error.message : fallback;
-  return reply.code(notFoundMessage && message === notFoundMessage ? 404 : 400).send({ error: message });
+  return reply.code(notFoundMessage && message === notFoundMessage ? 404 : message.includes('access denied') || message.includes('Access denied') ? 403 : 400).send({ error: message });
 }
 
 function includeArchivedFromRequest(request: FastifyRequest) {
@@ -22,7 +23,7 @@ function includeArchivedFromRequest(request: FastifyRequest) {
 }
 
 function instanceScope(profile: AuthProfile, includeArchived = false) {
-  if (profile.roles.includes('SystemAdmin') || profile.user.instanceAccessMode === 'all') return { includeAll: true, includeArchived };
+  if (profileHasPermission(profile, 'tenants.manage') || profile.user.instanceAccessMode === 'all') return { includeAll: true, includeArchived };
   if (profile.user.instanceAccessMode === 'none') return { instanceIds: [], includeArchived };
 
   const instanceIds = new Set<string>();
@@ -40,12 +41,16 @@ function instanceScope(profile: AuthProfile, includeArchived = false) {
   return { instanceIds: Array.from(instanceIds), includeArchived };
 }
 
-function requireInstanceImportExportRole() {
-  return async (request: FastifyRequest, reply: FastifyReply) => {
-    const profile = request.authProfile;
-    if (!profile) return reply.code(401).send({ error: 'Authentication required.' });
-    if (!profile.roles.includes('SystemAdmin') && !profile.roles.includes('TenantAdmin')) return reply.code(403).send({ error: 'SystemAdmin or TenantAdmin role required.' });
-  };
+function filterScopedInstances<T extends { tenantId: string | null }>(profile: AuthProfile, instances: T[]) {
+  if (profileHasPermission(profile, 'tenants.manage')) return instances;
+  return instances.filter((instance) => instance.tenantId === profile.user.tenantId);
+}
+
+function assertWritableTenant(profile: AuthProfile, tenantId: string | null | undefined) {
+  const normalizedTenantId = tenantId ?? null;
+  if (profileHasPermission(profile, 'tenants.manage')) return normalizedTenantId;
+  if (!profile.user.tenantId || normalizedTenantId !== profile.user.tenantId) throw new Error('Tenant scope access denied.');
+  return profile.user.tenantId;
 }
 
 function csvFilename() {
@@ -123,12 +128,13 @@ async function appendConnectivityLog(app: FastifyInstance, repository: AppLogRep
 
 export async function registerInstanceRoutes(app: FastifyInstance, authRepository: AuthRepository, instanceRepository: InstanceRepository, appLogRepository?: AppLogRepository) {
   const requireSignedIn = requireAuth(authRepository);
-  const adminPreHandler = [requireSignedIn, requireRole('SystemAdmin')];
-  const importExportPreHandler = [requireSignedIn, requireInstanceImportExportRole()];
+  const viewPreHandler = [requireSignedIn, requirePermission('instances.view')];
+  const managePreHandler = [requireSignedIn, requirePermission('instances.manage')];
+  const importExportPreHandler = [requireSignedIn, requirePermission('instances.importExport')];
 
-  app.get('/api/instances', { preHandler: requireSignedIn }, async (request) => {
+  app.get('/api/instances', { preHandler: viewPreHandler }, async (request) => {
     const profile = (request as AuthenticatedRequest).authProfile;
-    return { instances: await instanceRepository.listInstances(instanceScope(profile, includeArchivedFromRequest(request))) };
+    return { instances: filterScopedInstances(profile, await instanceRepository.listInstances(instanceScope(profile, includeArchivedFromRequest(request)))) };
   });
 
   app.get('/api/instances/export.csv', { preHandler: importExportPreHandler }, async (request, reply) => {
@@ -137,7 +143,7 @@ export async function registerInstanceRoutes(app: FastifyInstance, authRepositor
       instanceRepository.listInstances({ includeAll: true, includeArchived: includeArchivedFromRequest(request) }),
       authRepository.listTenants()
     ]);
-    const instances = profile.user.tenantId ? allInstances.filter((instance) => instance.tenantId === profile.user.tenantId) : allInstances;
+    const instances = filterScopedInstances(profile, allInstances);
     const csv = exportInstancesToCsv(instances, tenants, profile.user.tenantId ? 'tenant' : 'global');
     return reply
       .header('content-type', 'text/csv; charset=utf-8')
@@ -156,46 +162,61 @@ export async function registerInstanceRoutes(app: FastifyInstance, authRepositor
     }
   });
 
-  app.post('/api/instances', { preHandler: adminPreHandler }, async (request, reply) => {
+  app.post('/api/instances', { preHandler: managePreHandler }, async (request, reply) => {
     const input = createInstanceSchema.parse(request.body);
-    try { return reply.code(201).send({ instance: await instanceRepository.createInstance(input) }); }
+    try {
+      const profile = (request as AuthenticatedRequest).authProfile;
+      return reply.code(201).send({ instance: await instanceRepository.createInstance({ ...input, tenantId: assertWritableTenant(profile, input.tenantId) }) });
+    }
     catch (error) { return errorReply(reply, error, 'Unable to create instance.'); }
   });
 
-  app.get('/api/instances/:instanceId', { preHandler: requireSignedIn }, async (request, reply) => {
+  app.get('/api/instances/:instanceId', { preHandler: viewPreHandler }, async (request, reply) => {
     const { instanceId } = request.params as { instanceId: string };
     const profile = (request as AuthenticatedRequest).authProfile;
     const instances = await instanceRepository.listInstances(instanceScope(profile, true));
-    const instance = instances.find((entry) => entry.id === instanceId);
+    const instance = filterScopedInstances(profile, instances).find((entry) => entry.id === instanceId);
     if (!instance) return reply.code(404).send({ error: 'Instance not found.' });
     return { instance };
   });
 
-  app.get('/api/instances/:instanceId/health-details', { preHandler: requireSignedIn }, async (request, reply) => {
+  app.get('/api/instances/:instanceId/health-details', { preHandler: viewPreHandler }, async (request, reply) => {
     const { instanceId } = request.params as { instanceId: string };
     const profile = (request as AuthenticatedRequest).authProfile;
     const instances = await instanceRepository.listInstances(instanceScope(profile, true));
-    if (!instances.some((entry) => entry.id === instanceId)) return reply.code(404).send({ error: 'Instance not found.' });
+    if (!filterScopedInstances(profile, instances).some((entry) => entry.id === instanceId)) return reply.code(404).send({ error: 'Instance not found.' });
     try { return reply.code(200).send({ healthDetails: await instanceRepository.getHealthDetails(instanceId) }); }
     catch (error) { return errorReply(reply, error, 'Unable to load instance health details.', 'Instance not found.'); }
   });
 
-  app.patch('/api/instances/:instanceId', { preHandler: adminPreHandler }, async (request, reply) => {
+  app.patch('/api/instances/:instanceId', { preHandler: managePreHandler }, async (request, reply) => {
     const { instanceId } = request.params as { instanceId: string };
     const input = updateInstanceSchema.parse(request.body);
-    try { return reply.code(200).send({ instance: await instanceRepository.updateInstance(instanceId, input) }); }
+    try {
+      const profile = (request as AuthenticatedRequest).authProfile;
+      const existing = await instanceRepository.getInstance(instanceId);
+      if (!existing || !canAccessTenant(profile, existing.tenantId)) return reply.code(404).send({ error: 'Instance not found.' });
+      return reply.code(200).send({ instance: await instanceRepository.updateInstance(instanceId, { ...input, tenantId: assertWritableTenant(profile, input.tenantId) }) });
+    }
     catch (error) { return errorReply(reply, error, 'Unable to update instance.', 'Instance not found.'); }
   });
 
-  app.delete('/api/instances/:instanceId', { preHandler: adminPreHandler }, async (request, reply) => {
+  app.delete('/api/instances/:instanceId', { preHandler: managePreHandler }, async (request, reply) => {
     const { instanceId } = request.params as { instanceId: string };
-    try { await instanceRepository.deleteInstance(instanceId); return reply.code(204).send(); }
+    try {
+      const profile = (request as AuthenticatedRequest).authProfile;
+      const existing = await instanceRepository.getInstance(instanceId);
+      if (!existing || !canAccessTenant(profile, existing.tenantId)) return reply.code(404).send({ error: 'Instance not found.' });
+      await instanceRepository.deleteInstance(instanceId); return reply.code(204).send();
+    }
     catch (error) { return errorReply(reply, error, 'Unable to delete instance.', 'Instance not found.'); }
   });
 
-  app.post('/api/instances/test-connectivity', { preHandler: adminPreHandler }, async (request, reply) => {
+  app.post('/api/instances/test-connectivity', { preHandler: managePreHandler }, async (request, reply) => {
     const input = testConnectivitySchema.parse(request.body);
     try {
+      const profile = (request as AuthenticatedRequest).authProfile;
+      assertWritableTenant(profile, input.tenantId);
       const result = await testConnectivityFromInput(input);
       if (appLogRepository) await appendConnectivityLog(app, appLogRepository, request, result, input.instanceId ?? null, input.name ?? null, input.tenantId ?? null);
       return reply.code(200).send(result);
@@ -203,10 +224,12 @@ export async function registerInstanceRoutes(app: FastifyInstance, authRepositor
     catch (error) { return errorReply(reply, error, 'Unable to test instance connectivity.'); }
   });
 
-  app.post('/api/instances/:instanceId/test-connectivity', { preHandler: adminPreHandler }, async (request, reply) => {
+  app.post('/api/instances/:instanceId/test-connectivity', { preHandler: managePreHandler }, async (request, reply) => {
     const { instanceId } = request.params as { instanceId: string };
     try {
       const instance = await instanceRepository.getInstance(instanceId);
+      const profile = (request as AuthenticatedRequest).authProfile;
+      if (!instance || !canAccessTenant(profile, instance.tenantId)) return reply.code(404).send({ error: 'Instance not found.' });
       const result = await instanceRepository.testConnectivity(instanceId);
       if (appLogRepository) await appendConnectivityLog(app, appLogRepository, request, result, instanceId, instance?.name ?? null, instance?.tenantId ?? null);
       return reply.code(200).send(result);

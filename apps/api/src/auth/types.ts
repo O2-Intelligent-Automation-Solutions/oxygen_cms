@@ -1,6 +1,7 @@
 export const SYSTEM_ROLE_NAMES = ['SystemAdmin', 'TenantAdmin'] as const;
 export const DEFAULT_ROLE_NAMES = ['SystemAdmin', 'TenantAdmin', 'Operator', 'Viewer'] as const;
 export type RoleName = string;
+export type PermissionKey = string;
 
 export type TenantId = string | null;
 export type GroupInstanceAccessMode = 'none' | 'all' | 'specific';
@@ -20,6 +21,7 @@ export type CmsRole = {
   description: string | null;
   tenantId: TenantId;
   isSystem: boolean;
+  permissionKeys: PermissionKey[];
   createdAt: string;
   updatedAt: string;
 };
@@ -64,6 +66,7 @@ export type PublicUser = {
 export type AuthProfile = {
   user: PublicUser;
   roles: RoleName[];
+  permissions: PermissionKey[];
   groups: Array<Pick<CmsGroup, 'id' | 'name' | 'tenantId' | 'instanceAccessMode' | 'instanceIds'>>;
 };
 
@@ -103,6 +106,7 @@ export type CreateRoleInput = {
   name: string;
   description?: string | null;
   tenantId?: TenantId;
+  permissionKeys?: PermissionKey[];
 };
 
 export type UpdateRoleInput = CreateRoleInput;

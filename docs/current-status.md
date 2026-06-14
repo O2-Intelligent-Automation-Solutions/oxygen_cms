@@ -7,6 +7,14 @@ This documentation has been migrated to the GitHub Wiki:
 
 ## Local repo status summary
 
+### RBAC refinement implementation checkpoint
+
+- Schema target advanced to `0.16` with durable `role_permissions` assignments.
+- Auth profiles return effective permission keys; role create/update persists permission selections.
+- Current protected API routes use permission + Tenant/global/instance scope checks.
+- Desktop/mobile UI navigation/actions/forms are capability-gated from auth permissions.
+- Validation: `npm run typecheck --workspace @oxygen-cms/api`, `npm run typecheck --workspace @oxygen-cms/web`, targeted RBAC/app-log/instance suites, and full API suite are green. Remaining closeout: live MySQL migration validation, browser/UAT review, dependency-audit remediation/acceptance.
+
 Current CMS schema version: `0.15`.
 
 Recent dashboard/service-log work adds:

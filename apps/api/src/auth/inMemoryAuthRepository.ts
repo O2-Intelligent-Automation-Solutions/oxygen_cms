@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { hashPassword, verifyPassword } from './password.js';
+import { defaultPermissionsForRole, normalizePermissionKeys } from './permissions.js';
 import {
   DEFAULT_ROLE_NAMES,
   SYSTEM_ROLE_NAMES,
@@ -51,6 +52,7 @@ export function createInMemoryAuthRepository(): AuthRepository {
       description: `${roleName} role`,
       tenantId: null,
       isSystem: SYSTEM_ROLE_NAMES.includes(roleName as (typeof SYSTEM_ROLE_NAMES)[number]),
+      permissionKeys: defaultPermissionsForRole(roleName),
       createdAt: seedTimestamp,
       updatedAt: seedTimestamp
     };
@@ -96,6 +98,11 @@ export function createInMemoryAuthRepository(): AuthRepository {
 
   function buildProfile(user: CmsUser): AuthProfile {
     const profileRoles = Array.from(userRoles.get(user.id) ?? []) as RoleName[];
+    const permissions = new Set<string>();
+    for (const roleName of profileRoles) {
+      const role = findRoleByName(roleName);
+      for (const permissionKey of role?.permissionKeys ?? defaultPermissionsForRole(roleName)) permissions.add(permissionKey);
+    }
     const profileGroups = Array.from(userGroups.get(user.id) ?? [])
       .map((groupId) => groups.get(groupId))
       .filter((group): group is CmsGroup => Boolean(group))
@@ -104,6 +111,7 @@ export function createInMemoryAuthRepository(): AuthRepository {
     return {
       user: toPublicUser(user),
       roles: profileRoles,
+      permissions: Array.from(permissions).sort(),
       groups: profileGroups
     };
   }
@@ -229,7 +237,7 @@ export function createInMemoryAuthRepository(): AuthRepository {
       if (findRoleByName(input.name)) throw new Error('A role with this name already exists.');
       if (SYSTEM_ROLE_NAMES.includes(input.name as (typeof SYSTEM_ROLE_NAMES)[number])) throw new Error('System role names are reserved.');
       const timestamp = nowIso();
-      const role: CmsRole = { id: randomUUID(), name: input.name.trim(), description: input.description?.trim() || null, tenantId, isSystem: false, createdAt: timestamp, updatedAt: timestamp };
+      const role: CmsRole = { id: randomUUID(), name: input.name.trim(), description: input.description?.trim() || null, tenantId, isSystem: false, permissionKeys: normalizePermissionKeys(input.permissionKeys), createdAt: timestamp, updatedAt: timestamp };
       roles.set(role.id, role);
       return role;
     },
@@ -243,7 +251,7 @@ export function createInMemoryAuthRepository(): AuthRepository {
       const duplicate = findRoleByName(input.name);
       if (duplicate && duplicate.id !== roleId) throw new Error('A role with this name already exists.');
       if (SYSTEM_ROLE_NAMES.includes(input.name as (typeof SYSTEM_ROLE_NAMES)[number])) throw new Error('System role names are reserved.');
-      const role: CmsRole = { ...existing, name: input.name.trim(), description: input.description?.trim() || null, updatedAt: nowIso() };
+      const role: CmsRole = { ...existing, name: input.name.trim(), description: input.description?.trim() || null, permissionKeys: normalizePermissionKeys(input.permissionKeys), updatedAt: nowIso() };
       roles.set(role.id, role);
       return role;
     },

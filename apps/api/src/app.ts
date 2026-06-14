@@ -123,6 +123,9 @@ function classifyApplicationActivity(method: string, url: string, statusCode: nu
   if (method === 'GET' || method === 'OPTIONS' || method === 'HEAD' || area === 'logs' || area === 'health') return null;
 
   const succeeded = statusCode < 400;
+  if ((statusCode === 401 || statusCode === 403) && area !== 'auth') {
+    return { type: 'Security', message: 'Access denied for privileged CMS action.', entityGuid: entityGuidFromSegments(segments), tenantId: null };
+  }
   if (area === 'auth') {
     if (segments[2] === 'login') return { type: 'Audit', message: succeeded ? 'User signed in.' : 'User sign-in failed.', entityGuid: null, tenantId: null };
     if (segments[2] === 'logout') return { type: 'Audit', message: succeeded ? 'User signed out.' : 'User sign-out failed.', entityGuid: null, tenantId: null };
