@@ -327,20 +327,40 @@ function findField(payload: unknown, names: string[]): unknown {
   return undefined;
 }
 
+function isMissingLicenseText(value: string) {
+  const normalized = value.trim().toLowerCase();
+  return !normalized || normalized === 'missing license' || normalized === 'no license' || normalized === 'none' || normalized === 'n/a' || normalized === 'not licensed';
+}
+
 function licenseKeyFromPayload(payload: unknown) {
   const value = findField(payload, ['licenseKey', 'license_key', 'key', 'activationKey', 'serialNumber', 'serial', 'registrationKey']);
-  return normalizeText(value) || null;
+  const normalized = normalizeText(value);
+  return normalized && !isMissingLicenseText(normalized) ? normalized : null;
+}
+
+function licenseStatusTextFromPayload(payload: unknown) {
+  return normalizeText(findField(payload, ['status', 'licenseStatus', 'license_status', 'state', 'result']));
 }
 
 function licenseStatusFromPayload(payload: unknown, key: string | null): LicenseStatus {
-  const statusText = normalizeText(findField(payload, ['status', 'licenseStatus', 'license_status', 'state', 'result'])).toLowerCase();
+  const statusText = licenseStatusTextFromPayload(payload).toLowerCase();
   const expired = findField(payload, ['expired', 'isExpired']);
   const valid = findField(payload, ['valid', 'isValid']);
   if (expired === true || statusText.includes('expired')) return 'expired';
-  if (valid === false || statusText.includes('invalid') || statusText.includes('error') || statusText.includes('fail')) return 'error';
+  if (valid === false || statusText.includes('invalid') || statusText.includes('error') || statusText.includes('fail') || statusText.includes('no license') || statusText.includes('missing license') || statusText.includes('not licensed')) return 'error';
   if (statusText.includes('warn')) return 'warning';
   if (valid === true || statusText.includes('valid') || statusText.includes('active') || statusText.includes('ok')) return key ? 'valid' : 'error';
   return key ? 'valid' : 'error';
+}
+
+function licenseStatusMessage(status: LicenseStatus, payload: unknown, key: string | null) {
+  if (status === 'valid') return 'License API probe succeeded.';
+  if (status === 'expired') return 'License expired.';
+  if (status === 'warning') return 'License warning.';
+  const statusText = licenseStatusTextFromPayload(payload);
+  if (statusText && isMissingLicenseText(statusText)) return `License missing: ${statusText}.`;
+  if (!key) return 'License missing.';
+  return 'License invalid or blank.';
 }
 
 async function probeLicense(input: ConnectivityInput, cookieHeader: string): Promise<LicenseProbeResult> {
@@ -349,7 +369,7 @@ async function probeLicense(input: ConnectivityInput, cookieHeader: string): Pro
     const response = await requestProbe(joinUrl(input.instance.apiBaseUrl, '/web-api/BUS/License'), {
       method: 'GET',
       headers: { cookie: cookieHeader },
-      timeoutMs: input.timeoutMs ?? 5000
+      timeoutMs: input.timeoutMs ?? 15000
     });
     const payload = parseJsonBody(response.body);
     if (response.status === 404) {
@@ -366,7 +386,7 @@ async function probeLicense(input: ConnectivityInput, cookieHeader: string): Pro
         ok: status === 'valid',
         httpStatusCode: response.status,
         durationMs: response.connectionMs ?? undefined,
-        message: status === 'valid' ? 'License API probe succeeded.' : status === 'expired' ? 'License expired.' : status === 'warning' ? 'License warning.' : 'License invalid or blank.',
+        message: licenseStatusMessage(status, payload, key),
         errorCode: status === 'valid' ? undefined : 'LICENSE_STATUS_ERROR'
       },
       status,

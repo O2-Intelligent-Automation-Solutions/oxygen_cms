@@ -158,6 +158,80 @@ describe('OxyGen connectivity checks', () => {
     expect(mock.requests).toEqual(['POST /v2/Auth/Login', 'GET /web-api/BUS/License', 'GET /web-api/global/settings']);
   });
 
+  it('classifies OxyGen no-license payloads as missing license errors', async () => {
+    const mock = await startMockOxyGenServer({
+      password: 'RemotePassword!42',
+      license: {
+        LicenseKey: 'Missing License',
+        LicenseStatus: 'No License',
+        LicensingServerStatus: 'Offline',
+        LastSync: 'Never'
+      }
+    });
+
+    const result = await testOxyGenConnectivity({
+      instance: {
+        name: 'Missing License Mock',
+        protocol: 'http',
+        host: '127.0.0.1',
+        port: mock.port,
+        apiBaseUrl: mock.baseUrl,
+        username: 'admin',
+        checkLicense: true
+      },
+      password: 'RemotePassword!42',
+      timeoutMs: 2000
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 'reachable',
+      message: 'Connectivity test completed with license issue: License missing: No License.',
+      license: {
+        status: 'error',
+        key: null,
+        step: { ok: false, httpStatusCode: 200, message: 'License missing: No License.', errorCode: 'LICENSE_STATUS_ERROR' }
+      },
+      api: { ok: false, skipped: true, message: 'Settings probe skipped because the license probe failed.' }
+    });
+    expect(result.license.payload).toMatchObject({ LicenseKey: 'Missing License', LicenseStatus: 'No License' });
+    expect(mock.requests).toEqual(['POST /v2/Auth/Login', 'GET /web-api/BUS/License']);
+  });
+
+  it('waits long enough for slow OxyGen license responses before skipping settings', async () => {
+    const mock = await startMockOxyGenServer({
+      password: 'RemotePassword!42',
+      licenseDelayMs: 5200,
+      license: { LicenseKey: null, IsValid: false, IsExpired: false, Features: [{ Status: 'Unlicensed' }] }
+    });
+
+    const result = await testOxyGenConnectivity({
+      instance: {
+        name: 'Slow Missing License Mock',
+        protocol: 'http',
+        host: '127.0.0.1',
+        port: mock.port,
+        apiBaseUrl: mock.baseUrl,
+        username: 'admin',
+        checkLicense: true
+      },
+      password: 'RemotePassword!42'
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 'reachable',
+      message: 'Connectivity test completed with license issue: License missing.',
+      license: {
+        status: 'error',
+        key: null,
+        step: { ok: false, httpStatusCode: 200, message: 'License missing.', errorCode: 'LICENSE_STATUS_ERROR' }
+      },
+      api: { ok: false, skipped: true, message: 'Settings probe skipped because the license probe failed.' }
+    });
+    expect(mock.requests).toEqual(['POST /v2/Auth/Login', 'GET /web-api/BUS/License']);
+  }, 10000);
+
   it('marks attempted license timeouts as license errors and skips settings', async () => {
     const mock = await startMockOxyGenServer({ password: 'RemotePassword!42', licenseDelayMs: 150 });
 
