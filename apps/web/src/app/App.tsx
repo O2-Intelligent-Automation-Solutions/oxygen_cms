@@ -114,25 +114,26 @@ type DashboardIssueFilter = string;
 type DashboardRefreshMode = 'quiet' | 'manual';
 type StatusTone = 'success' | 'warning' | 'failure';
 const AUTH_STORAGE_KEY = 'oxygen_cms.authToken';
-const PERMISSION_CATALOG: Array<{ key: PermissionKey; label: string; group: string }> = [
-  { key: 'dashboard.view', label: 'View dashboard', group: 'Dashboard' },
-  { key: 'instances.view', label: 'View instances', group: 'Instances' },
-  { key: 'instances.manage', label: 'Manage instances and health checks', group: 'Instances' },
-  { key: 'instances.importExport', label: 'Import/export instances', group: 'Instances' },
-  { key: 'users.manage', label: 'Manage users', group: 'Security' },
-  { key: 'groups.manage', label: 'Manage groups', group: 'Security' },
-  { key: 'roles.manage', label: 'Manage roles', group: 'Security' },
-  { key: 'tenants.view', label: 'View tenants', group: 'Tenants' },
-  { key: 'tenants.manage', label: 'Manage tenants', group: 'Tenants' },
-  { key: 'logs.view', label: 'View logs', group: 'Audit' },
-  { key: 'logs.maintain', label: 'Purge/maintain logs', group: 'Audit' },
-  { key: 'settings.manage', label: 'Manage app settings', group: 'Settings' },
-  { key: 'settings.database.view', label: 'View database performance', group: 'Settings' },
-  { key: 'settings.database.maintain', label: 'Maintain database/schema', group: 'Settings' },
-  { key: 'system.poller.manage', label: 'Manage background poller', group: 'System' },
-  { key: 'system.version.view', label: 'View CMS version/update status', group: 'System' },
-  { key: 'issueTypes.view', label: 'View issue type catalog', group: 'System' },
-  { key: 'gridPreferences.manage', label: 'Manage grid preferences', group: 'UI' }
+type PermissionCatalogItem = { key: PermissionKey; label: string; description: string; group: string };
+const PERMISSION_CATALOG: PermissionCatalogItem[] = [
+  { key: 'dashboard.view', label: 'View dashboard', description: 'Open the dashboard and view aggregate CMS health, issue, and instance summary data.', group: 'Dashboard' },
+  { key: 'instances.view', label: 'View instances', description: 'View enrolled OxyGen instances, instance dashboards, connection status, and non-sensitive details.', group: 'Instances' },
+  { key: 'instances.manage', label: 'Manage instances and health checks', description: 'Enroll, edit, archive, and run on-demand health checks for OxyGen instances within scope.', group: 'Instances' },
+  { key: 'instances.importExport', label: 'Import/export instances', description: 'Import and export instance inventory CSV files for bulk administration.', group: 'Instances' },
+  { key: 'users.manage', label: 'Manage users', description: 'Create, edit, deactivate, delete, and assign user access within the permitted scope.', group: 'Security' },
+  { key: 'groups.manage', label: 'Manage groups', description: 'Create and maintain user groups, including their instance-access assignments.', group: 'Security' },
+  { key: 'roles.manage', label: 'Manage roles', description: 'Create and maintain roles and permission assignments for users and groups.', group: 'Security' },
+  { key: 'tenants.view', label: 'View tenants', description: 'View Tenant records and Tenant-scoped ownership information.', group: 'Tenants' },
+  { key: 'tenants.manage', label: 'Manage tenants', description: 'Create and update Tenant records and global Tenant administration metadata.', group: 'Tenants' },
+  { key: 'logs.view', label: 'View logs', description: 'View audit, service, CRUD, security, UI, and connection logs visible to the user scope.', group: 'Audit' },
+  { key: 'logs.maintain', label: 'Purge/maintain logs', description: 'Run log retention and maintenance actions such as purging CMS activity logs.', group: 'Audit' },
+  { key: 'settings.manage', label: 'Manage app settings', description: 'Update CMS application settings and administrative configuration.', group: 'Settings' },
+  { key: 'settings.database.view', label: 'View database performance', description: 'View database schema, storage, query digest, and server-performance diagnostics.', group: 'Settings' },
+  { key: 'settings.database.maintain', label: 'Maintain database/schema', description: 'Run database maintenance and schema-related administrative actions.', group: 'Settings' },
+  { key: 'system.poller.manage', label: 'Manage background poller', description: 'Start, pause, resume, and inspect the background instance polling service.', group: 'System' },
+  { key: 'system.version.view', label: 'View CMS version/update status', description: 'View installed CMS version, source revision, and available update status.', group: 'System' },
+  { key: 'issueTypes.view', label: 'View issue type catalog', description: 'View the system issue type catalog, severities, matching rules, and affected instance evidence.', group: 'System' },
+  { key: 'gridPreferences.manage', label: 'Manage grid preferences', description: 'Save and maintain user grid column, filter, and display preferences.', group: 'UI' }
 ];
 const DEFAULT_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
   SystemAdmin: PERMISSION_CATALOG.map((permission) => permission.key),
@@ -528,6 +529,7 @@ export function App() {
   const [selectedTenantId, setSelectedTenantId] = useState('');
   const [selectedPermissionKeys, setSelectedPermissionKeys] = useState<PermissionKey[]>([]);
   const [permissionFilter, setPermissionFilter] = useState('');
+  const [permissionPresetDraft, setPermissionPresetDraft] = useState('');
   const [selectedAccessInstanceIds, setSelectedAccessInstanceIds] = useState<string[]>([]);
   const [instanceAccessModeDraft, setInstanceAccessModeDraft] = useState<UserInstanceAccessMode | GroupInstanceAccessMode>('inherit');
   const [instanceAccessFilter, setInstanceAccessFilter] = useState('');
@@ -1437,8 +1439,8 @@ export function App() {
   function openEditUserModal(user: UserProfile) { setSelectedRole(user.roles[0] || 'Viewer'); setSelectedGroupId(user.groups[0]?.id || ''); setSelectedTenantId(user.user.tenantId || ''); setInstanceAccessModeDraft(user.user.instanceAccessMode); setSelectedAccessInstanceIds(user.user.instanceIds); setInstanceAccessFilter(''); setModal({ kind: 'user', data: user }); }
   function openCreateGroupModal() { setSelectedTenantId(''); setInstanceAccessModeDraft('none'); setSelectedAccessInstanceIds([]); setInstanceAccessFilter(''); setModal({ kind: 'group' }); }
   function openEditGroupModal(group: Group) { setSelectedTenantId(group.tenantId || ''); setInstanceAccessModeDraft(group.instanceAccessMode); setSelectedAccessInstanceIds(group.instanceIds); setInstanceAccessFilter(''); setModal({ kind: 'group', data: group }); }
-  function openCreateRoleModal() { setSelectedTenantId(''); setSelectedPermissionKeys(DEFAULT_ROLE_PERMISSIONS.Viewer); setPermissionFilter(''); setModal({ kind: 'role' }); }
-  function openEditRoleModal(role: Role) { setSelectedTenantId(role.tenantId || ''); setSelectedPermissionKeys(role.permissionKeys?.length ? role.permissionKeys : DEFAULT_ROLE_PERMISSIONS[role.name] || []); setPermissionFilter(''); setModal({ kind: 'role', data: role }); }
+  function openCreateRoleModal() { setSelectedTenantId(''); setSelectedPermissionKeys(DEFAULT_ROLE_PERMISSIONS.Viewer); setPermissionFilter(''); setPermissionPresetDraft('Viewer'); setModal({ kind: 'role' }); }
+  function openEditRoleModal(role: Role) { setSelectedTenantId(role.tenantId || ''); setSelectedPermissionKeys(role.permissionKeys?.length ? role.permissionKeys : DEFAULT_ROLE_PERMISSIONS[role.name] || []); setPermissionFilter(''); setPermissionPresetDraft(''); setModal({ kind: 'role', data: role }); }
   function toggleSelectedPermission(permissionKey: PermissionKey, checked: boolean) {
     setSelectedPermissionKeys((current) => checked ? Array.from(new Set([...current, permissionKey])).sort() : current.filter((key) => key !== permissionKey));
   }
@@ -1448,6 +1450,13 @@ export function App() {
   }
   function applyRolePreset(roleName: string) {
     setSelectedPermissionKeys(DEFAULT_ROLE_PERMISSIONS[roleName] || []);
+  }
+  function applyRolePresetDraft() {
+    if (permissionPresetDraft === '__clear') {
+      setSelectedPermissionKeys([]);
+      return;
+    }
+    if (permissionPresetDraft) applyRolePreset(permissionPresetDraft);
   }
   function openCreateTenantModal() { setModal({ kind: 'tenant' }); }
   function openEditTenantModal(tenant: Tenant) { setModal({ kind: 'tenant', data: tenant }); }
@@ -2267,19 +2276,27 @@ export function App() {
     const groups = Array.from(new Set(PERMISSION_CATALOG.map((permission) => permission.group)));
     const query = permissionFilter.trim().toLowerCase();
     const visibleGroups = groups.map((group) => {
-      const permissions = PERMISSION_CATALOG.filter((permission) => permission.group === group && (!query || [permission.group, permission.label, permission.key].some((value) => value.toLowerCase().includes(query))));
+      const groupPermissions = PERMISSION_CATALOG.filter((permission) => permission.group === group);
+      const groupMatches = !query || group.toLowerCase().includes(query);
+      const permissions = groupPermissions.filter((permission) => groupMatches || [permission.label, permission.description, permission.key].some((value) => value.toLowerCase().includes(query)));
       return { group, permissions };
     }).filter(({ permissions }) => permissions.length > 0);
     return <fieldset className="form-section permission-builder"><legend>Permissions</legend>
-      <div className="permission-toolbar"><div><strong>{selectedPermissionKeys.length} of {PERMISSION_CATALOG.length} permissions</strong><span>Search the tree, apply a preset, or toggle an entire permission category.</span></div><div className="permission-preset-row">{Object.keys(DEFAULT_ROLE_PERMISSIONS).map((roleName) => <button key={roleName} type="button" onClick={() => applyRolePreset(roleName)}>{roleName}</button>)}<button type="button" onClick={() => setSelectedPermissionKeys([])}>Clear</button></div></div>
-      <label className="permission-search">Find permissions<input type="search" value={permissionFilter} onChange={(event) => setPermissionFilter(event.target.value)} placeholder="Search by category, label, or key" /></label>
-      <div className="permission-tree-list" role="tree" aria-label="Role permissions">{visibleGroups.length === 0 ? <span className="empty-state">No permissions match this search.</span> : visibleGroups.map(({ group, permissions }) => {
-        const groupKeys = PERMISSION_CATALOG.filter((permission) => permission.group === group).map((permission) => permission.key);
-        const selectedCount = groupKeys.filter((key) => selectedPermissionKeys.includes(key)).length;
-        const allSelected = selectedCount === groupKeys.length;
-        const partiallySelected = selectedCount > 0 && !allSelected;
-        return <section key={group} className="permission-tree-group" role="group"><label className="permission-tree-parent"><input type="checkbox" checked={allSelected} ref={(input) => { if (input) input.indeterminate = partiallySelected; }} onChange={(event) => setPermissionGroup(group, event.target.checked)} /><span><strong>{group}</strong><small>{selectedCount} / {groupKeys.length} enabled</small></span></label><div className="permission-tree-children">{permissions.map((permission) => <label key={permission.key} className="permission-tree-leaf"><input type="checkbox" checked={selectedPermissionKeys.includes(permission.key)} onChange={(event) => toggleSelectedPermission(permission.key, event.target.checked)} /><span>{permission.label}<small>{permission.key}</small></span></label>)}</div></section>;
-      })}</div>
+      <div className="permission-toolbar"><div><strong>{selectedPermissionKeys.length} of {PERMISSION_CATALOG.length} permissions</strong><span>Search, apply a preset, or use a group checkbox to select all permissions in that type.</span></div><div className="permission-preset-row"><label>Apply preset<select value={permissionPresetDraft} onChange={(event) => setPermissionPresetDraft(event.target.value)}><option value="">Select preset…</option>{Object.keys(DEFAULT_ROLE_PERMISSIONS).map((roleName) => <option key={roleName} value={roleName}>{roleName}</option>)}<option value="__clear">Clear all permissions</option></select></label><button type="button" disabled={!permissionPresetDraft} onClick={applyRolePresetDraft}>Apply</button></div></div>
+      <label className="permission-search">Find permissions<input type="search" value={permissionFilter} onChange={(event) => setPermissionFilter(event.target.value)} placeholder="Search by type, name, description, or code" /></label>
+      <div className="permission-grid" role="table" aria-label="Role permissions">
+        <div className="permission-grid-head" role="row"><span>Checkbox</span><span>Name</span><span>Description</span><span>Code</span></div>
+        {visibleGroups.length === 0 ? <span className="empty-state permission-grid-empty">No permissions match this search.</span> : visibleGroups.map(({ group, permissions }) => {
+          const groupKeys = PERMISSION_CATALOG.filter((permission) => permission.group === group).map((permission) => permission.key);
+          const selectedCount = groupKeys.filter((key) => selectedPermissionKeys.includes(key)).length;
+          const allSelected = selectedCount === groupKeys.length;
+          const partiallySelected = selectedCount > 0 && !allSelected;
+          return <section key={group} className="permission-grid-group" role="rowgroup" aria-label={`${group} permissions`}>
+            <label className="permission-grid-group-row"><input type="checkbox" checked={allSelected} ref={(input) => { if (input) input.indeterminate = partiallySelected; }} onChange={(event) => setPermissionGroup(group, event.target.checked)} aria-label={`Select all ${group} permissions`} /><span><strong>{group}</strong><small>{selectedCount} / {groupKeys.length} enabled</small></span></label>
+            {permissions.map((permission) => <label key={permission.key} className="permission-grid-row" role="row"><span className="permission-grid-check"><input type="checkbox" checked={selectedPermissionKeys.includes(permission.key)} onChange={(event) => toggleSelectedPermission(permission.key, event.target.checked)} aria-label={`Toggle ${permission.label}`} /></span><span className="permission-grid-name">{permission.label}</span><span className="permission-grid-description">{permission.description}</span><code>{permission.key}</code></label>)}
+          </section>;
+        })}
+      </div>
     </fieldset>;
   }
 
@@ -2417,7 +2434,7 @@ export function App() {
         <div className="mobile-editor-screen-body">{renderModalForm()}</div>
       </section>}
 
-      {modal && !isMobileViewport && <Dialog className="cms-dialog" title={modalTitle} onClose={() => setModal(null)} width={modal?.kind === 'instance' || modal?.kind === 'role' ? 760 : 520}>
+      {modal && !isMobileViewport && <Dialog className="cms-dialog" title={modalTitle} onClose={() => setModal(null)} width={modal?.kind === 'role' ? 900 : modal?.kind === 'instance' ? 760 : 520}>
         {renderModalForm()}
       </Dialog>}
       {(message || error) && <p className={`status ${error ? 'failure error' : messageTone}`}>{error || message}</p>}

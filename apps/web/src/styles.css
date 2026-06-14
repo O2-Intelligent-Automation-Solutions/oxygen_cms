@@ -1451,8 +1451,32 @@ button.secondary {
 .access-selector-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: end;
   justify-content: flex-end;
   gap: 7px;
+}
+
+.permission-preset-row label {
+  display: grid !important;
+  gap: 3px !important;
+  margin: 0 !important;
+  color: var(--brand-muted-2) !important;
+  font-size: 0.66rem !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.permission-preset-row select {
+  min-width: 190px;
+  height: 30px;
+  border: 1px solid rgba(95, 197, 255, 0.28);
+  border-radius: 999px;
+  background: rgba(6, 18, 31, 0.95);
+  color: var(--brand-text);
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 0 28px 0 11px;
 }
 
 .permission-preset-row button,
@@ -1467,76 +1491,153 @@ button.secondary {
   padding: 6px 10px;
 }
 
+.permission-preset-row button {
+  height: 30px;
+  min-width: 68px;
+}
+
+.permission-preset-row button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .permission-search input {
   width: 100%;
 }
 
-.permission-tree-list {
+.permission-grid {
   display: grid;
-  gap: 8px;
-  max-height: 330px;
+  max-height: 360px;
   overflow: auto;
-  padding-right: 4px;
-}
-
-.permission-tree-group {
-  display: grid;
-  gap: 6px;
-  padding: 9px;
   border: 1px solid rgba(125, 160, 188, 0.2);
   border-radius: 12px;
-  background: rgba(2, 9, 18, 0.5);
+  background: rgba(2, 9, 18, 0.48);
 }
 
-.permission-tree-parent,
-.permission-tree-leaf {
+.permission-grid-head,
+.permission-grid-row {
+  display: grid;
+  grid-template-columns: 78px minmax(150px, 0.75fr) minmax(240px, 1.4fr) minmax(170px, 0.85fr);
+  align-items: center !important;
+  gap: 10px;
+}
+
+.permission-grid-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 7px 10px;
+  border-bottom: 1px solid rgba(125, 160, 188, 0.22);
+  background: rgba(4, 14, 25, 0.98);
+  color: var(--brand-muted-2);
+  font-size: 0.64rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.permission-grid-group {
+  display: contents;
+}
+
+.permission-grid-group-row {
+  position: sticky;
+  top: 29px;
+  z-index: 1;
   display: grid !important;
-  grid-template-columns: 16px minmax(0, 1fr) !important;
-  align-items: start !important;
+  grid-template-columns: 22px minmax(0, 1fr) !important;
+  align-items: center !important;
   gap: 9px !important;
   margin: 0 !important;
+  padding: 7px 10px !important;
+  border-top: 1px solid rgba(95, 197, 255, 0.2);
+  border-bottom: 1px solid rgba(95, 197, 255, 0.12);
+  background: linear-gradient(90deg, rgba(47, 139, 204, 0.24), rgba(6, 18, 31, 0.96));
   color: var(--brand-text) !important;
   cursor: pointer;
 }
 
-.permission-tree-parent input,
-.permission-tree-leaf input {
+.permission-grid-group-row span {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.permission-grid-group-row strong {
+  font-size: 0.8rem;
+}
+
+.permission-grid-group-row small {
+  color: var(--brand-muted-2);
+  font-size: 0.68rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.permission-grid-row {
+  margin: 0 !important;
+  padding: 7px 10px;
+  min-height: 34px;
+  align-items: stretch !important;
+  border-bottom: 1px solid rgba(125, 160, 188, 0.1);
+  color: var(--brand-text) !important;
+  cursor: pointer;
+}
+
+.permission-grid-row:hover {
+  background: rgba(95, 197, 255, 0.08);
+}
+
+.permission-grid-group-row input,
+.permission-grid-row input {
+  display: block;
   width: 14px;
   height: 14px;
-  margin: 2px 0 0;
+  margin: 0;
   accent-color: var(--brand-primary);
 }
 
-.permission-tree-parent strong,
-.permission-tree-parent small,
-.permission-tree-leaf small {
-  display: block;
+.permission-grid-check,
+.permission-grid-name,
+.permission-grid-description,
+.permission-grid-row code {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  min-height: 100%;
 }
 
-.permission-tree-parent strong {
-  font-size: 0.82rem;
+.permission-grid-check {
+  justify-content: center;
 }
 
-.permission-tree-parent small,
-.permission-tree-leaf small {
-  margin-top: 2px;
-  color: var(--brand-muted-2);
-  font-size: 0.66rem;
-  font-weight: 700;
+.permission-grid-name {
+  color: var(--brand-text);
+  font-size: 0.76rem;
+  font-weight: 800;
+  line-height: 1.2;
 }
 
-.permission-tree-children {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-  gap: 7px 10px;
-  padding-left: 25px;
+.permission-grid-description {
+  color: var(--brand-muted);
+  font-size: 0.71rem;
+  font-weight: 600;
+  line-height: 1.25;
 }
 
-.permission-tree-leaf {
-  padding: 6px 7px;
-  border: 1px solid rgba(125, 160, 188, 0.16);
-  border-radius: 9px;
-  background: rgba(6, 18, 31, 0.58);
+.permission-grid-row code {
+  overflow: hidden;
+  color: #b7ddff;
+  font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
+  font-size: 0.67rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.permission-grid-empty {
+  padding: 12px;
 }
 
 .access-summary-card {

@@ -13,9 +13,10 @@ This documentation has been migrated to the GitHub Wiki:
 - Auth profiles return effective permission keys; role create/update persists permission selections.
 - Current protected API routes use permission + Tenant/global/instance scope checks.
 - Desktop/mobile UI navigation/actions/forms are capability-gated from auth permissions.
+- Role editors use a condensed searchable permission grid grouped by type, with `Checkbox | Name | Description | Code` columns, group select-all counts, and an Apply Preset dropdown; user/group instance access uses the searchable pill/tag selector for specific instance assignments.
 - Validation: `npm run typecheck --workspace @oxygen-cms/api`, `npm run typecheck --workspace @oxygen-cms/web`, targeted RBAC/app-log/instance suites, and full API suite are green. Remaining closeout: live MySQL migration validation, browser/UAT review, dependency-audit remediation/acceptance.
 
-Current CMS schema version: `0.15`.
+Current CMS schema version: `0.16`.
 
 Recent dashboard/service-log work adds:
 
