@@ -5,6 +5,7 @@ import {
 import { type GridCustomCellProps } from '@progress/kendo-react-grid';
 import { Button } from '@progress/kendo-react-buttons';
 import { Dialog, DialogActionsBar } from '@progress/kendo-react-dialogs';
+import { MultiSelect, type MultiSelectChangeEvent, type MultiSelectFilterChangeEvent } from '@progress/kendo-react-dropdowns';
 import { Editor, EditorTools, type EditorChangeEvent } from '@progress/kendo-react-editor';
 import { createJSONEditor, Mode, type Content } from 'vanilla-jsoneditor';
 import { type MouseEvent, FormEvent, Fragment, KeyboardEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
@@ -55,6 +56,7 @@ type GroupInstanceAccessMode = 'none' | 'all' | 'specific';
 type UserInstanceAccessMode = 'inherit' | 'none' | 'all' | 'specific';
 type PublicUser = { id: string; email: string; displayName: string; tenantId: TenantId; instanceAccessMode: UserInstanceAccessMode; instanceIds: string[]; isActive: boolean };
 type PermissionKey = string;
+type AccessInstanceOption = { id: string; text: string; tenant: string; host: string };
 type AuthProfile = { user: PublicUser; roles: RoleName[]; permissions: PermissionKey[]; groups: Array<{ id: string; name: string; tenantId: TenantId; instanceAccessMode: GroupInstanceAccessMode; instanceIds: string[] }> };
 type Group = { id: string; name: string; description: string | null; tenantId: TenantId; instanceAccessMode: GroupInstanceAccessMode; instanceIds: string[] };
 type Role = { id: string; name: string; description: string | null; tenantId: TenantId; isSystem: boolean; permissionKeys: PermissionKey[] };
@@ -525,6 +527,7 @@ export function App() {
   const [selectedGroupId, setSelectedGroupId] = useState('');
   const [selectedTenantId, setSelectedTenantId] = useState('');
   const [selectedPermissionKeys, setSelectedPermissionKeys] = useState<PermissionKey[]>([]);
+  const [permissionFilter, setPermissionFilter] = useState('');
   const [selectedAccessInstanceIds, setSelectedAccessInstanceIds] = useState<string[]>([]);
   const [instanceAccessModeDraft, setInstanceAccessModeDraft] = useState<UserInstanceAccessMode | GroupInstanceAccessMode>('inherit');
   const [instanceAccessFilter, setInstanceAccessFilter] = useState('');
@@ -606,36 +609,56 @@ export function App() {
     return `${hours}h ${minutes}m`;
   };
   const selectedInstance = selectedInstanceDetail || instances.find((instance) => instance.id === selectedInstanceId) || null;
-  const selectedAccessInstances = instances.filter((instance) => selectedAccessInstanceIds.includes(instance.id));
-  const filteredAccessInstances = instances.filter((instance) => {
+  const accessInstanceOptions = instances.map((instance) => ({
+    id: instance.id,
+    text: `${instance.name} — ${tenantName(instance.tenantId)}`,
+    tenant: tenantName(instance.tenantId),
+    host: instance.host
+  }));
+  const selectedAccessInstances = accessInstanceOptions.filter((instance) => selectedAccessInstanceIds.includes(instance.id));
+  const filteredAccessInstances = accessInstanceOptions.filter((instance) => {
     const query = instanceAccessFilter.trim().toLowerCase();
     if (!query) return true;
-    return [instance.name, instance.host, tenantName(instance.tenantId)].some((value) => value.toLowerCase().includes(query));
+    return [instance.text, instance.tenant, instance.host].some((value) => value.toLowerCase().includes(query));
   });
   function setAccessInstances(nextIds: string[]) {
     setSelectedAccessInstanceIds(Array.from(new Set(nextIds)));
   }
-  function addAccessInstance(instanceId: string) {
-    setAccessInstances([...selectedAccessInstanceIds, instanceId]);
+  function handleAccessInstanceChange(event: MultiSelectChangeEvent) {
+    const nextValue = event.value as AccessInstanceOption[];
+    setAccessInstances(nextValue.map((instance) => instance.id));
   }
-  function removeAccessInstance(instanceId: string) {
-    setAccessInstances(selectedAccessInstanceIds.filter((id) => id !== instanceId));
+  function handleAccessInstanceFilterChange(event: MultiSelectFilterChangeEvent) {
+    setInstanceAccessFilter(event.filter.value);
   }
   function InstanceAccessSelector() {
     if (instanceAccessModeDraft !== 'specific') {
       return <div className="access-summary-card"><strong>{accessLabel(instanceAccessModeDraft, selectedAccessInstanceIds)}</strong><span>Switch Instance access to “Specific instances” to choose individual deployments.</span></div>;
     }
-    return <section className="access-selector" aria-label="Specific instances">
+    return <section className="access-selector multiselect-access-selector" aria-label="Specific instances">
       <div className="access-selector-header"><div><strong>{selectedAccessInstanceIds.length} selected</strong><span>{instances.length} available instances</span></div><div className="access-selector-actions"><button type="button" onClick={() => setAccessInstances(instances.map((instance) => instance.id))}>Select all</button><button type="button" onClick={() => setAccessInstances([])}>Clear</button></div></div>
-      <label className="access-search">Find instances<input type="search" value={instanceAccessFilter} onChange={(event) => setInstanceAccessFilter(event.target.value)} placeholder="Search by name, host, or tenant" /></label>
-      {selectedAccessInstances.length > 0 && <div className="selected-chip-list" aria-label="Selected instances">{selectedAccessInstances.slice(0, 12).map((instance) => <button key={instance.id} type="button" className="selected-chip" onClick={() => removeAccessInstance(instance.id)}>{instance.name}<X size={13} /></button>)}{selectedAccessInstances.length > 12 && <span className="selected-chip muted">+{selectedAccessInstances.length - 12} more</span>}</div>}
-      <div className="access-instance-list">{instances.length === 0 ? <span className="empty-state">No instances enrolled yet.</span> : filteredAccessInstances.slice(0, 60).map((instance) => {
-        const selected = selectedAccessInstanceIds.includes(instance.id);
-        return <button key={instance.id} type="button" className={`access-instance-row ${selected ? 'selected' : ''}`} onClick={() => selected ? removeAccessInstance(instance.id) : addAccessInstance(instance.id)}><span><strong>{instance.name}</strong><small>{tenantName(instance.tenantId)} · {instance.host}</small></span><span>{selected ? 'Remove' : 'Add'}</span></button>;
-      })}</div>
-      {filteredAccessInstances.length > 60 && <small>Showing first 60 matches. Refine the search to narrow the list.</small>}
+      <MultiSelect
+        ariaLabel="Specific instances"
+        adaptive={isMobileViewport}
+        adaptiveTitle="Specific instances"
+        className="dark-kendo-multiselect instance-pill-selector"
+        data={filteredAccessInstances}
+        dataItemKey="id"
+        filterable={true}
+        filter={instanceAccessFilter}
+        onChange={handleAccessInstanceChange}
+        onFilterChange={handleAccessInstanceFilterChange}
+        placeholder="Search and select instances…"
+        rounded="large"
+        size="small"
+        tags={selectedAccessInstances.length > 0 ? [{ text: `${selectedAccessInstances.length} instance${selectedAccessInstances.length === 1 ? '' : 's'} selected`, data: selectedAccessInstances }] : []}
+        textField="text"
+        value={selectedAccessInstances}
+      />
+      <div className="selected-pill-summary" aria-label="Selected instances">{selectedAccessInstances.length === 0 ? <span className="empty-state">No specific instances selected.</span> : selectedAccessInstances.slice(0, 24).map((instance) => <button key={instance.id} type="button" className="selected-chip" onClick={() => setAccessInstances(selectedAccessInstanceIds.filter((id) => id !== instance.id))}>{instance.text}<X size={13} /></button>)}{selectedAccessInstances.length > 24 && <span className="selected-chip muted">+{selectedAccessInstances.length - 24} more</span>}</div>
     </section>;
   }
+
 
   async function loadSetupStatus(active = true) {
     try {
@@ -1414,8 +1437,8 @@ export function App() {
   function openEditUserModal(user: UserProfile) { setSelectedRole(user.roles[0] || 'Viewer'); setSelectedGroupId(user.groups[0]?.id || ''); setSelectedTenantId(user.user.tenantId || ''); setInstanceAccessModeDraft(user.user.instanceAccessMode); setSelectedAccessInstanceIds(user.user.instanceIds); setInstanceAccessFilter(''); setModal({ kind: 'user', data: user }); }
   function openCreateGroupModal() { setSelectedTenantId(''); setInstanceAccessModeDraft('none'); setSelectedAccessInstanceIds([]); setInstanceAccessFilter(''); setModal({ kind: 'group' }); }
   function openEditGroupModal(group: Group) { setSelectedTenantId(group.tenantId || ''); setInstanceAccessModeDraft(group.instanceAccessMode); setSelectedAccessInstanceIds(group.instanceIds); setInstanceAccessFilter(''); setModal({ kind: 'group', data: group }); }
-  function openCreateRoleModal() { setSelectedTenantId(''); setSelectedPermissionKeys(DEFAULT_ROLE_PERMISSIONS.Viewer); setModal({ kind: 'role' }); }
-  function openEditRoleModal(role: Role) { setSelectedTenantId(role.tenantId || ''); setSelectedPermissionKeys(role.permissionKeys?.length ? role.permissionKeys : DEFAULT_ROLE_PERMISSIONS[role.name] || []); setModal({ kind: 'role', data: role }); }
+  function openCreateRoleModal() { setSelectedTenantId(''); setSelectedPermissionKeys(DEFAULT_ROLE_PERMISSIONS.Viewer); setPermissionFilter(''); setModal({ kind: 'role' }); }
+  function openEditRoleModal(role: Role) { setSelectedTenantId(role.tenantId || ''); setSelectedPermissionKeys(role.permissionKeys?.length ? role.permissionKeys : DEFAULT_ROLE_PERMISSIONS[role.name] || []); setPermissionFilter(''); setModal({ kind: 'role', data: role }); }
   function toggleSelectedPermission(permissionKey: PermissionKey, checked: boolean) {
     setSelectedPermissionKeys((current) => checked ? Array.from(new Set([...current, permissionKey])).sort() : current.filter((key) => key !== permissionKey));
   }
@@ -2242,19 +2265,24 @@ export function App() {
 
   function RolePermissionChecklist() {
     const groups = Array.from(new Set(PERMISSION_CATALOG.map((permission) => permission.group)));
+    const query = permissionFilter.trim().toLowerCase();
+    const visibleGroups = groups.map((group) => {
+      const permissions = PERMISSION_CATALOG.filter((permission) => permission.group === group && (!query || [permission.group, permission.label, permission.key].some((value) => value.toLowerCase().includes(query))));
+      return { group, permissions };
+    }).filter(({ permissions }) => permissions.length > 0);
     return <fieldset className="form-section permission-builder"><legend>Permissions</legend>
-      <div className="permission-toolbar"><div><strong>{selectedPermissionKeys.length} of {PERMISSION_CATALOG.length} permissions</strong><span>Start from a template, then adjust only the categories this role needs.</span></div><div className="permission-preset-row">{Object.keys(DEFAULT_ROLE_PERMISSIONS).map((roleName) => <button key={roleName} type="button" onClick={() => applyRolePreset(roleName)}>{roleName}</button>)}<button type="button" onClick={() => setSelectedPermissionKeys([])}>Clear</button></div></div>
-      <div className="permission-card-grid">{groups.map((group) => {
-        const permissions = PERMISSION_CATALOG.filter((permission) => permission.group === group);
-        const selectedCount = permissions.filter((permission) => selectedPermissionKeys.includes(permission.key)).length;
-        const allSelected = selectedCount === permissions.length;
-        return <section key={group} className={`permission-card ${selectedCount > 0 ? 'active' : ''}`}><div className="permission-card-header"><div><strong>{group}</strong><span>{selectedCount} / {permissions.length} enabled</span></div><button type="button" onClick={() => setPermissionGroup(group, !allSelected)}>{allSelected ? 'Remove all' : 'Add all'}</button></div><div className="permission-toggle-list">{permissions.map((permission) => {
-          const selected = selectedPermissionKeys.includes(permission.key);
-          return <button key={permission.key} type="button" className={`permission-toggle ${selected ? 'selected' : ''}`} onClick={() => toggleSelectedPermission(permission.key, !selected)}><span>{permission.label}</span><small>{permission.key}</small></button>;
-        })}</div></section>;
+      <div className="permission-toolbar"><div><strong>{selectedPermissionKeys.length} of {PERMISSION_CATALOG.length} permissions</strong><span>Search the tree, apply a preset, or toggle an entire permission category.</span></div><div className="permission-preset-row">{Object.keys(DEFAULT_ROLE_PERMISSIONS).map((roleName) => <button key={roleName} type="button" onClick={() => applyRolePreset(roleName)}>{roleName}</button>)}<button type="button" onClick={() => setSelectedPermissionKeys([])}>Clear</button></div></div>
+      <label className="permission-search">Find permissions<input type="search" value={permissionFilter} onChange={(event) => setPermissionFilter(event.target.value)} placeholder="Search by category, label, or key" /></label>
+      <div className="permission-tree-list" role="tree" aria-label="Role permissions">{visibleGroups.length === 0 ? <span className="empty-state">No permissions match this search.</span> : visibleGroups.map(({ group, permissions }) => {
+        const groupKeys = PERMISSION_CATALOG.filter((permission) => permission.group === group).map((permission) => permission.key);
+        const selectedCount = groupKeys.filter((key) => selectedPermissionKeys.includes(key)).length;
+        const allSelected = selectedCount === groupKeys.length;
+        const partiallySelected = selectedCount > 0 && !allSelected;
+        return <section key={group} className="permission-tree-group" role="group"><label className="permission-tree-parent"><input type="checkbox" checked={allSelected} ref={(input) => { if (input) input.indeterminate = partiallySelected; }} onChange={(event) => setPermissionGroup(group, event.target.checked)} /><span><strong>{group}</strong><small>{selectedCount} / {groupKeys.length} enabled</small></span></label><div className="permission-tree-children">{permissions.map((permission) => <label key={permission.key} className="permission-tree-leaf"><input type="checkbox" checked={selectedPermissionKeys.includes(permission.key)} onChange={(event) => toggleSelectedPermission(permission.key, event.target.checked)} /><span>{permission.label}<small>{permission.key}</small></span></label>)}</div></section>;
       })}</div>
     </fieldset>;
   }
+
 
 
   function renderModalForm() {
