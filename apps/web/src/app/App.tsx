@@ -484,6 +484,9 @@ export function App() {
   const [isLogsRefreshing, setIsLogsRefreshing] = useState(false);
   const [isDatabasePerformanceRefreshing, setIsDatabasePerformanceRefreshing] = useState(false);
   const [isIssueCatalogRefreshing, setIsIssueCatalogRefreshing] = useState(false);
+  const [issueCategoryFilter, setIssueCategoryFilter] = useState<string[]>([]);
+  const [issueSeverityFilter, setIssueSeverityFilter] = useState<string[]>([]);
+  const [issueTypeFilter, setIssueTypeFilter] = useState<string[]>([]);
   const [isInstanceImporting, setIsInstanceImporting] = useState(false);
   const [isInstanceExporting, setIsInstanceExporting] = useState(false);
   const instanceImportFileRef = useRef<HTMLInputElement | null>(null);
@@ -1392,6 +1395,14 @@ export function App() {
     affectedCount: issueType.affectedCount,
     raw: issueType
   })), [issueCatalog]);
+  const issueCategoryOptions = useMemo(() => [...new Set(issueCatalogRows.map((row) => row.category))].sort(), [issueCatalogRows]);
+  const issueSeverityOptions = useMemo(() => [...new Set(issueCatalogRows.map((row) => row.severity))].sort(), [issueCatalogRows]);
+  const issueTypeOptions = useMemo(() => [...issueCatalogRows].sort((left, right) => left.label.localeCompare(right.label)).map((row) => row.label), [issueCatalogRows]);
+  const visibleIssueCatalogRows = useMemo(() => issueCatalogRows.filter((row) =>
+    (issueCategoryFilter.length === 0 || issueCategoryFilter.includes(row.category)) &&
+    (issueSeverityFilter.length === 0 || issueSeverityFilter.includes(row.severity)) &&
+    (issueTypeFilter.length === 0 || issueTypeFilter.includes(row.label))
+  ), [issueCatalogRows, issueCategoryFilter, issueSeverityFilter, issueTypeFilter]);
 
 
   const cell = <T extends { raw: ModalEntity }>(edit: (raw: T['raw']) => void, remove?: (raw: T['raw']) => void) => ({ dataItem, tdProps }: GridCustomCellProps) => {
@@ -2019,13 +2030,24 @@ export function App() {
     if (!snapshot) return <article className="panel"><p className="panel-copy">Loading issue type catalog…</p></article>;
     if (snapshot.error) return <article className="panel database-performance-alert"><p className="panel-copy">{snapshot.error}</p><Button className="compact-button" type="button" onClick={() => void loadIssueCatalog(token, 'manual')}><RotateCw /> Retry</Button></article>;
     const affectedTotal = snapshot.issueTypes.reduce((total, issueType) => total + issueType.affectedCount, 0);
-    return <div className="settings-basic-stack issue-catalog-stack">
-      <section className="tenant-dashboard-hero compact database-performance-hero">
-        <div><p className="eyebrow small">Issue classification</p><h3>Discovered Issue Types</h3><small className="dashboard-refresh-stamp">{formatNumber(snapshot.categories.length)} categories · {formatNumber(snapshot.severities.length)} severities · {formatNumber(affectedTotal)} current instance matches · Last refreshed: {formatDateTime(snapshot.generatedAt)}</small></div>
-        <Button className="compact-button dashboard-refresh-button" type="button" onClick={() => void loadIssueCatalog(token, 'manual')} disabled={isIssueCatalogRefreshing}><RotateCw className={isIssueCatalogRefreshing ? 'spin-icon' : ''} /> Refresh</Button>
-      </section>
-      <ManagedGrid gridKey="issue-types" token={token!} rows={issueCatalogRows} columns={issueCatalogColumnDefs} actionCell={IssueCatalogActionCell} actionWidth={120} toolbar={<p className="panel-copy small-copy">Read-only static mapping of issue codes/conditions to category and severity. Open a row to review affected instances.</p>} />
-    </div>;
+    return <ManagedGrid
+      gridKey="issue-types"
+      token={token!}
+      rows={visibleIssueCatalogRows}
+      columns={issueCatalogColumnDefs}
+      actionCell={IssueCatalogActionCell}
+      actionWidth={120}
+      toolbar={<div className="logs-toolbar issue-types-toolbar">
+        <div className="logs-toolbar-left issue-types-toolbar-summary"><span>{formatNumber(snapshot.categories.length)} categories</span><span>{formatNumber(snapshot.severities.length)} severities</span><span>{formatNumber(snapshot.issueTypes.length)} issue types</span><span>{formatNumber(affectedTotal)} matches</span><span>Updated {formatDateTime(snapshot.generatedAt)}</span></div>
+        <div className="logs-filter-bar grid-toolbar-filters">
+          <LogMultiSelectFilter label="Category" allLabel="All categories" options={issueCategoryOptions} selected={issueCategoryFilter} onChange={setIssueCategoryFilter} />
+          <LogMultiSelectFilter label="Severity" allLabel="All severities" options={issueSeverityOptions} selected={issueSeverityFilter} onChange={setIssueSeverityFilter} />
+          <LogMultiSelectFilter label="Issue Type" allLabel="All issue types" options={issueTypeOptions} selected={issueTypeFilter} onChange={setIssueTypeFilter} />
+          {(issueCategoryFilter.length > 0 || issueSeverityFilter.length > 0 || issueTypeFilter.length > 0) && <Button className="compact-button" type="button" fillMode="flat" onClick={() => { setIssueCategoryFilter([]); setIssueSeverityFilter([]); setIssueTypeFilter([]); }}>Clear Filters</Button>}
+          <Button className="compact-button" type="button" onClick={() => void loadIssueCatalog(token, 'manual')} disabled={isIssueCatalogRefreshing}><RotateCw className={isIssueCatalogRefreshing ? 'spin-icon' : ''} /> Refresh</Button>
+        </div>
+      </div>}
+    />;
   }
 
   function renderIssueCatalogDialog() {

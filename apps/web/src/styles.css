@@ -6276,6 +6276,28 @@ body.cms-notes-editor-active .k-actions .k-button-solid-primary {
   }
 }
 
+
+.issue-types-toolbar-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 6px;
+  min-width: 220px;
+  color: var(--brand-muted-2);
+  font-size: 0.76rem;
+}
+
+.issue-types-toolbar-summary span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 8px;
+  border: 1px solid rgba(125, 160, 188, 0.18);
+  border-radius: 999px;
+  background: rgba(5, 14, 26, 0.44);
+  white-space: nowrap;
+}
+
 .issue-catalog-dialog-body {
   display: grid;
   gap: 18px;
@@ -6320,7 +6342,9 @@ body.cms-notes-editor-active .k-actions .k-button-solid-primary {
 .issue-affected-row span {
   min-width: 0;
   display: grid;
+  justify-self: stretch;
   gap: 4px;
+  text-align: left;
 }
 
 .issue-affected-row strong {
@@ -6334,6 +6358,8 @@ body.cms-notes-editor-active .k-actions .k-button-solid-primary {
 }
 
 .issue-affected-row svg {
+  order: 0;
+  justify-self: end;
   width: 18px;
   height: 18px;
   color: var(--brand-primary);

@@ -70,6 +70,8 @@ type RawCategory = { id: string; code: IssueCategoryCode; name: string; sortOrde
 type RawSeverity = { id: string; code: IssueSeverityCode; name: string; rank: number; sortOrder: number };
 
 type TenantRow = { id: string; name: string };
+type LatestCheckDetail = { status: string | null; errorCode: string | null; errorMessage: string | null; httpStatusCode: number | null; detailsJson: unknown | null };
+type RawLatestCheckDetail = { instanceId: string; status: string | null; errorCode: string | null; errorMessage: string | null; httpStatusCode: number | null; detailsJson: unknown | null };
 
 const emptySnapshot = (generatedAt = new Date().toISOString()): IssueCatalogSnapshot => ({
   configured: false,
@@ -117,17 +119,83 @@ function textIncludes(text: string | null | undefined, pattern: string | null) {
   return (text ?? '').toLowerCase().includes(pattern.toLowerCase());
 }
 
+function parseDetailsJson(value: unknown): Record<string, unknown> {
+  if (!value) return {};
+  if (typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
+  if (typeof value !== 'string') return {};
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
+function nestedString(record: Record<string, unknown>, path: string[]) {
+  let current: unknown = record;
+  for (const part of path) {
+    if (!current || typeof current !== 'object' || Array.isArray(current)) return null;
+    current = (current as Record<string, unknown>)[part];
+  }
+  return typeof current === 'string' ? current : null;
+}
+
+function latestConnectivityText(instance: OxyGenInstance, latestConnectivity?: LatestCheckDetail | null) {
+  const details = parseDetailsJson(latestConnectivity?.detailsJson);
+  return [
+    instance.lastError,
+    latestConnectivity?.errorCode,
+    latestConnectivity?.errorMessage,
+    nestedString(details, ['ssl', 'errorCode']),
+    nestedString(details, ['ssl', 'message'])
+  ].filter(Boolean).join(' ');
+}
+
+function knownSpecificSslCode(instance: OxyGenInstance, latestConnectivity?: LatestCheckDetail | null) {
+  const text = latestConnectivityText(instance, latestConnectivity);
+  if (/CERT_HAS_EXPIRED/i.test(text)) return 'CERT_HAS_EXPIRED';
+  if (/UNABLE_TO_VERIFY_LEAF_SIGNATURE/i.test(text)) return 'UNABLE_TO_VERIFY_LEAF_SIGNATURE';
+  return null;
+}
+
+function nestedBoolean(record: Record<string, unknown>, path: string[]) {
+  let current: unknown = record;
+  for (const part of path) {
+    if (!current || typeof current !== 'object' || Array.isArray(current)) return null;
+    current = (current as Record<string, unknown>)[part];
+  }
+  return typeof current === 'boolean' ? current : null;
+}
+
+function hasLicensePayload(latestLicense?: LatestCheckDetail | null) {
+  const details = parseDetailsJson(latestLicense?.detailsJson);
+  return Boolean(details.payload && typeof details.payload === 'object' && !Array.isArray(details.payload));
+}
+
+function licenseProbeWasEvaluated(latestLicense?: LatestCheckDetail | null) {
+  if (!latestLicense) return false;
+  if (latestLicense.status === 'skipped') return false;
+  const statusCode = Number(latestLicense.httpStatusCode ?? 0);
+  return statusCode >= 200 && statusCode < 400 && hasLicensePayload(latestLicense);
+}
+
+function licenseKeyPresent(latestLicense?: LatestCheckDetail | null) {
+  const details = parseDetailsJson(latestLicense?.detailsJson);
+  return nestedBoolean(details, ['keyPresent']) === true;
+}
+
+function licenseEligible(instance: OxyGenInstance, latestLicense?: LatestCheckDetail | null) {
+  return instance.checkLicense && instance.status === 'up' && licenseProbeWasEvaluated(latestLicense);
+}
+
 function isTlsConnectionError(instance: OxyGenInstance) {
   return instance.status === 'down' && /\bTLS connection failed\b|secure TLS connection|TLS handshake/i.test(instance.lastError ?? '');
 }
 
-function sslIssue(instance: OxyGenInstance) {
-  return instance.protocol === 'https' && !isTlsConnectionError(instance) && (instance.sslValid === false || instance.status === 'ssl-error');
+function sslIssue(instance: OxyGenInstance, latestConnectivity?: LatestCheckDetail | null) {
+  return instance.protocol === 'https' && !isTlsConnectionError(instance) && !knownSpecificSslCode(instance, latestConnectivity) && (instance.sslValid === false || instance.status === 'ssl-error');
 }
 
-function licenseEligible(instance: OxyGenInstance) {
-  return instance.checkLicense && instance.status === 'up';
-}
 
 function processingFailure(instance: OxyGenInstance) {
   return instance.processingStatus === 'error' || instance.emmQueueStatus === 'error' || instance.smsStatus === 'error' || instance.hangfireStatus === 'error';
@@ -141,20 +209,20 @@ function evidenceFor(instance: OxyGenInstance, fallback: string) {
   return instance.lastError || fallback;
 }
 
-function affectedBy(type: RawIssueType, instance: OxyGenInstance): string | null {
+function affectedBy(type: RawIssueType, instance: OxyGenInstance, latestConnectivity?: LatestCheckDetail | null, latestLicense?: LatestCheckDetail | null): string | null {
   switch (type.matchKind) {
     case 'instance-status':
       return instance.status === type.matchValue ? evidenceFor(instance, `Availability status is ${instance.status}.`) : null;
     case 'last-error-contains':
-      return textIncludes(instance.lastError, type.matchValue) ? evidenceFor(instance, `Last error contains ${type.matchValue}.`) : null;
+      return textIncludes(latestConnectivityText(instance, latestConnectivity), type.matchValue) ? evidenceFor(instance, `Latest health details contain ${type.matchValue}.`) : null;
     case 'tls-connection-error':
       return isTlsConnectionError(instance) ? evidenceFor(instance, 'TLS connection failed before certificate validation completed.') : null;
     case 'ssl-invalid':
-      return sslIssue(instance) ? evidenceFor(instance, 'SSL certificate validation failed.') : null;
+      return sslIssue(instance, latestConnectivity) ? evidenceFor(instance, 'SSL certificate validation failed.') : null;
     case 'license-status':
-      return licenseEligible(instance) && instance.licenseStatus === type.matchValue ? evidenceFor(instance, `License status is ${instance.licenseStatus}.`) : null;
+      return licenseEligible(instance, latestLicense) && licenseKeyPresent(latestLicense) && instance.licenseStatus === type.matchValue ? evidenceFor(instance, `License status is ${instance.licenseStatus}.`) : null;
     case 'license-missing':
-      return licenseEligible(instance) && !instance.licenseKey && instance.licenseStatus !== 'valid' ? evidenceFor(instance, 'License key is missing, blank, or unavailable.') : null;
+      return licenseEligible(instance, latestLicense) && !licenseKeyPresent(latestLicense) && instance.licenseStatus !== 'valid' && instance.licenseStatus !== 'expired' ? evidenceFor(instance, 'License key is missing or blank in evaluated license payload.') : null;
     case 'processing-status':
       return type.matchValue === 'error' && processingFailure(instance) ? 'One or more processing components are in error.' : null;
     case 'processing-warning':
@@ -164,11 +232,24 @@ function affectedBy(type: RawIssueType, instance: OxyGenInstance): string | null
   }
 }
 
-function affectedInstances(type: RawIssueType, instances: OxyGenInstance[], tenants: Map<string, string>): IssueCatalogAffectedInstance[] {
+function affectedInstances(
+  type: RawIssueType,
+  instances: OxyGenInstance[],
+  tenants: Map<string, string>,
+  latestConnectivityByInstance = new Map<string, LatestCheckDetail>(),
+  latestLicenseByInstance = new Map<string, LatestCheckDetail>()
+): IssueCatalogAffectedInstance[] {
+  const seen = new Set<string>();
   return instances
     .filter((instance) => instance.isEnabled && !instance.archived)
-    .map((instance) => ({ instance, evidence: affectedBy(type, instance) }))
+    .map((instance) => ({ instance, evidence: affectedBy(type, instance, latestConnectivityByInstance.get(instance.id), latestLicenseByInstance.get(instance.id)) }))
     .filter((entry): entry is { instance: OxyGenInstance; evidence: string } => Boolean(entry.evidence))
+    .filter(({ instance }) => {
+      const key = [instance.tenantId ?? '', instance.name.toLowerCase(), instance.hostname.toLowerCase(), String(instance.port ?? '')].join('|');
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
     .map(({ instance, evidence }) => ({
       id: instance.id,
       name: instance.name,
@@ -192,7 +273,7 @@ export function createIssueCatalogReader(setupSettingsStore: SetupSettingsStore,
       const client = createConnection(settings);
       try {
         await client.raw('SELECT 1');
-        const [categoryRows, severityRows, issueTypeRows, tenantRows, instances] = await Promise.all([
+        const [categoryRows, severityRows, issueTypeRows, tenantRows, latestConnectivityRows, latestLicenseRows, instances] = await Promise.all([
           client<RawCategory>('issue_categories').select({ id: 'id', code: 'code', name: 'name', sortOrder: 'sort_order' }).orderBy('sort_order'),
           client<RawSeverity>('issue_severities').select({ id: 'id', code: 'code', name: 'name', rank: 'severity_rank', sortOrder: 'sort_order' }).orderBy('sort_order'),
           client.raw(`
@@ -221,11 +302,47 @@ export function createIssueCatalogReader(setupSettingsStore: SetupSettingsStore,
             ORDER BY c.sort_order ASC, s.severity_rank ASC, it.sort_order ASC, it.label ASC
           `),
           client<TenantRow>('tenants').select('id', 'name'),
+          client.raw(`
+            SELECT
+              h.instance_id AS instanceId,
+              h.status AS status,
+              h.error_code AS errorCode,
+              h.error_message AS errorMessage,
+              h.http_status_code AS httpStatusCode,
+              h.details_json AS detailsJson
+            FROM oxygen_instance_check_history h
+            INNER JOIN (
+              SELECT instance_id, MAX(id) AS id
+              FROM oxygen_instance_check_history
+              WHERE check_type = 'connectivity'
+              GROUP BY instance_id
+            ) latest ON latest.instance_id = h.instance_id AND latest.id = h.id
+            WHERE h.check_type = 'connectivity'
+          `),
+          client.raw(`
+            SELECT
+              h.instance_id AS instanceId,
+              h.status AS status,
+              h.error_code AS errorCode,
+              h.error_message AS errorMessage,
+              h.http_status_code AS httpStatusCode,
+              h.details_json AS detailsJson
+            FROM oxygen_instance_check_history h
+            INNER JOIN (
+              SELECT instance_id, MAX(id) AS id
+              FROM oxygen_instance_check_history
+              WHERE check_type = 'license'
+              GROUP BY instance_id
+            ) latest ON latest.instance_id = h.instance_id AND latest.id = h.id
+            WHERE h.check_type = 'license'
+          `),
           instanceRepository.listInstances({ includeAll: true, includeArchived: true })
         ]);
         const tenants = new Map(tenantRows.map((tenant) => [tenant.id, tenant.name]));
+        const latestConnectivityByInstance = new Map(rowsFromRaw<RawLatestCheckDetail>(latestConnectivityRows).map((row) => [row.instanceId, { status: row.status, errorCode: row.errorCode, errorMessage: row.errorMessage, httpStatusCode: row.httpStatusCode === null ? null : Number(row.httpStatusCode), detailsJson: row.detailsJson }]));
+        const latestLicenseByInstance = new Map(rowsFromRaw<RawLatestCheckDetail>(latestLicenseRows).map((row) => [row.instanceId, { status: row.status, errorCode: row.errorCode, errorMessage: row.errorMessage, httpStatusCode: row.httpStatusCode === null ? null : Number(row.httpStatusCode), detailsJson: row.detailsJson }]));
         const issueTypes = rowsFromRaw<RawIssueType>(issueTypeRows).map((row) => {
-          const affected = affectedInstances(row, instances, tenants);
+          const affected = affectedInstances(row, instances, tenants, latestConnectivityByInstance, latestLicenseByInstance);
           return {
             id: row.id,
             code: row.code,
@@ -262,3 +379,5 @@ export function createIssueCatalogReader(setupSettingsStore: SetupSettingsStore,
     }
   };
 }
+
+export const issueCatalogTestInternals = { affectedBy, affectedInstances, knownSpecificSslCode, licenseProbeWasEvaluated, licenseKeyPresent };
