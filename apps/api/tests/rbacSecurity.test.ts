@@ -23,7 +23,7 @@ function fakeDatabaseSnapshot(): DatabasePerformanceSnapshot {
   };
 }
 
-function fakeIssueCatalog(): IssueCatalogSnapshot {
+function fakeIssueCatalog(affectedInstances: IssueCatalogSnapshot['issueTypes'][number]['affectedInstances'] = [{ id: 'instance-1', name: 'Acme Prod', tenantId: null, tenantName: null, status: 'ssl-error', lastCheckedAt: null, lastError: 'CERT_HAS_EXPIRED', evidence: 'CERT_HAS_EXPIRED' }]): IssueCatalogSnapshot {
   return {
     configured: true,
     connected: true,
@@ -42,8 +42,8 @@ function fakeIssueCatalog(): IssueCatalogSnapshot {
       sortOrder: 100,
       category: { id: 'ssl', code: 'ssl', name: 'SSL', sortOrder: 20 },
       severity: { id: 'warning', code: 'warning', name: 'Warning', rank: 30, sortOrder: 30 },
-      affectedCount: 1,
-      affectedInstances: [{ id: 'instance-1', name: 'Acme Prod', tenantId: null, tenantName: null, status: 'ssl-error', lastCheckedAt: null, lastError: 'CERT_HAS_EXPIRED', evidence: 'CERT_HAS_EXPIRED' }]
+      affectedCount: affectedInstances.length,
+      affectedInstances
     }]
   };
 }
@@ -54,7 +54,8 @@ async function seedSecurityFixture() {
   const appLogRepository = createInMemoryAppLogRepository();
   const appSettingsRepository = createInMemoryAppSettingsRepository();
   const databasePerformanceReader: DatabasePerformanceReader = { readSnapshot: vi.fn(async () => fakeDatabaseSnapshot()) };
-  const issueCatalogReader: IssueCatalogReader = { readSnapshot: vi.fn(async () => fakeIssueCatalog()) };
+  let currentIssueCatalog = fakeIssueCatalog();
+  const issueCatalogReader: IssueCatalogReader = { readSnapshot: vi.fn(async () => currentIssueCatalog) };
   const app = await buildApp({ logger: false, authRepository, instanceRepository, appLogRepository, appSettingsRepository, databasePerformanceReader, issueCatalogReader, enableBackgroundPolling: false });
 
   await app.inject({ method: 'POST', url: '/api/auth/bootstrap', payload: { email: 'admin@example.com', displayName: 'Admin User', password: 'AdminPassword!42' } });
@@ -81,6 +82,11 @@ async function seedSecurityFixture() {
   const instanceA = await instanceRepository.createInstance({ name: 'Tenant A Instance', description: null, tenantId: tenantA.id, host: 'tenant-a.example.com', username: 'admin', password: 'RemotePassword!42' });
   const instanceB = await instanceRepository.createInstance({ name: 'Tenant B Instance', description: null, tenantId: tenantB.id, host: 'tenant-b.example.com', username: 'admin', password: 'RemotePassword!42' });
   const globalInstance = await instanceRepository.createInstance({ name: 'Global Instance', description: null, tenantId: null, host: 'global.example.com', username: 'admin', password: 'RemotePassword!42' });
+  currentIssueCatalog = fakeIssueCatalog([
+    { id: instanceA.id, name: instanceA.name, tenantId: tenantA.id, tenantName: tenantA.name, status: 'ssl-error', lastCheckedAt: null, lastError: 'CERT_HAS_EXPIRED', evidence: 'CERT_HAS_EXPIRED' },
+    { id: instanceB.id, name: instanceB.name, tenantId: tenantB.id, tenantName: tenantB.name, status: 'ssl-error', lastCheckedAt: null, lastError: 'CERT_HAS_EXPIRED', evidence: 'CERT_HAS_EXPIRED' },
+    { id: globalInstance.id, name: globalInstance.name, tenantId: null, tenantName: null, status: 'ssl-error', lastCheckedAt: null, lastError: 'CERT_HAS_EXPIRED', evidence: 'CERT_HAS_EXPIRED' }
+  ]);
 
   return {
     app,
@@ -217,7 +223,14 @@ describe('Phase 1 RBAC security controls', () => {
 
     const issueTypes = await fixture.app.inject({ method: 'GET', url: '/api/system/issue-types', headers: { authorization: `Bearer ${fixture.tokens.viewer}` } });
     expect(issueTypes.statusCode).toBe(200);
-    expect(issueTypes.json().issueCatalog.issueTypes[0]).toMatchObject({ code: 'CERT_HAS_EXPIRED' });
+    expect(issueTypes.json().issueCatalog.issueTypes[0]).toMatchObject({ code: 'CERT_HAS_EXPIRED', affectedCount: 1 });
+    expect(issueTypes.json().issueCatalog.issueTypes[0].affectedInstances.map((entry: { name: string }) => entry.name)).toEqual(['Tenant A Instance']);
+    expect(issueTypes.json().issueCatalog.issueTypes[0].affectedInstances.map((entry: { name: string }) => entry.name)).not.toContain('Tenant B Instance');
+    expect(issueTypes.json().issueCatalog.issueTypes[0].affectedInstances.map((entry: { name: string }) => entry.name)).not.toContain('Global Instance');
+
+    const adminIssueTypes = await fixture.app.inject({ method: 'GET', url: '/api/system/issue-types', headers: { authorization: `Bearer ${fixture.tokens.admin}` } });
+    expect(adminIssueTypes.statusCode).toBe(200);
+    expect(adminIssueTypes.json().issueCatalog.issueTypes[0]).toMatchObject({ affectedCount: 3 });
 
     const database = await fixture.app.inject({ method: 'GET', url: '/api/system/database-performance', headers: { authorization: `Bearer ${fixture.tokens.viewer}` } });
     expect(database.statusCode).toBe(403);

@@ -452,6 +452,15 @@ async function apiBlob(path: string, options: RequestInit & { token?: string } =
   return { blob: await response.blob(), headers: response.headers };
 }
 
+function displayRoleName(role?: string) {
+  if (!role) return '';
+  return role
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function createClientId() {
   const randomUuid = globalThis.crypto?.randomUUID;
   if (typeof randomUuid === 'function') return randomUuid.call(globalThis.crypto);
@@ -557,6 +566,9 @@ export function App() {
   const hasPermission = (permission: PermissionKey) => profile?.permissions.includes(permission) ?? false;
   const canViewTenants = hasPermission('tenants.view') || hasPermission('tenants.manage');
   const canManageTenants = hasPermission('tenants.manage');
+  const actorTenantId = profile?.user.tenantId ?? null;
+  const canSelectGlobalTenantScope = canManageTenants;
+  const canSelectAnyTenantScope = canManageTenants;
   const canViewInstances = hasPermission('instances.view') || hasPermission('instances.manage');
   const canManageInstances = hasPermission('instances.manage');
   const canImportExportInstances = hasPermission('instances.importExport');
@@ -577,6 +589,7 @@ export function App() {
   const tenantLabelPlural = `${tenantLabel}s`;
   const tenantLabelLower = tenantLabel.toLowerCase();
   const tenantName = (tenantId: TenantId) => tenantId ? tenants.find((tenant) => tenant.id === tenantId)?.name || `Unknown ${tenantLabelLower}` : 'Global';
+  const actorTenantName = tenantName(actorTenantId);
   const tenantOptionLabel = (tenant: Tenant) => tenant.description ? `${tenant.name} — ${tenant.description}` : tenant.name;
   const groupOptionLabel = (group: Group) => group.description ? `${group.name} — ${group.description}` : group.name;
   const availableRoles = roles.length ? roles : [{ id: 'operator', name: 'Operator', description: null, tenantId: null, isSystem: false, permissionKeys: DEFAULT_ROLE_PERMISSIONS.Operator }];
@@ -701,7 +714,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const query = window.matchMedia('(max-width: 900px)');
+    const query = window.matchMedia('(max-width: 1100px)');
     const update = () => {
       setIsMobileViewport(query.matches);
       if (!query.matches) setIsMobileDrawerOpen(false);
@@ -750,9 +763,7 @@ export function App() {
     try {
       const res = await api<{ dashboard: DashboardSummary }>('/api/dashboard', { token: t });
       setDashboard(res.dashboard);
-      setInstances(res.dashboard.instances);
       setDashboardLastRefreshedAt(new Date().toISOString());
-      setSelectedInstanceDetail((current) => current ? res.dashboard.instances.find((instance) => instance.id === current.id) || current : current);
       if (mode === 'manual') setMessage('Dashboard refreshed.');
     } catch (err) {
       if (mode === 'manual') setError(err instanceof Error ? err.message : 'Dashboard refresh failed.');
@@ -954,6 +965,7 @@ export function App() {
     setUsers(ur.users);
     setRoles(rr.roles);
     setTenants(tr.tenants);
+    await loadInstances(t).catch(() => undefined);
     await loadDashboard(t);
     if (!selectedGroupId && gr.groups[0]) setSelectedGroupId(gr.groups[0].id);
     if (!selectedRole && rr.roles[0]) setSelectedRole(rr.roles[0].name);
@@ -1188,7 +1200,7 @@ export function App() {
     } catch (err) { setError(err instanceof Error ? err.message : 'Login failed.'); }
   }
 
-  const tenantPayload = () => selectedTenantId || null;
+  const tenantPayload = () => canSelectAnyTenantScope ? selectedTenantId || null : actorTenantId;
 
   async function handleSaveTenant(e: FormEvent<HTMLFormElement>) {
     e.preventDefault(); clearStatus();
@@ -1257,7 +1269,7 @@ export function App() {
     const password = String(f.get('password') || '');
     const portValue = f.get('port');
     const username = String(f.get('username') || '').trim() || 'admin';
-    const payload: Record<string, unknown> = { id: editing ? editing.id : draftInstanceId || createClientId(), name: f.get('name'), description: f.get('description') || null, tenantId: editing ? editing.tenantId : selectedTenantId || null, protocol: f.get('protocol') || 'https', host: f.get('host'), port: portValue ? Number(portValue) : null, username, pollingIntervalSeconds: Number(f.get('pollingIntervalSeconds') || 300), isEnabled: f.get('isEnabled') === 'on', checkLicense: f.get('checkLicense') === 'on', archived: f.get('archived') === 'on', metadata: editing?.metadata ?? null, notes: editing?.notes ?? null };
+    const payload: Record<string, unknown> = { id: editing ? editing.id : draftInstanceId || createClientId(), name: f.get('name'), description: f.get('description') || null, tenantId: editing ? editing.tenantId : tenantPayload(), protocol: f.get('protocol') || 'https', host: f.get('host'), port: portValue ? Number(portValue) : null, username, pollingIntervalSeconds: Number(f.get('pollingIntervalSeconds') || 300), isEnabled: f.get('isEnabled') === 'on', checkLicense: f.get('checkLicense') === 'on', archived: f.get('archived') === 'on', metadata: editing?.metadata ?? null, notes: editing?.notes ?? null };
     if (!editing || password) payload.password = password;
     try {
       if (editing) { const res = await api<{ instance: OxyGenInstance }>(`/api/instances/${editing.id}`, { method: 'PATCH', token, body: JSON.stringify(payload) }); setMessage(`Updated instance ${res.instance.name}.`); }
@@ -1409,7 +1421,7 @@ export function App() {
         body: JSON.stringify({
           instanceId: editing?.id ?? (draftInstanceId || createClientId()),
           name: String(f.get('name') || editing?.name || 'Unsaved instance'),
-          tenantId: editing?.tenantId ?? (selectedTenantId || null),
+          tenantId: editing?.tenantId ?? tenantPayload(),
           protocol: f.get('protocol'),
           host: f.get('host'),
           port: Number(f.get('port') || 0),
@@ -1435,11 +1447,11 @@ export function App() {
     } catch (err) { setError(err instanceof Error ? err.message : `Delete failed for ${label}.`); }
   }
 
-  function openCreateUserModal() { setSelectedRole(availableRoles.find((r) => !r.isSystem)?.name || availableRoles[0]?.name || 'Viewer'); setSelectedGroupId(''); setSelectedTenantId(''); setInstanceAccessModeDraft('inherit'); setSelectedAccessInstanceIds([]); setInstanceAccessFilter(''); setModal({ kind: 'user' }); }
+  function openCreateUserModal() { setSelectedRole(availableRoles.find((r) => !r.isSystem)?.name || availableRoles[0]?.name || 'Viewer'); setSelectedGroupId(''); setSelectedTenantId(canSelectAnyTenantScope ? '' : actorTenantId || ''); setInstanceAccessModeDraft('inherit'); setSelectedAccessInstanceIds([]); setInstanceAccessFilter(''); setModal({ kind: 'user' }); }
   function openEditUserModal(user: UserProfile) { setSelectedRole(user.roles[0] || 'Viewer'); setSelectedGroupId(user.groups[0]?.id || ''); setSelectedTenantId(user.user.tenantId || ''); setInstanceAccessModeDraft(user.user.instanceAccessMode); setSelectedAccessInstanceIds(user.user.instanceIds); setInstanceAccessFilter(''); setModal({ kind: 'user', data: user }); }
-  function openCreateGroupModal() { setSelectedTenantId(''); setInstanceAccessModeDraft('none'); setSelectedAccessInstanceIds([]); setInstanceAccessFilter(''); setModal({ kind: 'group' }); }
+  function openCreateGroupModal() { setSelectedTenantId(canSelectAnyTenantScope ? '' : actorTenantId || ''); setInstanceAccessModeDraft('none'); setSelectedAccessInstanceIds([]); setInstanceAccessFilter(''); setModal({ kind: 'group' }); }
   function openEditGroupModal(group: Group) { setSelectedTenantId(group.tenantId || ''); setInstanceAccessModeDraft(group.instanceAccessMode); setSelectedAccessInstanceIds(group.instanceIds); setInstanceAccessFilter(''); setModal({ kind: 'group', data: group }); }
-  function openCreateRoleModal() { setSelectedTenantId(''); setSelectedPermissionKeys(DEFAULT_ROLE_PERMISSIONS.Viewer); setPermissionFilter(''); setPermissionPresetDraft('Viewer'); setModal({ kind: 'role' }); }
+  function openCreateRoleModal() { setSelectedTenantId(canSelectAnyTenantScope ? '' : actorTenantId || ''); setSelectedPermissionKeys(DEFAULT_ROLE_PERMISSIONS.Viewer); setPermissionFilter(''); setPermissionPresetDraft('Viewer'); setModal({ kind: 'role' }); }
   function openEditRoleModal(role: Role) { setSelectedTenantId(role.tenantId || ''); setSelectedPermissionKeys(role.permissionKeys?.length ? role.permissionKeys : DEFAULT_ROLE_PERMISSIONS[role.name] || []); setPermissionFilter(''); setPermissionPresetDraft(''); setModal({ kind: 'role', data: role }); }
   function toggleSelectedPermission(permissionKey: PermissionKey, checked: boolean) {
     setSelectedPermissionKeys((current) => checked ? Array.from(new Set([...current, permissionKey])).sort() : current.filter((key) => key !== permissionKey));
@@ -1460,7 +1472,7 @@ export function App() {
   }
   function openCreateTenantModal() { setModal({ kind: 'tenant' }); }
   function openEditTenantModal(tenant: Tenant) { setModal({ kind: 'tenant', data: tenant }); }
-  function openCreateInstanceModal() { setSelectedTenantId(''); setDraftInstanceId(createClientId()); setInstanceProtocol('https'); setInstancePort('443'); setInstancePollingEnabled(true); setInstanceLicenseCheckEnabled(true); setModal({ kind: 'instance' }); }
+  function openCreateInstanceModal() { setSelectedTenantId(canSelectAnyTenantScope ? '' : actorTenantId || ''); setDraftInstanceId(createClientId()); setInstanceProtocol('https'); setInstancePort('443'); setInstancePollingEnabled(true); setInstanceLicenseCheckEnabled(true); setModal({ kind: 'instance' }); }
   function openEditInstanceModal(instance: OxyGenInstance) { setDraftInstanceId(''); setSelectedTenantId(instance.tenantId || ''); setInstanceProtocol(instance.protocol); setInstancePort(String(instance.port ?? (instance.protocol === 'http' ? 80 : 443))); setInstancePollingEnabled(instance.isEnabled); setInstanceLicenseCheckEnabled(instance.checkLicense); setModal({ kind: 'instance', data: instance }); }
 
   function handleLogout() { setToken(''); setProfile(null); setDashboard(null); setGroups([]); setUsers([]); setRoles([]); setTenants([]); setInstances([]); setSelectedInstanceId(''); setSelectedInstanceDetail(null); setDashboardLastRefreshedAt(null); setActiveSection('dashboard'); setRoute('dashboard', undefined, true); setIsMobileDrawerOpen(false); setMessage('Signed out.'); }
@@ -1621,7 +1633,8 @@ export function App() {
   const dashboardTitle = 'CMS Dashboard';
   const tlsConnectionPattern = /\bTLS connection failed\b|secure TLS connection|TLS handshake|ECONNRESET|ERR_CONNECTION_CLOSED|unexpected eof/i;
   const isTlsConnectionError = (instance: Pick<OxyGenInstance, 'status' | 'lastError'>) => instance.status === 'down' && tlsConnectionPattern.test(instance.lastError || '');
-  const dashboardTenantMatches = (tenantId: TenantId) => dashboardTenantFilter === 'all' || (dashboardTenantFilter === 'global' ? tenantId === null : tenantId === dashboardTenantFilter);
+  const effectiveDashboardTenantFilter = canSelectAnyTenantScope ? dashboardTenantFilter : actorTenantId || 'global';
+  const dashboardTenantMatches = (tenantId: TenantId) => effectiveDashboardTenantFilter === 'all' || (effectiveDashboardTenantFilter === 'global' ? tenantId === null : tenantId === effectiveDashboardTenantFilter);
   const hasSslIssue = (instance: OxyGenInstance) => instance.protocol === 'https' && !isTlsConnectionError(instance) && (instance.sslValid === false || instance.status === 'ssl-error');
   const hasConnectivityIssue = (instance: OxyGenInstance) => instance.status !== 'up' && instance.status !== 'unknown' && instance.status !== 'ssl-error';
   const hasLicenseFailure = (instance: OxyGenInstance) => instance.checkLicense && (instance.licenseStatus === 'expired' || instance.licenseStatus === 'error' || (!instance.licenseKey && instance.licenseStatus !== 'unknown' && instance.licenseStatus !== 'warning'));
@@ -1644,7 +1657,7 @@ export function App() {
     return true;
   };
   const dashboardEnabledInstances = useMemo(() => (dashboard?.instances || []).filter((instance) => instance.isEnabled), [dashboard]);
-  const dashboardTenantScopedInstances = useMemo(() => dashboardEnabledInstances.filter((instance) => dashboardTenantMatches(instance.tenantId)), [dashboardEnabledInstances, dashboardTenantFilter]);
+  const dashboardTenantScopedInstances = useMemo(() => dashboardEnabledInstances.filter((instance) => dashboardTenantMatches(instance.tenantId)), [dashboardEnabledInstances, effectiveDashboardTenantFilter]);
   const dashboardFilteredInstances = useMemo(() => dashboardTenantScopedInstances.filter((instance) => dashboardIssueMatches(instance, dashboardIssueFilter)), [dashboardTenantScopedInstances, dashboardIssueFilter]);
   const instanceGridDashboardIds = useMemo(() => {
     if (instanceGridIssueFilter === 'all') return null;
@@ -1671,13 +1684,14 @@ export function App() {
     }
     return options;
   }, [dashboardTenantScopedInstances]);
-  const dashboardTenantOptions = tenants;
+  const dashboardTenantOptions = canSelectAnyTenantScope ? tenants : actorTenantId ? tenants.filter((tenant) => tenant.id === actorTenantId) : [];
+  const scopedDashboardTenantValue = effectiveDashboardTenantFilter;
   const dashboardScopedCounts = useMemo(() => {
     const visibleInstances = dashboardTenantScopedInstances;
     const totalInstances = visibleInstances.length;
     const httpsInstances = visibleInstances.filter((instance) => instance.protocol === 'https').length;
-    const tenantFiltered = dashboardTenantFilter !== 'all';
-    const selectedTenantId = dashboardTenantFilter === 'global' ? null : dashboardTenantFilter === 'all' ? undefined : dashboardTenantFilter;
+    const tenantFiltered = effectiveDashboardTenantFilter !== 'all';
+    const selectedTenantId = effectiveDashboardTenantFilter === 'global' ? null : effectiveDashboardTenantFilter === 'all' ? undefined : effectiveDashboardTenantFilter;
     const tenantMatches = (tenantId: TenantId) => !tenantFiltered ? true : tenantId === selectedTenantId;
     const groupsCount = tenantFiltered && groups.length ? groups.filter((group) => tenantMatches(group.tenantId)).length : dashboard?.counts.groups ?? 0;
     const usersCount = tenantFiltered && users.length ? users.filter((entry) => tenantMatches(entry.user.tenantId)).length : dashboard?.counts.users ?? 0;
@@ -1698,7 +1712,7 @@ export function App() {
       groups: groupsCount,
       roles: rolesCount
     };
-  }, [dashboard, dashboardTenantScopedInstances, dashboardTenantFilter, groups, users, roles, tenants.length]);
+  }, [dashboard, dashboardTenantScopedInstances, effectiveDashboardTenantFilter, groups, users, roles, tenants.length]);
   const lastRefreshLabel = dashboardLastRefreshedAt ? new Date(dashboardLastRefreshedAt).toLocaleTimeString() : 'Not refreshed yet';
   const statusTone = (instance: DashboardInstance) => instance.severity === 'failure' ? 'issue' : instance.severity || (instance.status === 'up' && !instance.hasIssue ? 'ok' : instance.status === 'unknown' ? 'unknown' : 'issue');
   const isTlsConnectionStepFailure = (instance: Pick<OxyGenInstance, 'status' | 'lastError'>, step?: ConnectivityStepDetail) => isTlsConnectionError(instance) || Boolean(step && step.ok === false && step.expiresAt === null && tlsConnectionPattern.test(`${step.message || ''} ${step.errorCode || ''}`));
@@ -2059,7 +2073,7 @@ export function App() {
     return <div className="tenant-dashboard">
       <section className="tenant-dashboard-hero compact">
         <div><p className="eyebrow small">Dashboard</p><h3>{dashboardTitle}</h3><small className="dashboard-refresh-stamp">Last refreshed: {lastRefreshLabel}</small></div>
-        <div className="dashboard-refresh-actions"><label className="dashboard-inline-filter"><span>{tenantLabel}</span><select value={dashboardTenantFilter} onChange={(e) => { setDashboardTenantFilter(e.target.value); setShowDashboardInstanceBoard(false); }}><option value="all">All {tenantLabelPlural}</option><option value="global">Global / unassigned</option>{dashboardTenantOptions.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenantOptionLabel(tenant)}</option>)}</select></label><button className="compact-button dashboard-refresh-button" type="button" onClick={() => void loadDashboard(token, 'manual')} disabled={isDashboardRefreshing}><RotateCw className={isDashboardRefreshing ? 'spin-icon' : ''} /><span>Refresh</span></button></div>
+        <div className="dashboard-refresh-actions"><label className="dashboard-inline-filter"><span>{tenantLabel}</span><select value={scopedDashboardTenantValue} disabled={!canSelectAnyTenantScope} onChange={(e) => { setDashboardTenantFilter(e.target.value); setShowDashboardInstanceBoard(false); }}>{canSelectAnyTenantScope && <><option value="all">All {tenantLabelPlural}</option><option value="global">Global / unassigned</option></>}{!canSelectAnyTenantScope && actorTenantId && dashboardTenantOptions.length === 0 && <option value={actorTenantId}>{actorTenantName}</option>}{!canSelectAnyTenantScope && !actorTenantId && <option value="global">Global / unassigned</option>}{dashboardTenantOptions.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenantOptionLabel(tenant)}</option>)}</select></label><button className="compact-button dashboard-refresh-button" type="button" onClick={() => void loadDashboard(token, 'manual')} disabled={isDashboardRefreshing}><RotateCw className={isDashboardRefreshing ? 'spin-icon' : ''} /><span>Refresh</span></button></div>
       </section>
       <section className="tenant-issue-grid dashboard-admin-kpis" aria-label="Dashboard security and tenant counts">{adminCards.map((card) => <article className={`tenant-issue-card ${card.tone}`} key={card.label}><span>{card.label}</span><strong>{card.value}</strong><small>{card.detail}</small></article>)}</section>
       <section className={`panel service-status-card ${pollerTone}`} aria-label="Background polling service status"><div className="service-status-main"><div className="service-title-block"><p className="eyebrow small">Service</p><div className="service-title-row"><h3>Background Polling Runner</h3><span className="service-state service-title-state">(<span className={`service-dot ${pollerTone}`} /><strong>{poller ? poller.state.toUpperCase() : 'UNAVAILABLE'}</strong>)</span></div></div></div><dl className="service-status-grid"><div><dt>Last run</dt><dd>{formatDateTime(poller?.lastRunAt ?? null)}</dd></div><div><dt>Next run</dt><dd>{formatDateTime(poller?.nextRunAt ?? null)}</dd></div><div className="compact"><dt>In flight</dt><dd>{poller?.inFlight ?? 0}</dd></div><div className="summary-wide"><dt>Last summary</dt><dd>{pollerSummary}</dd></div>{poller?.lastError && <div className="wide"><dt>Last error</dt><dd>{poller.lastError}</dd></div>}</dl>{canManagePoller && <div className="service-actions"><Button className="compact-button" type="button" onClick={() => void handlePollerControl('run-now')} disabled={!poller}><RotateCw /> Run Now</Button><Button className="compact-button" type="button" onClick={() => void handlePollerControl(poller?.isPaused ? 'resume' : 'pause')} disabled={!poller}>{poller?.isPaused ? <Play /> : <Pause />}{poller?.isPaused ? 'Resume Poller' : 'Pause Poller'}</Button><Button className="compact-button" type="button" fillMode="flat" onClick={() => nav('settings-logs')}><ClipboardList /> View Logs</Button></div>}</section>
@@ -2257,8 +2271,16 @@ export function App() {
 
   const gridSection = activeSection === 'users' || activeSection === 'user-groups' || activeSection === 'roles' || activeSection === 'organizations' || activeSection === 'instances' || activeSection === 'settings-logs' || activeSection === 'settings-issues';
 
-  function TenantSelect({ disabled = false }: { disabled?: boolean }) {
-    return <label>{tenantLabel}<select value={selectedTenantId} disabled={disabled} onChange={(e) => setSelectedTenantId(e.target.value)}><option value="">Global</option>{tenants.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenantOptionLabel(tenant)}</option>)}</select>{disabled && <small>{tenantLabel} assignment is locked after creation.</small>}</label>;
+  function TenantSelect({ disabled = false, allowGlobal = canSelectGlobalTenantScope }: { disabled?: boolean; allowGlobal?: boolean }) {
+    const lockedToActorTenant = !canSelectAnyTenantScope;
+    const options = lockedToActorTenant
+      ? actorTenantId
+        ? tenants.filter((tenant) => tenant.id === actorTenantId)
+        : []
+      : tenants;
+    const effectiveValue = lockedToActorTenant ? actorTenantId || '' : selectedTenantId;
+    const isDisabled = disabled || lockedToActorTenant;
+    return <label>{tenantLabel}<select value={effectiveValue} disabled={isDisabled} onChange={(e) => setSelectedTenantId(e.target.value)}>{allowGlobal && !lockedToActorTenant && <option value="">Global</option>}{lockedToActorTenant && actorTenantId && options.length === 0 && <option value={actorTenantId}>{actorTenantName}</option>}{options.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenantOptionLabel(tenant)}</option>)}</select>{lockedToActorTenant ? <small>{tenantLabel} is fixed to your signed-in {tenantLabelLower}: {actorTenantName}.</small> : disabled && <small>{tenantLabel} assignment is locked after creation.</small>}</label>;
   }
 
   function handleInstanceProtocolChange(protocol: 'http' | 'https') {
@@ -2393,7 +2415,7 @@ export function App() {
 
       {profile && isMobileViewport && isMobileDrawerOpen && <button className="mobile-drawer-backdrop" type="button" aria-label="Close navigation" onClick={() => setIsMobileDrawerOpen(false)} />}
 
-      {profile && (<div className={`admin-layout ${isDrawerExpanded ? 'drawer-expanded' : 'drawer-collapsed'} ${isMobileDrawerOpen ? 'mobile-drawer-open' : ''}`}><aside className={`admin-sidebar ${isDrawerExpanded ? 'expanded' : 'collapsed'} ${isMobileDrawerOpen ? 'mobile-open' : ''}`}><button className="mobile-drawer-close" type="button" onClick={() => setIsMobileDrawerOpen(false)} aria-label="Close navigation"><X /></button><button className="sidebar-toggle" type="button" onClick={() => setIsDrawerExpanded((v) => !v)} aria-label={isDrawerExpanded ? 'Collapse navigation' : 'Expand navigation'}>{isDrawerExpanded ? <ChevronLeft /> : <ChevronRight />}</button><div className="sidebar-user"><UserCircle /><div><span className="su-name">{profile.user.displayName}</span><span className="su-role">{profile.roles[0]}</span></div></div><nav className="sidebar-nav"><button className={`nav-link${activeSection === 'dashboard' ? ' active' : ''}`} onClick={() => nav('dashboard')}><LayoutDashboard /><span>Dashboard</span></button>{(canViewTenants || canViewInstances) && <div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => handleSidebarParentClick('organizations')}><Server /><span>Organizations</span>{openAccordions.has('organizations') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('organizations') && (<div className="nav-accordion-children">{canViewTenants && <button className={`nav-link child${activeSection === 'organizations' ? ' active' : ''}`} onClick={() => nav('organizations')}><span>{tenantLabelPlural}</span></button>}{canViewInstances && <button className={`nav-link child${activeSection === 'instances' ? ' active' : ''}`} onClick={() => { nav('instances'); loadInstances(); }}><span>Instances</span></button>}</div>)}</div>}{canManageSecurity && <div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => handleSidebarParentClick('security')}><ShieldCheck /><span>Security</span>{openAccordions.has('security') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('security') && (<div className="nav-accordion-children">{canManageUsers && <button className={`nav-link child${activeSection === 'users' ? ' active' : ''}`} onClick={() => nav('users')}><span>Users</span></button>}{canManageGroups && <button className={`nav-link child${activeSection === 'user-groups' ? ' active' : ''}`} onClick={() => nav('user-groups')}><span>User Groups</span></button>}{canManageRoles && <button className={`nav-link child${activeSection === 'roles' ? ' active' : ''}`} onClick={() => nav('roles')}><span>Roles</span></button>}</div>)}</div>}{canUseSettings && <div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => handleSidebarParentClick('settings')}><Settings /><span>Settings</span>{openAccordions.has('settings') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('settings') && (<div className="nav-accordion-children">{(canManageSettings || canViewVersion) && <button className={`nav-link child${activeSection === 'settings-general' ? ' active' : ''}`} onClick={() => nav('settings-general')}><span>General</span></button>}{canViewLogs && <button className={`nav-link child${activeSection === 'settings-logs' ? ' active' : ''}`} onClick={() => nav('settings-logs')}><span>Logs</span></button>}{canViewDatabase && <button className={`nav-link child${activeSection === 'settings-database' ? ' active' : ''}`} onClick={() => nav('settings-database')}><span>Database</span></button>}{canViewIssueTypes && <button className={`nav-link child${activeSection === 'settings-issues' ? ' active' : ''}`} onClick={() => nav('settings-issues')}><span>Issue Types</span></button>}{canManageSettings && <button className={`nav-link child${activeSection === 'settings-advanced' ? ' active' : ''}`} onClick={() => nav('settings-advanced', false, 'Advanced Settings')}><span>Advanced</span></button>}</div>)}</div>}</nav><button className="sidebar-logout" onClick={handleLogout}><LogOut /><span>Sign out</span></button></aside>
+      {profile && (<div className={`admin-layout ${isDrawerExpanded ? 'drawer-expanded' : 'drawer-collapsed'} ${isMobileDrawerOpen ? 'mobile-drawer-open' : ''}`}><aside className={`admin-sidebar ${isDrawerExpanded ? 'expanded' : 'collapsed'} ${isMobileDrawerOpen ? 'mobile-open' : ''}`}><button className="mobile-drawer-close" type="button" onClick={() => setIsMobileDrawerOpen(false)} aria-label="Close navigation"><X /></button><button className="sidebar-toggle" type="button" onClick={() => setIsDrawerExpanded((v) => !v)} aria-label={isDrawerExpanded ? 'Collapse navigation' : 'Expand navigation'}>{isDrawerExpanded ? <ChevronLeft /> : <ChevronRight />}</button><div className="sidebar-user"><UserCircle /><div><span className="su-name">{profile.user.displayName}</span><span className="su-role">{displayRoleName(profile.roles[0])}</span></div></div><nav className="sidebar-nav"><button className={`nav-link${activeSection === 'dashboard' ? ' active' : ''}`} onClick={() => nav('dashboard')}><LayoutDashboard /><span>Dashboard</span></button>{(canViewTenants || canViewInstances) && <div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => handleSidebarParentClick('organizations')}><Server /><span>Organizations</span>{openAccordions.has('organizations') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('organizations') && (<div className="nav-accordion-children">{canViewTenants && <button className={`nav-link child${activeSection === 'organizations' ? ' active' : ''}`} onClick={() => nav('organizations')}><span>{tenantLabelPlural}</span></button>}{canViewInstances && <button className={`nav-link child${activeSection === 'instances' ? ' active' : ''}`} onClick={() => { nav('instances'); loadInstances(); }}><span>Instances</span></button>}</div>)}</div>}{canManageSecurity && <div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => handleSidebarParentClick('security')}><ShieldCheck /><span>Security</span>{openAccordions.has('security') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('security') && (<div className="nav-accordion-children">{canManageUsers && <button className={`nav-link child${activeSection === 'users' ? ' active' : ''}`} onClick={() => nav('users')}><span>Users</span></button>}{canManageGroups && <button className={`nav-link child${activeSection === 'user-groups' ? ' active' : ''}`} onClick={() => nav('user-groups')}><span>User Groups</span></button>}{canManageRoles && <button className={`nav-link child${activeSection === 'roles' ? ' active' : ''}`} onClick={() => nav('roles')}><span>Roles</span></button>}</div>)}</div>}{canUseSettings && <div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => handleSidebarParentClick('settings')}><Settings /><span>Settings</span>{openAccordions.has('settings') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('settings') && (<div className="nav-accordion-children">{(canManageSettings || canViewVersion) && <button className={`nav-link child${activeSection === 'settings-general' ? ' active' : ''}`} onClick={() => nav('settings-general')}><span>General</span></button>}{canViewLogs && <button className={`nav-link child${activeSection === 'settings-logs' ? ' active' : ''}`} onClick={() => nav('settings-logs')}><span>Logs</span></button>}{canViewDatabase && <button className={`nav-link child${activeSection === 'settings-database' ? ' active' : ''}`} onClick={() => nav('settings-database')}><span>Database</span></button>}{canViewIssueTypes && <button className={`nav-link child${activeSection === 'settings-issues' ? ' active' : ''}`} onClick={() => nav('settings-issues')}><span>Issue Types</span></button>}{canManageSettings && <button className={`nav-link child${activeSection === 'settings-advanced' ? ' active' : ''}`} onClick={() => nav('settings-advanced', false, 'Advanced Settings')}><span>Advanced</span></button>}</div>)}</div>}</nav><button className="sidebar-logout" onClick={handleLogout}><LogOut /><span>Sign out</span></button></aside>
         <section className={`admin-content ${gridSection ? 'grid-section' : ''}`}>{activeSection !== 'dashboard' && <div className="page-header"><p className="eyebrow small">{sectionMeta.eyebrow}</p><h2>{sectionMeta.heading}</h2></div>}
           {activeSection !== 'settings-general' && renderUpdateNotice()}
           {activeSection === 'dashboard' && renderDashboard()}

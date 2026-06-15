@@ -1,10 +1,49 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { profileHasPermission } from '../auth/permissions.js';
 import { requireAuth, requirePermission } from '../auth/registerAuthRoutes.js';
-import type { AuthRepository } from '../auth/types.js';
+import type { AuthProfile, AuthRepository } from '../auth/types.js';
 import type { InstancePoller } from '../instances/instancePoller.js';
 import type { DatabasePerformanceReader } from './databasePerformance.js';
-import type { IssueCatalogReader } from './issueCatalog.js';
+import type { IssueCatalogReader, IssueCatalogSnapshot } from './issueCatalog.js';
 import type { UpdateChecker } from './updateInfo.js';
+
+type AuthenticatedRequest = FastifyRequest & { authProfile: AuthProfile };
+
+function hasAllTenantInstances(profile: AuthProfile) {
+  if (profileHasPermission(profile, 'tenants.manage')) return true;
+  if (profile.roles.includes('TenantAdmin')) return true;
+  if (profile.user.instanceAccessMode === 'all') return true;
+  return profile.groups.some((group) => group.instanceAccessMode === 'all');
+}
+
+function visibleInstanceIds(profile: AuthProfile) {
+  const ids = new Set<string>();
+  if (profile.user.instanceAccessMode === 'specific') {
+    for (const instanceId of profile.user.instanceIds) ids.add(instanceId);
+  }
+  for (const group of profile.groups) {
+    if (group.instanceAccessMode === 'specific') {
+      for (const instanceId of group.instanceIds) ids.add(instanceId);
+    }
+  }
+  return ids;
+}
+
+function filterIssueCatalogForProfile(snapshot: IssueCatalogSnapshot, profile: AuthProfile): IssueCatalogSnapshot {
+  if (profileHasPermission(profile, 'tenants.manage')) return snapshot;
+  const tenantId = profile.user.tenantId;
+  const canSeeTenantInstances = hasAllTenantInstances(profile);
+  const scopedIds = visibleInstanceIds(profile);
+  const issueTypes = snapshot.issueTypes.map((issueType) => {
+    const affectedInstances = issueType.affectedInstances.filter((instance) => {
+      if (tenantId && instance.tenantId !== tenantId) return false;
+      if (!tenantId && instance.tenantId !== null) return false;
+      return canSeeTenantInstances || scopedIds.has(instance.id);
+    });
+    return { ...issueType, affectedCount: affectedInstances.length, affectedInstances };
+  });
+  return { ...snapshot, issueTypes };
+}
 
 export async function registerSystemRoutes(app: FastifyInstance, authRepository: AuthRepository, poller: InstancePoller | null, databasePerformanceReader: DatabasePerformanceReader, issueCatalogReader: IssueCatalogReader, updateChecker: UpdateChecker) {
   const requireSignedIn = requireAuth(authRepository);
@@ -29,7 +68,10 @@ export async function registerSystemRoutes(app: FastifyInstance, authRepository:
 
   app.get('/api/system/poller', { preHandler: pollerPreHandler }, async () => ({ poller: status() }));
   app.get('/api/system/database-performance', { preHandler: databasePreHandler }, async () => ({ databasePerformance: await databasePerformanceReader.readSnapshot() }));
-  app.get('/api/system/issue-types', { preHandler: issueTypesPreHandler }, async () => ({ issueCatalog: await issueCatalogReader.readSnapshot() }));
+  app.get('/api/system/issue-types', { preHandler: issueTypesPreHandler }, async (request) => {
+    const profile = (request as AuthenticatedRequest).authProfile;
+    return { issueCatalog: filterIssueCatalogForProfile(await issueCatalogReader.readSnapshot(), profile) };
+  });
   app.get('/api/system/version', { preHandler: versionPreHandler }, async () => ({ version: await updateChecker.getVersionSnapshot() }));
   app.post('/api/system/poller/pause', { preHandler: pollerPreHandler }, async () => {
     poller?.pause();
