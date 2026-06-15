@@ -98,6 +98,9 @@ type IssueCatalogType = { id: string; code: string; label: string; description: 
 type IssueCatalogSnapshot = { configured: boolean; connected: boolean; generatedAt: string; error: string | null; categories: Array<{ id: string; code: string; name: string; sortOrder: number }>; severities: Array<{ id: string; code: string; name: string; rank: number; sortOrder: number }>; issueTypes: IssueCatalogType[] };
 type IssueCatalogGridRow = { id: string; category: string; severity: string; code: string; label: string; description: string; condition: string; affectedCount: number; raw: IssueCatalogType };
 type SystemVersionSnapshot = { current: { version: string; commit: string | null; buildDate: string | null; repository: string; sourceUrl: string; updateChannel: string }; update: { checkedAt: string; source: 'github-release' | 'github-tag' | 'github-branch' | 'unavailable'; available: boolean; currentVersion: string; latestVersion: string | null; latestName: string | null; releaseUrl: string | null; publishedAt: string | null; error: string | null } };
+type SystemUpdateStepState = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+type SystemUpdateStep = { code: 'dry-run' | 'backup' | 'checkout' | 'build' | 'restart' | 'schema'; label: string; description: string; state: SystemUpdateStepState; startedAt: string | null; finishedAt: string | null; message: string | null };
+type SystemUpdateStatus = { generatedAt: string; runner: { enabled: boolean; state: 'idle' | 'running' | 'blocked' | 'unavailable'; inProgress: boolean; canRun: boolean; mode: 'host-script'; command: string; dryRunCommand: string; requiresConfirmation: boolean; confirmationVariable: string; currentRef: string | null; targetRef: string | null }; steps: SystemUpdateStep[]; lastRun: { id: string; mode: 'dry-run' | 'update'; targetRef: string; startedAt: string; finishedAt: string | null; state: 'running' | 'completed' | 'failed'; summary: string | null } | null; lastError: string | null };
 type DatabaseDetailPanel = 'schema' | 'status' | 'storage' | 'tables' | 'connections' | 'queries' | 'cache';
 type DatabaseMaintenanceAction = 'run-retention' | 'purge-logs' | 'compress' | 'defrag' | 'backup' | 'restore';
 type ActivityTableMaintenanceResult = { deleted: number; tables?: Array<{ tableName: string; deleted: number }> };
@@ -510,6 +513,7 @@ export function App() {
   const [issueCatalog, setIssueCatalog] = useState<IssueCatalogSnapshot | null>(null);
   const [selectedIssueType, setSelectedIssueType] = useState<IssueCatalogType | null>(null);
   const [systemVersion, setSystemVersion] = useState<SystemVersionSnapshot | null>(null);
+  const [systemUpdateStatus, setSystemUpdateStatus] = useState<SystemUpdateStatus | null>(null);
   const [isSystemVersionRefreshing, setIsSystemVersionRefreshing] = useState(false);
   const [databaseDetailPanel, setDatabaseDetailPanel] = useState<DatabaseDetailPanel>('storage');
   const [databaseDetailModal, setDatabaseDetailModal] = useState<DatabaseDetailPanel | null>(null);
@@ -841,10 +845,14 @@ export function App() {
     if (mode === 'manual') clearStatus();
     setIsSystemVersionRefreshing(true);
     try {
-      const res = await api<{ version: SystemVersionSnapshot }>('/api/system/version', { token: t });
-      setSystemVersion(res.version);
+      const [versionRes, statusRes] = await Promise.all([
+        api<{ version: SystemVersionSnapshot }>('/api/system/version', { token: t }),
+        api<{ updateStatus: SystemUpdateStatus }>('/api/system/update-status', { token: t })
+      ]);
+      setSystemVersion(versionRes.version);
+      setSystemUpdateStatus(statusRes.updateStatus);
       if (mode === 'manual') {
-        showStatus(res.version.update.error ? 'Version metadata refreshed; update source is currently unavailable.' : 'Version metadata refreshed.', res.version.update.error ? 'warning' : 'success');
+        showStatus(versionRes.version.update.error ? 'Version/update readiness refreshed; update source is currently unavailable.' : 'Version/update readiness refreshed.', versionRes.version.update.error ? 'warning' : 'success');
       }
     } catch (err) {
       if (mode === 'manual') setError(err instanceof Error ? err.message : 'Version refresh failed.');
@@ -2107,22 +2115,43 @@ export function App() {
     return 'Up to Date';
   }
 
+  function updateRunnerLabel(status: SystemUpdateStatus | null) {
+    if (!status) return 'Loading';
+    if (status.runner.inProgress) return 'Update Running';
+    if (!status.runner.enabled || status.runner.state === 'unavailable') return 'Unavailable';
+    if (!status.runner.canRun) return 'Blocked';
+    return 'Ready';
+  }
+
+  function updateStepTone(state: SystemUpdateStepState) {
+    if (state === 'completed') return 'ok';
+    if (state === 'running') return 'running';
+    if (state === 'failed') return 'issue';
+    if (state === 'skipped') return 'warning';
+    return 'pending';
+  }
+
   function renderVersionUpdatePanel() {
     const snapshot = systemVersion;
     const update = snapshot?.update;
     const current = snapshot?.current;
+    const status = systemUpdateStatus;
     const tone = updateTone(snapshot);
     return <article className={`panel settings-panel version-update-panel ${tone}`}>
-      <div className="panel-heading"><Download /><div><p className="eyebrow small">Application updates</p><h3>OxyGen CMS Version</h3></div></div>
+      <div className="panel-heading"><Download /><div><p className="eyebrow small">Application updates</p><h3>OxyGen CMS Version & Update Readiness</h3></div></div>
       <section className={`version-update-summary ${tone}`}>
         <div><span>Current</span><strong>{current?.version ?? 'Unknown'}</strong><small>{current?.commit ? `Commit ${current.commit.slice(0, 12)}` : 'Build commit unavailable'}</small></div>
         <div><span>Latest</span><strong>{update?.latestVersion ?? 'Unknown'}</strong><small>{update?.source === 'unavailable' ? 'GitHub unavailable' : update?.source === 'github-tag' ? 'GitHub tag' : update?.source === 'github-branch' ? 'GitHub branch' : 'GitHub release'}</small></div>
-        <div><span>Status</span><strong>{updateStatusLabel(snapshot)}</strong><small>{update ? `Checked ${formatDateTime(update.checkedAt)}` : 'Not checked yet'}</small></div>
+        <div><span>Version Status</span><strong>{updateStatusLabel(snapshot)}</strong><small>{update ? `Checked ${formatDateTime(update.checkedAt)}` : 'Not checked yet'}</small></div>
+        <div><span>Update Runner</span><strong>{updateRunnerLabel(status)}</strong><small>{status ? `Generated ${formatDateTime(status.generatedAt)}` : 'Checking host command'}</small></div>
       </section>
-      {update?.available && <p className="panel-copy version-update-message">A newer OxyGen CMS version is available. The next Milestone 7 slice will add the guarded in-place update workflow; for now, review the release metadata before updating manually.</p>}
+      {update?.available && <p className="panel-copy version-update-message">A newer OxyGen CMS version is available. CMS now shows guarded update readiness; execution remains blocked until the next API slice wires a confirmed runner action.</p>}
       {update?.error && <p className="panel-copy version-update-message warning">Update checks are non-blocking. CMS could not reach GitHub: {update.error}</p>}
-      <dl className="detail-list version-detail-list"><dt>Repository</dt><dd>{current?.repository ?? 'Unknown'}</dd><dt>Channel</dt><dd>{current?.updateChannel ?? 'stable'}</dd><dt>Build date</dt><dd>{current?.buildDate ? formatDateTime(current.buildDate) : 'Unavailable'}</dd><dt>Published</dt><dd>{update?.publishedAt ? formatDateTime(update.publishedAt) : 'Unavailable'}</dd></dl>
-      <div className="version-update-actions"><Button className="compact-button" type="button" onClick={() => void loadSystemVersion(token, 'manual')} disabled={isSystemVersionRefreshing}><RotateCw className={isSystemVersionRefreshing ? 'spin-icon' : ''} /> Check Now</Button>{(update?.releaseUrl || current?.sourceUrl) && <Button className="compact-button" type="button" fillMode="flat" onClick={() => window.open(update?.releaseUrl || current?.sourceUrl, '_blank', 'noopener,noreferrer')}><ExternalLink /> View Source</Button>}</div>
+      {status?.lastError && <p className="panel-copy version-update-message warning">Last update runner error: {status.lastError}</p>}
+      <dl className="detail-list version-detail-list"><dt>Repository</dt><dd>{current?.repository ?? 'Unknown'}</dd><dt>Channel</dt><dd>{current?.updateChannel ?? 'stable'}</dd><dt>Build date</dt><dd>{current?.buildDate ? formatDateTime(current.buildDate) : 'Unavailable'}</dd><dt>Published</dt><dd>{update?.publishedAt ? formatDateTime(update.publishedAt) : 'Unavailable'}</dd><dt>Dry run</dt><dd><code>{status?.runner.dryRunCommand ?? 'scripts/deploy.sh update --dry-run'}</code></dd><dt>Confirmed update</dt><dd><code>{status ? `${status.runner.confirmationVariable}=YES ${status.runner.command}` : 'CONFIRM_UPDATE=YES scripts/deploy.sh update'}</code></dd></dl>
+      {status && <section className="update-readiness-grid" aria-label="Update readiness steps">{status.steps.map((step, index) => <article className={`update-readiness-step ${updateStepTone(step.state)}`} key={step.code}><span className="update-step-index">{index + 1}</span><div><strong>{step.label}</strong><p>{step.description}</p>{step.message && <small>{step.message}</small>}</div><span className="update-step-state">{step.state.replace('-', ' ')}</span></article>)}</section>}
+      {status?.lastRun && <p className="panel-copy version-update-message">Last {status.lastRun.mode === 'dry-run' ? 'dry run' : 'update'} for {status.lastRun.targetRef} is {status.lastRun.state}{status.lastRun.summary ? `: ${status.lastRun.summary}` : ''}.</p>}
+      <div className="version-update-actions"><Button className="compact-button" type="button" onClick={() => void loadSystemVersion(token, 'manual')} disabled={isSystemVersionRefreshing}><RotateCw className={isSystemVersionRefreshing ? 'spin-icon' : ''} /> Refresh Readiness</Button>{(update?.releaseUrl || current?.sourceUrl) && <Button className="compact-button" type="button" fillMode="flat" onClick={() => window.open(update?.releaseUrl || current?.sourceUrl, '_blank', 'noopener,noreferrer')}><ExternalLink /> View Source</Button>}</div>
     </article>;
   }
 
