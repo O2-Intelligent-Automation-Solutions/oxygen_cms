@@ -1,9 +1,22 @@
 import 'dotenv/config';
+import { basename, join } from 'node:path';
+import { createInMemoryAppLogRepository } from './appLogs/inMemoryAppLogRepository.js';
+import { createSetupAwareAppLogRepository } from './appLogs/mysqlAppLogRepository.js';
 import { loadConfig } from './config/loadConfig.js';
+import { createInMemoryInstanceRepository } from './instances/inMemoryInstanceRepository.js';
+import { createSetupAwareInstanceRepository } from './instances/mysqlInstanceRepository.js';
 import { createQueueWorkerRuntime } from './queues/workerRuntime.js';
+import { createFileSetupSettingsStore } from './setup/fileSetupSettingsStore.js';
+
+const settingsPath = basename(process.cwd()) === 'api'
+  ? join(process.cwd(), 'data/settings.json')
+  : join(process.cwd(), 'apps/api/data/settings.json');
+const setupSettingsStore = createFileSetupSettingsStore(settingsPath);
+const instanceRepository = createSetupAwareInstanceRepository(setupSettingsStore, createInMemoryInstanceRepository());
+const appLogRepository = createSetupAwareAppLogRepository(setupSettingsStore, createInMemoryAppLogRepository());
 
 const config = loadConfig();
-const runtime = await createQueueWorkerRuntime(config);
+const runtime = await createQueueWorkerRuntime(config, console, { instanceRepository, appLogRepository });
 
 if (runtime.state === 'disabled') {
   process.exit(0);

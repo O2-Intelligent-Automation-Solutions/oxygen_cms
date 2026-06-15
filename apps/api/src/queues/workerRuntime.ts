@@ -1,5 +1,8 @@
 import type { Job, Worker } from 'bullmq';
+import type { AppLogRepository } from '../appLogs/types.js';
 import type { AppConfig } from '../config/loadConfig.js';
+import type { InstanceRepository } from '../instances/types.js';
+import { processInstanceCheckJob } from './instanceCheckProcessor.js';
 import { QUEUE_NAMES, createQueueConnectionOptions, type QueueName } from './queueStatus.js';
 
 export type QueueWorkerState = 'disabled' | 'running';
@@ -14,7 +17,28 @@ type Logger = Pick<Console, 'info' | 'warn' | 'error'>;
 
 type WorkerConstructor = typeof Worker;
 
-export async function createQueueWorkerRuntime(config: AppConfig, logger: Logger = console): Promise<QueueWorkerRuntime> {
+export type QueueJobProcessorOptions = {
+  instanceRepository: InstanceRepository;
+  appLogRepository?: AppLogRepository;
+};
+
+export type QueueWorkerRuntimeOptions = QueueJobProcessorOptions;
+
+export function createQueueJobProcessor(options: QueueJobProcessorOptions) {
+  return async (queueName: QueueName, data: unknown) => {
+    if (queueName === 'instance-checks') {
+      return processInstanceCheckJob({
+        data: data as Parameters<typeof processInstanceCheckJob>[0]['data'],
+        repository: options.instanceRepository,
+        appLogRepository: options.appLogRepository
+      });
+    }
+
+    throw new Error(`No processor registered for ${queueName}; job execution for this queue is not implemented yet.`);
+  };
+}
+
+export async function createQueueWorkerRuntime(config: AppConfig, logger: Logger = console, options?: QueueWorkerRuntimeOptions): Promise<QueueWorkerRuntime> {
   const connection = createQueueConnectionOptions(config);
   if (!connection) {
     logger.info('BullMQ worker disabled; BULLMQ_ENABLED/REDIS_HOST/REDIS_PORT are not fully configured.');
@@ -26,11 +50,11 @@ export async function createQueueWorkerRuntime(config: AppConfig, logger: Logger
   }
 
   const { Worker: BullWorker } = await import('bullmq');
+  if (!options) throw new Error('BullMQ worker dependencies are required when BULLMQ_ENABLED=true.');
+  const processQueueJob = createQueueJobProcessor(options);
   const workers = QUEUE_NAMES.map((queueName) => new (BullWorker as WorkerConstructor)(
     queueName,
-    async (job: Job) => {
-      throw new Error(`No processor registered for ${queueName}/${job.name}; worker bootstrap is installed but job execution processors are not implemented yet.`);
-    },
+    async (job: Job) => processQueueJob(queueName, job.data),
     { connection }
   ));
 
