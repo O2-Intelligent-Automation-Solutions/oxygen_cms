@@ -15,7 +15,7 @@ This documentation has been migrated to the GitHub Wiki:
 - TenantAdmin users inherit all same-Tenant instance visibility by default when direct instance access is `inherit`; explicit `none` still denies instance visibility, and cross-Tenant/global instances remain hidden.
 - Desktop/mobile UI navigation/actions/forms are capability-gated from auth permissions.
 - Role editors use a condensed searchable permission grid grouped by type, with `Checkbox | Name | Description | Code` columns, group select-all counts, and an Apply Preset dropdown; user/group instance access uses the searchable pill/tag selector for specific instance assignments.
-- Validation: `npm run typecheck --workspace @oxygen-cms/api`, `npm run typecheck --workspace @oxygen-cms/web`, targeted RBAC/app-log/instance suites, and full API suite are green. Remaining closeout: live MySQL migration validation, browser/UAT review, dependency-audit remediation/acceptance.
+- Validation: targeted RBAC/Issue Types API tests, web production build, and diff hygiene are green. Product-owner browser/UAT approval was recorded on 2026-06-15, so RBAC is finalized for the current MVP. The known Vite/esbuild audit advisory remains dependency maintenance because the available fix requires a breaking Vite 8 force update.
 
 Current CMS schema version: `0.16`.
 
@@ -46,6 +46,8 @@ Recent dashboard/service-log work adds:
 - The Service card is a compact operational strip; Last Summary is widened for thousands-scale `checked / skipped / failed` values while In Flight remains compact.
 - Instances grid includes CSV Export/Import controls for SystemAdmin and TenantAdmin users. Global users export/import a `tenant` column by Tenant name and may leave it blank for global/unassigned instances; tenant-scoped users export without the `tenant` column and imports are forced to their assigned Tenant. `instance_guid` maps to the instance `id`; blank creates a new instance, existing GUID updates, unknown nonblank GUID creates with that GUID. Passwords are never exported; blank import passwords preserve existing credentials on update and are rejected on create.
 - Settings → General includes an OxyGen CMS Version panel backed by `GET /api/system/version`, showing current package/build metadata, GitHub latest-release/latest-tag update status, offline warning handling, and a newer-version notice/banner for SystemAdmin users.
+
+Active next implementation focus: Milestone 7D — non-technical in-place app/database update orchestration.
 
 Validation gate for this state:
 
