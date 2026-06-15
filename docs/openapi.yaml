@@ -694,6 +694,23 @@ paths:
                   version: { $ref: '#/components/schemas/SystemVersionSnapshot' }
         '401': { $ref: '#/components/responses/Error' }
         '403': { $ref: '#/components/responses/Error' }
+  /api/system/update-status:
+    get:
+      tags: [System]
+      summary: Get CMS update orchestration status
+      description: SystemAdmin/update-panel endpoint for the non-technical in-place update flow. Returns the current guarded update command status and ordered progress steps. This initial Milestone 7D slice is read-only and reports idle command availability until a later runner/API slice records live execution state.
+      responses:
+        '200':
+          description: Update orchestration status.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [updateStatus]
+                properties:
+                  updateStatus: { $ref: '#/components/schemas/SystemUpdateStatus' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
   /api/system/database-performance:
     get:
       tags: [System]
@@ -1528,6 +1545,42 @@ components:
         releaseUrl: { type: [string, 'null'], format: uri }
         publishedAt: { type: [string, 'null'], format: date-time }
         error: { type: [string, 'null'], description: Non-secret update-check failure message when GitHub cannot be reached or returns an unusable response. }
+    SystemUpdateStatus:
+      type: object
+      required: [state, inProgress, canRunUpdate, command, dryRunCommand, requiresConfirmation, lastRun, lastError, steps]
+      properties:
+        state: { type: string, enum: [idle, checking, backing-up, updating, restarting, schema-pending, completed, failed] }
+        inProgress: { type: boolean }
+        canRunUpdate: { type: boolean }
+        command: { type: string, example: scripts/deploy.sh update }
+        dryRunCommand: { type: string, example: scripts/deploy.sh update --dry-run }
+        requiresConfirmation: { type: boolean, description: Indicates whether command execution requires explicit operator confirmation such as CONFIRM_UPDATE=YES. }
+        lastRun:
+          oneOf:
+            - $ref: '#/components/schemas/SystemUpdateRunSummary'
+            - type: 'null'
+        lastError: { type: [string, 'null'] }
+        steps:
+          type: array
+          items: { $ref: '#/components/schemas/SystemUpdateStep' }
+    SystemUpdateRunSummary:
+      type: object
+      required: [startedAt, finishedAt, targetRef, targetCommit, result]
+      properties:
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: [string, 'null'], format: date-time }
+        targetRef: { type: [string, 'null'] }
+        targetCommit: { type: [string, 'null'] }
+        result: { type: [string, 'null'], enum: [completed, failed, cancelled, null] }
+    SystemUpdateStep:
+      type: object
+      required: [code, label, state, message, completedAt]
+      properties:
+        code: { type: string, enum: [dry-run, backup, checkout, build, restart, schema] }
+        label: { type: string }
+        state: { type: string, enum: [pending, running, completed, failed, skipped] }
+        message: { type: [string, 'null'] }
+        completedAt: { type: [string, 'null'], format: date-time }
     IssueCatalogSnapshot:
       type: object
       required: [configured, connected, generatedAt, error, categories, severities, issueTypes]

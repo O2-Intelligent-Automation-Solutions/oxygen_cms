@@ -34,6 +34,31 @@ describe('system version/update routes', () => {
     await app.close();
   });
 
+  it('returns update command status for the non-technical update flow', async () => {
+    const { app, token } = await loginToken();
+    const response = await app.inject({ method: 'GET', url: '/api/system/update-status', headers: { authorization: `Bearer ${token}` } });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().updateStatus).toMatchObject({
+      state: 'idle',
+      inProgress: false,
+      canRunUpdate: true,
+      command: 'scripts/deploy.sh update',
+      dryRunCommand: 'scripts/deploy.sh update --dry-run',
+      requiresConfirmation: true,
+      lastRun: null,
+      lastError: null
+    });
+    expect(response.json().updateStatus.steps.map((step: { code: string; state: string }) => [step.code, step.state])).toEqual([
+      ['dry-run', 'pending'],
+      ['backup', 'pending'],
+      ['checkout', 'pending'],
+      ['build', 'pending'],
+      ['restart', 'pending'],
+      ['schema', 'pending']
+    ]);
+    await app.close();
+  });
+
   it('falls back to tags when no GitHub release exists', async () => {
     let calls = 0;
     const checker = createUpdateChecker({

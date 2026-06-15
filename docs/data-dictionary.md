@@ -120,3 +120,14 @@ The Settings → General update panel is backed by a read-only SystemAdmin endpo
 | `update.checkedAt` / `update.source` | Timestamp and source of the latest check: `github-release`, `github-tag`, `github-branch`, or `unavailable`. |
 | `update.available` / `update.latestVersion` / `update.releaseUrl` | Whether GitHub reports a newer semantic version, plus latest version and release/tag URL when available. |
 | `update.error` | Non-secret failure detail when GitHub is unreachable or returns unusable metadata. Update-check failures do not block CMS startup or Settings rendering. |
+
+### `GET /api/system/update-status`
+
+Milestone 7D update orchestration status is exposed as a read-only SystemAdmin endpoint for the future non-technical update flow. The current slice does not add tables or execute updates from the API; it reports the guarded command contract and ordered progress steps for the Settings → General update action page.
+
+| Field group | Description |
+| --- | --- |
+| `state` / `inProgress` / `canRunUpdate` | Current update runner state. Initial implementation returns `idle`, `false`, and `true` while no live runner is attached. |
+| `command` / `dryRunCommand` / `requiresConfirmation` | Operator command contract: `scripts/deploy.sh update`, dry-run variant, and explicit confirmation requirement. |
+| `steps[]` | Ordered update phases: dry run, backup, checkout, build, restart, and schema migration. |
+| `lastRun` / `lastError` | Reserved for live runner history/error details in the next Milestone 7D slice. |

@@ -5,6 +5,7 @@ import type { AuthProfile, AuthRepository } from '../auth/types.js';
 import type { InstancePoller } from '../instances/instancePoller.js';
 import type { DatabasePerformanceReader } from './databasePerformance.js';
 import type { IssueCatalogReader, IssueCatalogSnapshot } from './issueCatalog.js';
+import type { UpdateStatusProvider } from './updateStatus.js';
 import type { UpdateChecker } from './updateInfo.js';
 
 type AuthenticatedRequest = FastifyRequest & { authProfile: AuthProfile };
@@ -45,7 +46,7 @@ function filterIssueCatalogForProfile(snapshot: IssueCatalogSnapshot, profile: A
   return { ...snapshot, issueTypes };
 }
 
-export async function registerSystemRoutes(app: FastifyInstance, authRepository: AuthRepository, poller: InstancePoller | null, databasePerformanceReader: DatabasePerformanceReader, issueCatalogReader: IssueCatalogReader, updateChecker: UpdateChecker) {
+export async function registerSystemRoutes(app: FastifyInstance, authRepository: AuthRepository, poller: InstancePoller | null, databasePerformanceReader: DatabasePerformanceReader, issueCatalogReader: IssueCatalogReader, updateChecker: UpdateChecker, updateStatusProvider: UpdateStatusProvider) {
   const requireSignedIn = requireAuth(authRepository);
   const pollerPreHandler = [requireSignedIn, requirePermission('system.poller.manage')];
   const databasePreHandler = [requireSignedIn, requirePermission('settings.database.view')];
@@ -73,6 +74,7 @@ export async function registerSystemRoutes(app: FastifyInstance, authRepository:
     return { issueCatalog: filterIssueCatalogForProfile(await issueCatalogReader.readSnapshot(), profile) };
   });
   app.get('/api/system/version', { preHandler: versionPreHandler }, async () => ({ version: await updateChecker.getVersionSnapshot() }));
+  app.get('/api/system/update-status', { preHandler: versionPreHandler }, async () => ({ updateStatus: await updateStatusProvider.readStatus() }));
   app.post('/api/system/poller/pause', { preHandler: pollerPreHandler }, async () => {
     poller?.pause();
     return { poller: status() };
