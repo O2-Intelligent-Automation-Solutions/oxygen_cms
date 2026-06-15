@@ -46,6 +46,10 @@ scripts/deploy.sh logs       # Follow app logs
 scripts/deploy.sh logs mysql # Follow MySQL logs
 scripts/deploy.sh backup     # Create timestamped MySQL/app-data backup
 scripts/deploy.sh pre-update # Validate stack and create a safety backup before update
+scripts/deploy.sh update --dry-run main
+                             # Resolve the target update without changing the stack
+CONFIRM_UPDATE=YES scripts/deploy.sh update main
+                             # Backup, checkout target, rebuild, and restart
 scripts/deploy.sh restart    # Restart services
 scripts/deploy.sh stop       # Stop services, preserving volumes
 ```
@@ -80,6 +84,15 @@ Before any application update, run:
 scripts/deploy.sh pre-update
 ```
 
+Milestone 7D starts the guarded in-place update path with:
+
+```bash
+scripts/deploy.sh update --dry-run main
+CONFIRM_UPDATE=YES scripts/deploy.sh update main
+```
+
+The update command requires a clean Git working tree, resolves the requested ref from the configured remote, creates the same pre-update safety backup, checks out the resolved commit, rebuilds the production image, and restarts the Compose stack. Use `UPDATE_SOURCE_REMOTE` and `UPDATE_TARGET_REF` to change the default source/target. After the app restarts, open the CMS setup/status UI and apply any pending schema migrations if prompted.
+
 Restore is intentionally guarded because it replaces database contents:
 
 ```bash
@@ -111,7 +124,7 @@ Stopping the stack with `scripts/deploy.sh stop` preserves these volumes.
 
 This deployment baseline now includes GitHub update detection and the CMS Settings → General update notice. It does not yet include:
 
-- Non-technical in-place app/database update flow.
+- Full CMS UI/API-driven update orchestration. The host-side guarded `scripts/deploy.sh update` command is the first Milestone 7D implementation slice; UI progress/status and automatic schema-migration execution remain next.
 - BullMQ/Redis worker topology.
 
 Bundled HTTPS/certificate automation is intentionally skipped for now in favor of external reverse-proxy/load-balancer TLS termination.

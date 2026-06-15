@@ -24,7 +24,8 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "deploy:backup": "bash scripts/deploy.sh backup",
-    "deploy:pre-update": "bash scripts/deploy.sh pre-update"
+    "deploy:pre-update": "bash scripts/deploy.sh pre-update",
+    "deploy:update": "bash scripts/deploy.sh update"
   },
   "engines": {
     "node": ">=22"

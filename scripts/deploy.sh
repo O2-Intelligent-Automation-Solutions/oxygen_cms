@@ -28,12 +28,16 @@ Usage:
   scripts/deploy.sh restore-db <backup.sql.gz>
                               Restore a database backup; requires CONFIRM_RESTORE=YES
   scripts/deploy.sh pre-update Create a safety backup and validate the stack before update
+  scripts/deploy.sh update [--dry-run] [ref]
+                              Guarded in-place app update from Git; requires CONFIRM_UPDATE=YES unless --dry-run
 
 Environment overrides:
   DEPLOY_DIR=/path/to/deploy
   ENV_FILE=/path/to/.env
   COMPOSE_FILE=/path/to/docker-compose.deploy.yml
   BACKUP_DIR=/path/to/backups
+  UPDATE_SOURCE_REMOTE=origin
+  UPDATE_TARGET_REF=main
 USAGE
 }
 
@@ -146,6 +150,76 @@ pre_update() {
   printf 'Pre-update safety check complete. Review the backup above before applying an update.\n'
 }
 
+require_clean_git_tree() {
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    printf 'ERROR: update requires a Git checkout. Use manual package replacement for non-Git deployments.\n' >&2
+    exit 1
+  fi
+  if [[ -n "$(git status --porcelain)" ]]; then
+    printf 'ERROR: working tree has local changes. Commit, stash, or discard them before running an in-place update.\n' >&2
+    git status --short >&2
+    exit 1
+  fi
+}
+
+resolve_update_commit() {
+  local remote="$1"
+  local target_ref="$2"
+  git fetch --tags "$remote" >/dev/null
+  if git rev-parse --verify --quiet "${target_ref}^{commit}" >/dev/null; then
+    git rev-parse --verify "${target_ref}^{commit}"
+    return 0
+  fi
+  if git rev-parse --verify --quiet "${remote}/${target_ref}^{commit}" >/dev/null; then
+    git rev-parse --verify "${remote}/${target_ref}^{commit}"
+    return 0
+  fi
+  printf 'ERROR: unable to resolve update target %s from %s.\n' "$target_ref" "$remote" >&2
+  exit 1
+}
+
+update_stack() {
+  require_docker
+  require_env
+  local dry_run="false"
+  local target_ref="${UPDATE_TARGET_REF:-main}"
+  if [[ "${1:-}" == "--dry-run" ]]; then
+    dry_run="true"
+    shift
+  fi
+  if [[ -n "${1:-}" ]]; then
+    target_ref="$1"
+  fi
+
+  require_clean_git_tree
+  "${COMPOSE[@]}" config >/dev/null
+
+  local remote target_commit current_commit
+  remote="${UPDATE_SOURCE_REMOTE:-origin}"
+  current_commit="$(git rev-parse --short HEAD)"
+  target_commit="$(resolve_update_commit "$remote" "$target_ref")"
+
+  printf 'Current commit: %s\n' "$current_commit"
+  printf 'Target ref: %s (%s)\n' "$target_ref" "$(printf '%s' "$target_commit" | cut -c1-12)"
+  if [[ "$dry_run" == "true" ]]; then
+    printf 'Dry run only. No backup, checkout, build, or container restart was performed.\n'
+    return 0
+  fi
+
+  if [[ "${CONFIRM_UPDATE:-}" != "YES" ]]; then
+    printf 'ERROR: update is guarded. Re-run with CONFIRM_UPDATE=YES after reviewing scripts/deploy.sh update --dry-run %s.\n' "$target_ref" >&2
+    exit 1
+  fi
+
+  pre_update
+  printf 'Checking out update target %s...\n' "$target_commit"
+  git checkout --detach "$target_commit"
+  printf 'Rebuilding and restarting CMS stack...\n'
+  "${COMPOSE[@]}" up -d --build
+  "${COMPOSE[@]}" ps
+  printf 'Update command complete. Open the CMS setup/status UI and apply any pending schema migrations if prompted.\n'
+}
+
 init_env() {
   mkdir -p "$DEPLOY_DIR"
   if [[ -f "$ENV_FILE" ]]; then
@@ -223,6 +297,10 @@ case "$cmd" in
     ;;
   pre-update)
     pre_update
+    ;;
+  update)
+    shift
+    update_stack "$@"
     ;;
   ''|-h|--help|help)
     usage
