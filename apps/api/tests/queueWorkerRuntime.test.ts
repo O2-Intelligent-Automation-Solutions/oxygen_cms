@@ -1,7 +1,32 @@
 import { describe, expect, it, vi } from 'vitest';
 import { loadConfig } from '../src/config/loadConfig.js';
 import { createQueueJobProcessor, createQueueWorkerRuntime } from '../src/queues/workerRuntime.js';
+import type { AppLogRepository } from '../src/appLogs/types.js';
+import type { AppSettingsRepository } from '../src/appSettings/types.js';
 import type { InstanceRepository } from '../src/instances/types.js';
+
+function fakeRepositories() {
+  const instanceRepository = { getInstance: vi.fn(), testConnectivity: vi.fn() } as unknown as InstanceRepository;
+  const appLogRepository = {
+    append: vi.fn(),
+    list: vi.fn(),
+    pruneOlderThan: vi.fn(async () => ({
+      deleted: 7,
+      tables: [
+        { tableName: 'application_logs', deleted: 2 },
+        { tableName: 'oxygen_instance_check_history', deleted: 5 }
+      ]
+    })),
+    clear: vi.fn()
+  } as unknown as AppLogRepository;
+  const appSettingsRepository = {
+    getLabels: vi.fn(),
+    saveLabels: vi.fn(),
+    getLogRetention: vi.fn(async () => ({ days: 14 })),
+    saveLogRetention: vi.fn()
+  } as unknown as AppSettingsRepository;
+  return { instanceRepository, appLogRepository, appSettingsRepository };
+}
 
 describe('queue worker runtime', () => {
   it('stays disabled when BullMQ is not configured', async () => {
@@ -15,12 +40,37 @@ describe('queue worker runtime', () => {
     await expect(runtime.close()).resolves.toBeUndefined();
   });
 
-  it('dispatches instance-checks jobs to the saved-instance processor and rejects unimplemented queues', async () => {
-    const repository = { getInstance: vi.fn(), testConnectivity: vi.fn() } as unknown as InstanceRepository;
-    const processor = createQueueJobProcessor({ instanceRepository: repository });
+  it('dispatches instance-checks jobs to the saved-instance processor and rejects unsafe payloads', async () => {
+    const { instanceRepository } = fakeRepositories();
+    const processor = createQueueJobProcessor({ instanceRepository });
 
-    await expect(processor('database-maintenance', { task: 'purge-logs' })).rejects.toThrow('No processor registered');
     await expect(processor('instance-checks', { instanceId: 'not-a-real-id', source: 'scheduled', password: 'secret' })).rejects.toThrow('must not contain credentials');
-    expect(repository.testConnectivity).not.toHaveBeenCalled();
+    expect(instanceRepository.testConnectivity).not.toHaveBeenCalled();
+  });
+
+  it('dispatches database-maintenance purge-logs jobs through configured retention maintenance', async () => {
+    const { instanceRepository, appLogRepository, appSettingsRepository } = fakeRepositories();
+    const processor = createQueueJobProcessor({ instanceRepository, appLogRepository, appSettingsRepository });
+
+    await expect(processor('database-maintenance', { task: 'purge-logs', requestedBy: 'system' })).resolves.toEqual({
+      task: 'purge-logs',
+      retention: { days: 14 },
+      deleted: 7,
+      tables: [
+        { tableName: 'application_logs', deleted: 2 },
+        { tableName: 'oxygen_instance_check_history', deleted: 5 }
+      ]
+    });
+    expect(appSettingsRepository.getLogRetention).toHaveBeenCalledTimes(1);
+    expect(appLogRepository.pruneOlderThan).toHaveBeenCalledWith(14);
+  });
+
+  it('rejects unknown or unsafe database-maintenance jobs without touching logs', async () => {
+    const { instanceRepository, appLogRepository, appSettingsRepository } = fakeRepositories();
+    const processor = createQueueJobProcessor({ instanceRepository, appLogRepository, appSettingsRepository });
+
+    await expect(processor('database-maintenance', { task: 'backup' })).rejects.toThrow('Unsupported database-maintenance task');
+    await expect(processor('database-maintenance', { task: 'purge-logs', password: 'secret' })).rejects.toThrow('must not contain credentials');
+    expect(appLogRepository.pruneOlderThan).not.toHaveBeenCalled();
   });
 });

@@ -3,10 +3,11 @@ import { profileHasPermission } from '../auth/permissions.js';
 import { requireAuth, requirePermission } from '../auth/registerAuthRoutes.js';
 import type { AuthProfile, AuthRepository } from '../auth/types.js';
 import type { AppSettingsRepository } from '../appSettings/types.js';
+import { enqueueLogRetentionPurge, type DatabaseMaintenanceQueue } from '../queues/databaseMaintenanceQueue.js';
 import { appLogQuerySchema } from './schemas.js';
 import type { AppLogRepository } from './types.js';
 
-export async function registerAppLogRoutes(app: FastifyInstance, authRepository: AuthRepository, repository: AppLogRepository, appSettingsRepository?: AppSettingsRepository) {
+export async function registerAppLogRoutes(app: FastifyInstance, authRepository: AuthRepository, repository: AppLogRepository, appSettingsRepository?: AppSettingsRepository, databaseMaintenanceQueue?: DatabaseMaintenanceQueue | null) {
   const requireSignedIn = requireAuth(authRepository);
   const preHandler = [requireSignedIn, requirePermission('logs.view')];
   const maintainPreHandler = [requireSignedIn, requirePermission('logs.maintain')];
@@ -40,6 +41,13 @@ export async function registerAppLogRoutes(app: FastifyInstance, authRepository:
     const retention = await appSettingsRepository.getLogRetention();
     const result = await repository.pruneOlderThan(retention.days);
     return { retention, ...result };
+  });
+
+  app.post('/api/logs/retention/queue', { preHandler: maintainPreHandler }, async (request, reply) => {
+    if (!databaseMaintenanceQueue) return reply.code(400).send({ error: 'Database maintenance queue is not enabled.' });
+    const profile = request.authProfile as AuthProfile | undefined;
+    const result = await enqueueLogRetentionPurge(databaseMaintenanceQueue, profile?.user.displayName || profile?.user.email);
+    return reply.code(202).send(result);
   });
 
   app.delete('/api/logs', { preHandler: maintainPreHandler }, async () => {

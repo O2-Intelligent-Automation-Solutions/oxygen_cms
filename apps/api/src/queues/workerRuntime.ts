@@ -1,7 +1,9 @@
 import type { Job, Worker } from 'bullmq';
 import type { AppLogRepository } from '../appLogs/types.js';
+import type { AppSettingsRepository } from '../appSettings/types.js';
 import type { AppConfig } from '../config/loadConfig.js';
 import type { InstanceRepository } from '../instances/types.js';
+import { processDatabaseMaintenanceJob } from './databaseMaintenanceProcessor.js';
 import { processInstanceCheckJob } from './instanceCheckProcessor.js';
 import { QUEUE_NAMES, createQueueConnectionOptions, type QueueName } from './queueStatus.js';
 
@@ -20,6 +22,7 @@ type WorkerConstructor = typeof Worker;
 export type QueueJobProcessorOptions = {
   instanceRepository: InstanceRepository;
   appLogRepository?: AppLogRepository;
+  appSettingsRepository?: AppSettingsRepository;
 };
 
 export type QueueWorkerRuntimeOptions = QueueJobProcessorOptions;
@@ -31,6 +34,14 @@ export function createQueueJobProcessor(options: QueueJobProcessorOptions) {
         data: data as Parameters<typeof processInstanceCheckJob>[0]['data'],
         repository: options.instanceRepository,
         appLogRepository: options.appLogRepository
+      });
+    }
+
+    if (queueName === 'database-maintenance') {
+      return processDatabaseMaintenanceJob({
+        data,
+        appLogRepository: options.appLogRepository,
+        appSettingsRepository: options.appSettingsRepository
       });
     }
 

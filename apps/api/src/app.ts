@@ -27,6 +27,7 @@ import { createInstancePoller, type InstancePoller } from './instances/instanceP
 import { createSetupAwareInstanceRepository } from './instances/mysqlInstanceRepository.js';
 import { registerInstanceRoutes } from './instances/registerInstanceRoutes.js';
 import { createQueueRuntime, type QueueRuntime, type QueueStatusProvider } from './queues/queueStatus.js';
+import { createDatabaseMaintenanceQueue, type DatabaseMaintenanceQueue } from './queues/databaseMaintenanceQueue.js';
 import { createInstanceCheckQueueScheduler, reconcileInstanceCheckSchedules, type InstanceCheckQueueScheduler } from './queues/instanceCheckScheduler.js';
 import type { InstanceRepository } from './instances/types.js';
 import { registerSetupRoutes } from './setup/registerSetupRoutes.js';
@@ -57,6 +58,7 @@ type BuildAppOptions = FastifyServerOptions & {
   updateStatusProvider?: UpdateStatusProvider;
   queueStatusProvider?: QueueRuntime;
   instanceCheckQueueScheduler?: (InstanceCheckQueueScheduler & { close?(): Promise<void> }) | null;
+  databaseMaintenanceQueue?: (DatabaseMaintenanceQueue & { close?(): Promise<void> }) | null;
   enableBackgroundPolling?: boolean;
   backgroundPollingTickMs?: number;
   webDistPath?: string | false;
@@ -262,6 +264,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     updateStatusProvider: providedUpdateStatusProvider,
     queueStatusProvider: providedQueueStatusProvider,
     instanceCheckQueueScheduler: providedInstanceCheckQueueScheduler,
+    databaseMaintenanceQueue: providedDatabaseMaintenanceQueue,
     enableBackgroundPolling,
     backgroundPollingTickMs,
     webDistPath = defaultWebDistPath(),
@@ -313,6 +316,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   const queueRuntime: QueueRuntime = providedQueueStatusProvider ?? await createQueueRuntime(config);
   const queueStatusProvider: QueueStatusProvider = queueRuntime;
   const instanceCheckQueueScheduler = providedInstanceCheckQueueScheduler ?? await createInstanceCheckQueueScheduler(config);
+  const databaseMaintenanceQueue = providedDatabaseMaintenanceQueue ?? await createDatabaseMaintenanceQueue(config);
   const reconcileInstanceCheckQueueSchedules = instanceCheckQueueScheduler ? async () => {
     try {
       await reconcileInstanceCheckSchedules({ repository: instanceRepository, queue: instanceCheckQueueScheduler });
@@ -344,7 +348,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await registerDashboardRoutes(app, authRepository, instanceRepository, instancePoller);
   await registerGridPreferenceRoutes(app, authRepository, gridPreferenceRepository);
   await registerAppSettingsRoutes(app, authRepository, appSettingsRepository);
-  await registerAppLogRoutes(app, authRepository, appLogRepository, appSettingsRepository);
+  await registerAppLogRoutes(app, authRepository, appLogRepository, appSettingsRepository, databaseMaintenanceQueue);
   await registerSystemRoutes(app, authRepository, instancePoller, databasePerformanceReader, issueCatalogReader, updateChecker, updateStatusProvider, queueStatusProvider);
 
   if (queueRuntime.bullBoard) {
@@ -380,6 +384,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   }
   if (queueStatusProvider.close) app.addHook('onClose', async () => { await queueStatusProvider.close?.(); });
   if (instanceCheckQueueScheduler?.close) app.addHook('onClose', async () => { await instanceCheckQueueScheduler.close?.(); });
+  if (databaseMaintenanceQueue?.close) app.addHook('onClose', async () => { await databaseMaintenanceQueue.close?.(); });
 
   if (webDistPath && existsSync(join(webDistPath, 'index.html'))) {
     await app.register(fastifyStatic, {

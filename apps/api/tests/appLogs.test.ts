@@ -6,13 +6,14 @@ import { createInMemoryAuthRepository } from '../src/auth/inMemoryAuthRepository
 import { createInMemoryGridPreferenceRepository } from '../src/gridPreferences/inMemoryGridPreferenceRepository.js';
 import { createInMemoryInstanceRepository } from '../src/instances/inMemoryInstanceRepository.js';
 import type { ConnectivityResult } from '../src/instances/types.js';
+import type { DatabaseMaintenanceQueue } from '../src/queues/databaseMaintenanceQueue.js';
 
-async function bootApp() {
+async function bootApp(options: { databaseMaintenanceQueue?: DatabaseMaintenanceQueue | null } = {}) {
   const authRepository = createInMemoryAuthRepository();
   const appLogRepository = createInMemoryAppLogRepository();
   const appSettingsRepository = createInMemoryAppSettingsRepository();
   const instanceRepository = createInMemoryInstanceRepository();
-  const app = await buildApp({ logger: false, authRepository, appLogRepository, appSettingsRepository, gridPreferenceRepository: createInMemoryGridPreferenceRepository(), instanceRepository, enableBackgroundPolling: false });
+  const app = await buildApp({ logger: false, authRepository, appLogRepository, appSettingsRepository, gridPreferenceRepository: createInMemoryGridPreferenceRepository(), instanceRepository, databaseMaintenanceQueue: options.databaseMaintenanceQueue, enableBackgroundPolling: false });
   await app.inject({ method: 'POST', url: '/api/auth/bootstrap', payload: { email: 'admin@example.com', displayName: 'Admin User', password: 'AdminPassword!42' } });
   const login = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: 'admin@example.com', password: 'AdminPassword!42' } });
   return { app, token: login.json().token as string, appLogRepository, appSettingsRepository, instanceRepository };
@@ -109,6 +110,34 @@ describe('application logs API', () => {
         { tableName: 'oxygen_instance_check_history', deleted: 5 }
       ]
     });
+
+    await app.close();
+  });
+
+  it('queues configured activity retention as a database-maintenance job when queues are available', async () => {
+    const queue: DatabaseMaintenanceQueue = { add: vi.fn(async () => ({ id: 'purge-logs:test-job' })) };
+    const { app, token, appLogRepository } = await bootApp({ databaseMaintenanceQueue: queue });
+    const pruneSpy = vi.spyOn(appLogRepository, 'pruneOlderThan');
+
+    const response = await app.inject({ method: 'POST', url: '/api/logs/retention/queue', headers: { authorization: `Bearer ${token}` } });
+
+    expect(response.statusCode).toBe(202);
+    expect(response.json()).toEqual({ queued: true, queue: 'database-maintenance', jobId: 'purge-logs:test-job', task: 'purge-logs' });
+    expect(queue.add).toHaveBeenCalledWith('purge-logs', { task: 'purge-logs', requestedBy: 'Admin User' }, expect.objectContaining({ jobId: expect.stringMatching(/^database-maintenance:purge-logs:/), attempts: 1, removeOnComplete: 100, removeOnFail: 500 }));
+    expect(pruneSpy).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it('returns a clean disabled response when activity retention queueing is unavailable', async () => {
+    const { app, token, appLogRepository } = await bootApp({ databaseMaintenanceQueue: null });
+    const pruneSpy = vi.spyOn(appLogRepository, 'pruneOlderThan');
+
+    const response = await app.inject({ method: 'POST', url: '/api/logs/retention/queue', headers: { authorization: `Bearer ${token}` } });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: 'Database maintenance queue is not enabled.' });
+    expect(pruneSpy).not.toHaveBeenCalled();
 
     await app.close();
   });

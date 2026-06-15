@@ -986,6 +986,29 @@ paths:
                         deleted: { type: integer, minimum: 0 }
         '401': { $ref: '#/components/responses/Error' }
         '403': { $ref: '#/components/responses/Error' }
+  /api/logs/retention/queue:
+    post:
+      tags: [Application Logs]
+      summary: Queue activity retention purge
+      description: SystemAdmin-only maintenance action that enqueues a credential-free `purge-logs` job on the `database-maintenance` queue. The worker reads the configured retention window when executing the job, so no retention values or credentials are stored in BullMQ. Returns 400 when BullMQ/database maintenance queueing is disabled.
+      responses:
+        '202':
+          description: Retention purge job queued.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [queued, queue, jobId, task]
+                properties:
+                  queued: { type: boolean, enum: [true] }
+                  queue: { type: string, enum: [database-maintenance] }
+                  jobId:
+                    type: string
+                    nullable: true
+                  task: { type: string, enum: [purge-logs] }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
   /api/grid-preferences/{gridKey}:
     parameters:
       - $ref: '#/components/parameters/gridKey'
