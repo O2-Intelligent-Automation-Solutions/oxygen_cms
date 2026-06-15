@@ -27,6 +27,7 @@ import { createInstancePoller, type InstancePoller } from './instances/instanceP
 import { createSetupAwareInstanceRepository } from './instances/mysqlInstanceRepository.js';
 import { registerInstanceRoutes } from './instances/registerInstanceRoutes.js';
 import { createQueueRuntime, type QueueRuntime, type QueueStatusProvider } from './queues/queueStatus.js';
+import { createInstanceCheckQueueScheduler, reconcileInstanceCheckSchedules, type InstanceCheckQueueScheduler } from './queues/instanceCheckScheduler.js';
 import type { InstanceRepository } from './instances/types.js';
 import { registerSetupRoutes } from './setup/registerSetupRoutes.js';
 import { createDatabasePerformanceReader, type DatabasePerformanceReader } from './system/databasePerformance.js';
@@ -54,7 +55,8 @@ type BuildAppOptions = FastifyServerOptions & {
   issueCatalogReader?: IssueCatalogReader;
   updateChecker?: UpdateChecker;
   updateStatusProvider?: UpdateStatusProvider;
-  queueStatusProvider?: QueueStatusProvider;
+  queueStatusProvider?: QueueRuntime;
+  instanceCheckQueueScheduler?: (InstanceCheckQueueScheduler & { close?(): Promise<void> }) | null;
   enableBackgroundPolling?: boolean;
   backgroundPollingTickMs?: number;
   webDistPath?: string | false;
@@ -259,6 +261,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     updateChecker: providedUpdateChecker,
     updateStatusProvider: providedUpdateStatusProvider,
     queueStatusProvider: providedQueueStatusProvider,
+    instanceCheckQueueScheduler: providedInstanceCheckQueueScheduler,
     enableBackgroundPolling,
     backgroundPollingTickMs,
     webDistPath = defaultWebDistPath(),
@@ -309,6 +312,14 @@ export async function buildApp(options: BuildAppOptions = {}) {
   });
   const queueRuntime: QueueRuntime = providedQueueStatusProvider ?? await createQueueRuntime(config);
   const queueStatusProvider: QueueStatusProvider = queueRuntime;
+  const instanceCheckQueueScheduler = providedInstanceCheckQueueScheduler ?? await createInstanceCheckQueueScheduler(config);
+  const reconcileInstanceCheckQueueSchedules = instanceCheckQueueScheduler ? async () => {
+    try {
+      await reconcileInstanceCheckSchedules({ repository: instanceRepository, queue: instanceCheckQueueScheduler });
+    } catch (error) {
+      app.log.warn({ error }, 'Failed to reconcile instance-check queue schedules');
+    }
+  } : undefined;
 
   await app.register(helmet);
   await app.register(cors, {
@@ -325,7 +336,8 @@ export async function buildApp(options: BuildAppOptions = {}) {
 
   await registerSetupRoutes(app, authRepository, setupStatusProvider, setupSettingsStore, databaseProvisioner, deploymentConfig);
   await registerAuthRoutes(app, authRepository);
-  await registerInstanceRoutes(app, authRepository, instanceRepository, appLogRepository);
+  await registerInstanceRoutes(app, authRepository, instanceRepository, appLogRepository, reconcileInstanceCheckQueueSchedules);
+  await reconcileInstanceCheckQueueSchedules?.();
 
   const instancePoller = providedInstancePoller ?? createInstancePoller({ repository: instanceRepository, tickIntervalMs: backgroundPollingTickMs, logger: app.log, appLogRepository });
 
@@ -367,6 +379,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     app.addHook('onClose', async () => { instancePoller.stop(); });
   }
   if (queueStatusProvider.close) app.addHook('onClose', async () => { await queueStatusProvider.close?.(); });
+  if (instanceCheckQueueScheduler?.close) app.addHook('onClose', async () => { await instanceCheckQueueScheduler.close?.(); });
 
   if (webDistPath && existsSync(join(webDistPath, 'index.html'))) {
     await app.register(fastifyStatic, {

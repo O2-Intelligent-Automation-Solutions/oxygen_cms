@@ -1,9 +1,10 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { AddressInfo } from 'node:net';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { createInMemoryAuthRepository } from '../src/auth/inMemoryAuthRepository.js';
 import { createInMemoryInstanceRepository } from '../src/instances/inMemoryInstanceRepository.js';
+import type { InstanceCheckQueueScheduler } from '../src/queues/instanceCheckScheduler.js';
 
 const mockOxyGenServers: Array<ReturnType<typeof createServer>> = [];
 
@@ -79,6 +80,16 @@ afterEach(async () => {
   await Promise.all(mockOxyGenServers.splice(0).map((server) => new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))));
 });
 
+function createFakeInstanceCheckScheduler(existingSchedulers: Array<{ id: string }> = []): InstanceCheckQueueScheduler & { close: () => Promise<void> } {
+  return {
+    upsertJobScheduler: vi.fn(async () => undefined),
+    removeJobScheduler: vi.fn(async () => undefined),
+    getJobSchedulers: vi.fn(async () => existingSchedulers),
+    add: vi.fn(async () => undefined),
+    close: async () => undefined
+  };
+}
+
 async function bootstrap(app: Awaited<ReturnType<typeof buildApp>>, authRepository: ReturnType<typeof createInMemoryAuthRepository>) {
   await app.inject({ method: 'POST', url: '/api/auth/bootstrap', payload: { email: 'admin@example.com', displayName: 'Admin User', password: 'AdminPassword!42' } });
   const login = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: 'admin@example.com', password: 'AdminPassword!42' } });
@@ -92,6 +103,66 @@ async function bootstrap(app: Awaited<ReturnType<typeof buildApp>>, authReposito
 }
 
 describe('instance enrollment API', () => {
+  it('reconciles instance-check schedules once during app startup when a scheduler is available', async () => {
+    const authRepository = createInMemoryAuthRepository();
+    const instanceRepository = createInMemoryInstanceRepository();
+    const scheduler = createFakeInstanceCheckScheduler();
+    await instanceRepository.createInstance({ name: 'Startup Scheduled', description: null, tenantId: null, host: 'startup.example.com', username: 'admin', password: 'RemotePassword!42' });
+
+    const app = await buildApp({ logger: false, authRepository, instanceRepository, instanceCheckQueueScheduler: scheduler, enableBackgroundPolling: false });
+
+    expect(scheduler.upsertJobScheduler).toHaveBeenCalledTimes(1);
+    expect(scheduler.upsertJobScheduler).toHaveBeenCalledWith(expect.stringMatching(/^instance-check:/), expect.objectContaining({ immediately: false }), expect.objectContaining({ data: expect.objectContaining({ source: 'scheduled' }) }));
+    await app.close();
+  });
+
+  it('reconciles instance-check schedules after successful instance create, update, delete, and import mutations', async () => {
+    const authRepository = createInMemoryAuthRepository();
+    const instanceRepository = createInMemoryInstanceRepository();
+    const scheduler = createFakeInstanceCheckScheduler();
+    const app = await buildApp({ logger: false, authRepository, instanceRepository, instanceCheckQueueScheduler: scheduler, enableBackgroundPolling: false });
+    const { adminToken, tenant } = await bootstrap(app, authRepository);
+    vi.mocked(scheduler.upsertJobScheduler).mockClear();
+    vi.mocked(scheduler.removeJobScheduler).mockClear();
+    vi.mocked(scheduler.getJobSchedulers).mockClear();
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/instances',
+      headers: { authorization: `Bearer ${adminToken}` },
+      payload: { name: 'Scheduled Create', description: null, tenantId: tenant.id, host: 'scheduled-create.example.com', password: 'RemotePassword!42' }
+    });
+    expect(created.statusCode).toBe(201);
+    expect(scheduler.upsertJobScheduler).toHaveBeenCalledTimes(1);
+
+    vi.mocked(scheduler.upsertJobScheduler).mockClear();
+    const updated = await app.inject({
+      method: 'PATCH',
+      url: `/api/instances/${created.json().instance.id}`,
+      headers: { authorization: `Bearer ${adminToken}` },
+      payload: { name: 'Scheduled Disabled', description: null, tenantId: tenant.id, host: 'scheduled-create.example.com', password: 'RemotePassword!42', isEnabled: false }
+    });
+    expect(updated.statusCode).toBe(200);
+    expect(scheduler.upsertJobScheduler).not.toHaveBeenCalled();
+
+    vi.mocked(scheduler.getJobSchedulers).mockResolvedValueOnce([{ id: `instance-check:${created.json().instance.id}` }]);
+    const deleted = await app.inject({ method: 'DELETE', url: `/api/instances/${created.json().instance.id}`, headers: { authorization: `Bearer ${adminToken}` } });
+    expect(deleted.statusCode).toBe(204);
+    expect(scheduler.removeJobScheduler).toHaveBeenCalledWith(`instance-check:${created.json().instance.id}`);
+
+    vi.mocked(scheduler.upsertJobScheduler).mockClear();
+    const imported = await app.inject({
+      method: 'POST',
+      url: '/api/instances/import',
+      headers: { authorization: `Bearer ${adminToken}` },
+      payload: { dryRun: false, csv: 'instance_guid,name,description,tenant,protocol,host,port,username,polling_interval_seconds,is_enabled,check_license,archived,metadata,notes,password\n,Imported Scheduled,,Acme Tenant,https,imported-scheduled.example.com,,admin,300,true,true,false,,,RemotePassword!42\n' }
+    });
+    expect(imported.statusCode).toBe(200);
+    expect(scheduler.upsertJobScheduler).toHaveBeenCalledTimes(1);
+
+    await app.close();
+  });
+
   it('defaults new OxyGen instances to HTTPS, port 443, and admin username; HTTP defaults to port 80', async () => {
     const authRepository = createInMemoryAuthRepository();
     const instanceRepository = createInMemoryInstanceRepository();

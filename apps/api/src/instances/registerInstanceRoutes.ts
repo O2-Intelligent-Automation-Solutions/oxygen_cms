@@ -126,10 +126,18 @@ async function appendConnectivityLog(app: FastifyInstance, repository: AppLogRep
   }).catch((error) => app.log.warn({ error }, 'Failed to persist manual connectivity log'));
 }
 
-export async function registerInstanceRoutes(app: FastifyInstance, authRepository: AuthRepository, instanceRepository: InstanceRepository, appLogRepository?: AppLogRepository) {
+export async function registerInstanceRoutes(app: FastifyInstance, authRepository: AuthRepository, instanceRepository: InstanceRepository, appLogRepository?: AppLogRepository, onInstanceSchedulesChanged?: () => Promise<void>) {
   const requireSignedIn = requireAuth(authRepository);
   const viewPreHandler = [requireSignedIn, requirePermission('instances.view')];
   const managePreHandler = [requireSignedIn, requirePermission('instances.manage')];
+  const reconcileInstanceSchedules = async () => {
+    if (!onInstanceSchedulesChanged) return;
+    try {
+      await onInstanceSchedulesChanged();
+    } catch (error) {
+      app.log.warn({ error }, 'Failed to reconcile instance-check schedules after instance mutation');
+    }
+  };
   const importExportPreHandler = [requireSignedIn, requirePermission('instances.importExport')];
 
   app.get('/api/instances', { preHandler: viewPreHandler }, async (request) => {
@@ -156,6 +164,7 @@ export async function registerInstanceRoutes(app: FastifyInstance, authRepositor
     const input = importInstancesSchema.parse(request.body);
     try {
       const result = await importInstancesFromCsv({ authRepository, instanceRepository, profile, csv: input.csv, dryRun: input.dryRun });
+      if (!result.dryRun && result.failed === 0 && (result.created > 0 || result.updated > 0)) await reconcileInstanceSchedules();
       return reply.code(result.failed > 0 && !result.dryRun ? 400 : 200).send(result);
     } catch (error) {
       return errorReply(reply, error, 'Unable to import instances.');
@@ -166,7 +175,9 @@ export async function registerInstanceRoutes(app: FastifyInstance, authRepositor
     const input = createInstanceSchema.parse(request.body);
     try {
       const profile = (request as AuthenticatedRequest).authProfile;
-      return reply.code(201).send({ instance: await instanceRepository.createInstance({ ...input, tenantId: assertWritableTenant(profile, input.tenantId) }) });
+      const instance = await instanceRepository.createInstance({ ...input, tenantId: assertWritableTenant(profile, input.tenantId) });
+      await reconcileInstanceSchedules();
+      return reply.code(201).send({ instance });
     }
     catch (error) { return errorReply(reply, error, 'Unable to create instance.'); }
   });
@@ -196,7 +207,9 @@ export async function registerInstanceRoutes(app: FastifyInstance, authRepositor
       const profile = (request as AuthenticatedRequest).authProfile;
       const existing = await instanceRepository.getInstance(instanceId);
       if (!existing || !canAccessTenant(profile, existing.tenantId)) return reply.code(404).send({ error: 'Instance not found.' });
-      return reply.code(200).send({ instance: await instanceRepository.updateInstance(instanceId, { ...input, tenantId: assertWritableTenant(profile, input.tenantId) }) });
+      const instance = await instanceRepository.updateInstance(instanceId, { ...input, tenantId: assertWritableTenant(profile, input.tenantId) });
+      await reconcileInstanceSchedules();
+      return reply.code(200).send({ instance });
     }
     catch (error) { return errorReply(reply, error, 'Unable to update instance.', 'Instance not found.'); }
   });
@@ -207,7 +220,9 @@ export async function registerInstanceRoutes(app: FastifyInstance, authRepositor
       const profile = (request as AuthenticatedRequest).authProfile;
       const existing = await instanceRepository.getInstance(instanceId);
       if (!existing || !canAccessTenant(profile, existing.tenantId)) return reply.code(404).send({ error: 'Instance not found.' });
-      await instanceRepository.deleteInstance(instanceId); return reply.code(204).send();
+      await instanceRepository.deleteInstance(instanceId);
+      await reconcileInstanceSchedules();
+      return reply.code(204).send();
     }
     catch (error) { return errorReply(reply, error, 'Unable to delete instance.', 'Instance not found.'); }
   });
