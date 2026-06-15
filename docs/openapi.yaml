@@ -715,7 +715,7 @@ paths:
     get:
       tags: [System]
       summary: Get CMS update orchestration status
-      description: SystemAdmin/update-panel endpoint for the non-technical in-place update flow. Returns the current guarded update command status and ordered progress steps. This initial Milestone 7D slice is read-only and reports idle command availability until a later runner/API slice records live execution state.
+      description: SystemAdmin/update-panel endpoint for the non-technical in-place update flow. Returns the current guarded update command status, ordered progress steps, and last in-memory runner result. Runner execution is disabled by default unless deployment configuration explicitly enables it.
       responses:
         '200':
           description: Update orchestration status.
@@ -728,6 +728,62 @@ paths:
                   updateStatus: { $ref: '#/components/schemas/SystemUpdateStatus' }
         '401': { $ref: '#/components/responses/Error' }
         '403': { $ref: '#/components/responses/Error' }
+  /api/system/update-runner/dry-run:
+    post:
+      tags: [System]
+      summary: Start guarded CMS update dry run
+      description: SystemAdmin/settings-management endpoint. Starts the configured host update script in dry-run mode only when `CMS_UPDATE_RUNNER_ENABLED=true`; disabled deployments return a guarded error and never spawn the script.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                targetRef: { type: [string, 'null'], description: Optional release, tag, branch, or commit ref to validate. }
+      responses:
+        '202':
+          description: Dry-run request accepted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [updateStatus]
+                properties:
+                  updateStatus: { $ref: '#/components/schemas/SystemUpdateStatus' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /api/system/update-runner/update:
+    post:
+      tags: [System]
+      summary: Start guarded confirmed CMS update
+      description: SystemAdmin/settings-management endpoint. Starts the configured host update script for a real update only when `CMS_UPDATE_RUNNER_ENABLED=true` and the request includes explicit confirmation. The API sets the configured confirmation environment variable before spawning the host script.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                targetRef: { type: [string, 'null'], description: Optional release, tag, branch, or commit ref to apply. }
+                confirmed: { type: boolean, description: Must be true for real updates. }
+                confirmation: { type: [string, 'null'], description: Alternative acknowledgement; `YES` is accepted. }
+      responses:
+        '202':
+          description: Confirmed update request accepted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [updateStatus]
+                properties:
+                  updateStatus: { $ref: '#/components/schemas/SystemUpdateStatus' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
   /api/system/database-performance:
     get:
       tags: [System]

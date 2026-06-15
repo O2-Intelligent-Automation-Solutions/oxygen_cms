@@ -53,6 +53,7 @@ export async function registerSystemRoutes(app: FastifyInstance, authRepository:
   const databasePreHandler = [requireSignedIn, requirePermission('settings.database.view')];
   const issueTypesPreHandler = [requireSignedIn, requirePermission('issueTypes.view')];
   const versionPreHandler = [requireSignedIn, requirePermission('system.version.view')];
+  const updateRunnerPreHandler = [requireSignedIn, requirePermission('settings.manage')];
 
   function status() {
     return poller?.getStatus() ?? {
@@ -77,6 +78,29 @@ export async function registerSystemRoutes(app: FastifyInstance, authRepository:
   });
   app.get('/api/system/version', { preHandler: versionPreHandler }, async () => ({ version: await updateChecker.getVersionSnapshot() }));
   app.get('/api/system/update-status', { preHandler: versionPreHandler }, async () => ({ updateStatus: await updateStatusProvider.readStatus() }));
+  app.post('/api/system/update-runner/dry-run', { preHandler: updateRunnerPreHandler }, async (request, reply) => {
+    if (!updateStatusProvider.runUpdate) return reply.code(501).send({ error: 'Update runner is not available.' });
+    try {
+      const body = (request.body ?? {}) as { targetRef?: string | null };
+      const updateStatus = await updateStatusProvider.runUpdate({ mode: 'dry-run', targetRef: body.targetRef ?? null });
+      return reply.code(202).send({ updateStatus });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to start update dry run.';
+      return reply.code(message.includes('already in progress') ? 409 : 400).send({ error: message });
+    }
+  });
+  app.post('/api/system/update-runner/update', { preHandler: updateRunnerPreHandler }, async (request, reply) => {
+    if (!updateStatusProvider.runUpdate) return reply.code(501).send({ error: 'Update runner is not available.' });
+    try {
+      const body = (request.body ?? {}) as { targetRef?: string | null; confirmed?: boolean; confirmation?: string | null };
+      const confirmed = body.confirmed === true || body.confirmation === 'YES';
+      const updateStatus = await updateStatusProvider.runUpdate({ mode: 'update', targetRef: body.targetRef ?? null, confirmed });
+      return reply.code(202).send({ updateStatus });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to start update.';
+      return reply.code(message.includes('already in progress') ? 409 : 400).send({ error: message });
+    }
+  });
   app.post('/api/system/poller/pause', { preHandler: pollerPreHandler }, async () => {
     poller?.pause();
     return { poller: status() };

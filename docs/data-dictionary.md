@@ -136,11 +136,16 @@ The Settings → General update panel is backed by a read-only SystemAdmin endpo
 
 ### `GET /api/system/update-status`
 
-Milestone 7D update orchestration status is exposed as a read-only SystemAdmin endpoint for the future non-technical update flow. The current slice does not add tables or execute updates from the API; it reports the guarded command contract and ordered progress steps for the Settings → General update action page.
+Milestone 7D update orchestration status is exposed as a SystemAdmin endpoint for the non-technical update flow. Guarded execution endpoints are present but disabled by default; self-hosted deployments must explicitly set `CMS_UPDATE_RUNNER_ENABLED=true` and related runner configuration before the API will spawn the host update script.
 
 | Field group | Description |
 | --- | --- |
-| `state` / `inProgress` / `canRunUpdate` | Current update runner state. Initial implementation returns `idle`, `false`, and `true` while no live runner is attached. |
-| `command` / `dryRunCommand` / `requiresConfirmation` | Operator command contract: `scripts/deploy.sh update`, dry-run variant, and explicit confirmation requirement. |
-| `steps[]` | Ordered update phases: dry run, backup, checkout, build, restart, and schema migration. |
-| `lastRun` / `lastError` | Reserved for live runner history/error details in the next Milestone 7D slice. |
+| `runner.enabled` / `runner.state` / `runner.inProgress` / `runner.canRun` | Current guarded runner state. Disabled deployments report `blocked`, `false`, and `false`; enabled deployments report `idle`/`running` and reject overlapping runs. |
+| `runner.command` / `runner.dryRunCommand` / `runner.requiresConfirmation` / `runner.confirmationVariable` | Operator command contract and confirmation env variable used for real updates. |
+| `runner.currentRef` / `runner.targetRef` | Current/target refs when configured or selected for a run. |
+| `steps[]` | Ordered update phases: dry run, backup, checkout, build, restart, and schema migration, including state/timestamps/messages. |
+| `lastRun` / `lastError` | Last in-memory runner summary/error for dry-run or confirmed execution requests. |
+
+### `POST /api/system/update-runner/dry-run` and `POST /api/system/update-runner/update`
+
+SystemAdmin guarded execution endpoints for the update flow. Both are disabled unless the deployment opts in with `CMS_UPDATE_RUNNER_ENABLED=true`. Dry runs execute the configured host script with `update --dry-run`; real updates require explicit confirmation (`confirmed=true` or `confirmation=YES`) and set the configured confirmation env variable before running `update`.

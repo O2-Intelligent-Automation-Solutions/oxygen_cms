@@ -122,9 +122,9 @@ Stopping the stack with `scripts/deploy.sh stop` preserves these volumes.
 
 ## Current limitations
 
-This deployment baseline now includes GitHub update detection and the CMS Settings → General update notice. It does not yet include:
+This deployment baseline now includes GitHub update detection, the CMS Settings → General update notice, and disabled-by-default guarded update runner API endpoints. It does not yet include:
 
-- Full CMS UI/API-driven update orchestration. The host-side guarded `scripts/deploy.sh update` command is the first Milestone 7D implementation slice; UI progress/status and automatic schema-migration execution remain next.
-- Real BullMQ job processors and per-instance scheduled job reconciliation. Redis/BullMQ configuration, status API, optional Bull Board mount, Settings → General queue visibility, and opt-in worker bootstrap/profile wiring are present as the Phase 1.5 foundation.
+- CMS UI action buttons that trigger the guarded dry-run/update endpoints. The host-side guarded `scripts/deploy.sh update` command and backend execution/status tracking are present; UI buttons and automatic schema-migration follow-through remain next.
+- Automatic BullMQ startup/CRUD schedule reconciliation. Redis/BullMQ configuration, status API, optional Bull Board mount, Settings → General queue visibility, opt-in worker bootstrap/profile wiring, safe instance-check processor, and schedule/manual enqueue helpers are present as the Phase 1.5 foundation.
 
 Bundled HTTPS/certificate automation is intentionally skipped for now in favor of external reverse-proxy/load-balancer TLS termination.

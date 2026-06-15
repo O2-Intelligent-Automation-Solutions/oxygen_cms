@@ -32,7 +32,7 @@ import { registerSetupRoutes } from './setup/registerSetupRoutes.js';
 import { createDatabasePerformanceReader, type DatabasePerformanceReader } from './system/databasePerformance.js';
 import { createIssueCatalogReader, type IssueCatalogReader } from './system/issueCatalog.js';
 import { registerSystemRoutes } from './system/registerSystemRoutes.js';
-import { createStaticUpdateStatusProvider, type UpdateStatusProvider } from './system/updateStatus.js';
+import { createUpdateRunnerStatusProvider, type UpdateStatusProvider } from './system/updateStatus.js';
 import { createUpdateChecker, type UpdateChecker } from './system/updateInfo.js';
 import { createMysqlDatabaseProvisioner, type DatabaseProvisioner } from './setup/databaseProvisioner.js';
 import { createDefaultDeploymentConfig, type DeploymentConfig } from './setup/deploymentConfig.js';
@@ -272,7 +272,8 @@ export async function buildApp(options: BuildAppOptions = {}) {
   const databasePerformanceReader = providedDatabasePerformanceReader ?? createDatabasePerformanceReader(setupSettingsStore);
   const issueCatalogReader = providedIssueCatalogReader ?? createIssueCatalogReader(setupSettingsStore, instanceRepository);
   const updateChecker = providedUpdateChecker ?? createUpdateChecker();
-  const updateStatusProvider = providedUpdateStatusProvider ?? createStaticUpdateStatusProvider();
+  const config = loadConfig();
+  const updateStatusProvider = providedUpdateStatusProvider ?? createUpdateRunnerStatusProvider(config.updateRunner);
   const app = Fastify(fastifyOptions);
   app.addHook('onSend', async (request, _reply, payload) => {
     (request as LoggedResponsePayloadRequest).appLogResponsePayload = payload;
@@ -306,7 +307,6 @@ export async function buildApp(options: BuildAppOptions = {}) {
       }
     }).catch((error) => app.log.warn({ error }, 'Failed to persist application activity log'));
   });
-  const config = loadConfig();
   const queueRuntime: QueueRuntime = providedQueueStatusProvider ?? await createQueueRuntime(config);
   const queueStatusProvider: QueueStatusProvider = queueRuntime;
 

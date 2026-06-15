@@ -43,6 +43,13 @@ export type AppConfig = {
       path: string;
     };
   };
+  updateRunner: {
+    enabled: boolean;
+    command: string;
+    cwd: string;
+    confirmationVariable: string;
+    targetRef: string | null;
+  };
 };
 
 type Environment = Record<string, string | undefined>;
@@ -90,6 +97,13 @@ export function loadConfig(env: Environment = process.env): AppConfig {
         enabled: parseBoolean(env.BULL_BOARD_ENABLED, false),
         path: normalizeBasePath(env.BULL_BOARD_PATH, '/admin/queues')
       }
+    },
+    updateRunner: {
+      enabled: parseBoolean(env.CMS_UPDATE_RUNNER_ENABLED, false),
+      command: env.CMS_UPDATE_RUNNER_COMMAND?.trim() || 'scripts/deploy.sh',
+      cwd: env.CMS_UPDATE_RUNNER_CWD?.trim() || process.cwd(),
+      confirmationVariable: env.CMS_UPDATE_CONFIRMATION_VARIABLE?.trim() || 'CONFIRM_UPDATE',
+      targetRef: env.CMS_UPDATE_TARGET_REF?.trim() || null
     }
   };
 }

@@ -1,14 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { createInMemoryAuthRepository } from '../src/auth/inMemoryAuthRepository.js';
 import { createUpdateChecker } from '../src/system/updateInfo.js';
+import { createUpdateRunnerStatusProvider } from '../src/system/updateStatus.js';
 
-async function loginToken() {
+async function loginToken(options: { updateStatusProvider?: ReturnType<typeof createUpdateRunnerStatusProvider> } = {}) {
   const authRepository = createInMemoryAuthRepository();
   const app = await buildApp({
     logger: false,
     authRepository,
     enableBackgroundPolling: false,
+    updateStatusProvider: options.updateStatusProvider,
     updateChecker: createUpdateChecker({
       repository: 'O2-Intelligent-Automation-Solutions/oxygen_cms',
       fetchImpl: async () => new Response(JSON.stringify({ tag_name: 'v0.2.0', name: 'CMS v0.2.0', html_url: 'https://github.com/O2-Intelligent-Automation-Solutions/oxygen_cms/releases/tag/v0.2.0', published_at: '2026-06-01T00:00:00Z' }), { status: 200 }),
@@ -18,6 +20,10 @@ async function loginToken() {
   await app.inject({ method: 'POST', url: '/api/auth/bootstrap', payload: { email: 'admin@example.com', displayName: 'Admin User', password: 'AdminPassword!42' } });
   const login = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: 'admin@example.com', password: 'AdminPassword!42' } });
   return { app, token: login.json<{ token: string }>().token };
+}
+
+async function flushAsyncRunner() {
+  await new Promise((resolve) => setImmediate(resolve));
 }
 
 describe('system version/update routes', () => {
@@ -34,28 +40,80 @@ describe('system version/update routes', () => {
     await app.close();
   });
 
-  it('returns update command status for the non-technical update flow', async () => {
+  it('returns guarded update command status for the non-technical update flow', async () => {
     const { app, token } = await loginToken();
     const response = await app.inject({ method: 'GET', url: '/api/system/update-status', headers: { authorization: `Bearer ${token}` } });
     expect(response.statusCode).toBe(200);
     expect(response.json().updateStatus).toMatchObject({
-      state: 'idle',
-      inProgress: false,
-      canRunUpdate: true,
-      command: 'scripts/deploy.sh update',
-      dryRunCommand: 'scripts/deploy.sh update --dry-run',
-      requiresConfirmation: true,
+      runner: {
+        enabled: false,
+        state: 'blocked',
+        inProgress: false,
+        canRun: false,
+        mode: 'host-script',
+        command: 'scripts/deploy.sh update',
+        dryRunCommand: 'scripts/deploy.sh update --dry-run',
+        requiresConfirmation: true,
+        confirmationVariable: 'CONFIRM_UPDATE',
+        currentRef: null,
+        targetRef: null
+      },
       lastRun: null,
       lastError: null
     });
-    expect(response.json().updateStatus.steps.map((step: { code: string; state: string }) => [step.code, step.state])).toEqual([
-      ['dry-run', 'pending'],
-      ['backup', 'pending'],
-      ['checkout', 'pending'],
-      ['build', 'pending'],
-      ['restart', 'pending'],
-      ['schema', 'pending']
+    expect(response.json().updateStatus.generatedAt).toEqual(expect.any(String));
+    expect(response.json().updateStatus.steps.map((step: { code: string; state: string; startedAt: string | null; finishedAt: string | null; description: string }) => [step.code, step.state, step.startedAt, step.finishedAt, Boolean(step.description)])).toEqual([
+      ['dry-run', 'pending', null, null, true],
+      ['backup', 'pending', null, null, true],
+      ['checkout', 'pending', null, null, true],
+      ['build', 'pending', null, null, true],
+      ['restart', 'pending', null, null, true],
+      ['schema', 'pending', null, null, true]
     ]);
+    await app.close();
+  });
+
+  it('blocks update runner actions when guarded execution is disabled', async () => {
+    const { app, token } = await loginToken();
+    const response = await app.inject({ method: 'POST', url: '/api/system/update-runner/dry-run', headers: { authorization: `Bearer ${token}` }, payload: { targetRef: 'v0.2.0' } });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error).toContain('Update runner is disabled');
+    await app.close();
+  });
+
+  it('requires explicit confirmation for real update requests', async () => {
+    const provider = createUpdateRunnerStatusProvider({ enabled: true, executor: async () => ({ exitCode: 0, stdout: 'ok', stderr: '' }) });
+    const { app, token } = await loginToken({ updateStatusProvider: provider });
+    const response = await app.inject({ method: 'POST', url: '/api/system/update-runner/update', headers: { authorization: `Bearer ${token}` }, payload: { targetRef: 'v0.2.0' } });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error).toContain('CONFIRM_UPDATE=YES');
+    await app.close();
+  });
+
+  it('starts dry-run update runner requests with target ref tracking', async () => {
+    const executor = vi.fn(async () => ({ exitCode: 0, stdout: 'dry run ok', stderr: '' }));
+    const provider = createUpdateRunnerStatusProvider({ enabled: true, idFactory: () => 'run-1', now: () => new Date('2026-06-11T12:00:00Z'), executor });
+    const { app, token } = await loginToken({ updateStatusProvider: provider });
+    const response = await app.inject({ method: 'POST', url: '/api/system/update-runner/dry-run', headers: { authorization: `Bearer ${token}` }, payload: { targetRef: 'v0.2.0' } });
+    expect(response.statusCode).toBe(202);
+    expect(response.json().updateStatus).toMatchObject({
+      runner: { enabled: true, state: 'running', inProgress: true, canRun: false, targetRef: 'v0.2.0' },
+      lastRun: { id: 'run-1', mode: 'dry-run', targetRef: 'v0.2.0', state: 'running' }
+    });
+    expect(executor).toHaveBeenCalledWith(['update', '--dry-run'], expect.objectContaining({ env: expect.objectContaining({ CMS_UPDATE_TARGET_REF: 'v0.2.0' }) }));
+    await flushAsyncRunner();
+    const status = await app.inject({ method: 'GET', url: '/api/system/update-status', headers: { authorization: `Bearer ${token}` } });
+    expect(status.json().updateStatus.lastRun).toMatchObject({ id: 'run-1', state: 'completed', summary: 'dry run ok' });
+    await app.close();
+  });
+
+  it('starts confirmed update requests with confirmation env guard', async () => {
+    const executor = vi.fn(async () => ({ exitCode: 0, stdout: 'updated', stderr: '' }));
+    const provider = createUpdateRunnerStatusProvider({ enabled: true, idFactory: () => 'run-2', confirmationVariable: 'CMS_CONFIRM_UPDATE', executor });
+    const { app, token } = await loginToken({ updateStatusProvider: provider });
+    const response = await app.inject({ method: 'POST', url: '/api/system/update-runner/update', headers: { authorization: `Bearer ${token}` }, payload: { targetRef: 'v0.3.0', confirmed: true } });
+    expect(response.statusCode).toBe(202);
+    expect(executor).toHaveBeenCalledWith(['update'], expect.objectContaining({ env: expect.objectContaining({ CMS_UPDATE_TARGET_REF: 'v0.3.0', CMS_CONFIRM_UPDATE: 'YES' }) }));
     await app.close();
   });
 
