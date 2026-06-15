@@ -30,6 +30,19 @@ export type AppConfig = {
     password: string;
     database: string;
   };
+  queues: {
+    enabled: boolean;
+    redis: {
+      host: string | null;
+      port: number | null;
+      password: string | null;
+      tls: boolean;
+    };
+    bullBoard: {
+      enabled: boolean;
+      path: string;
+    };
+  };
 };
 
 type Environment = Record<string, string | undefined>;
@@ -41,7 +54,19 @@ function parsePort(value: string | undefined, fallback: number): number {
   return parsed;
 }
 
+function parseBoolean(value: string | undefined, fallback = false): boolean {
+  if (!value) return fallback;
+  return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
+}
+
+function normalizeBasePath(value: string | undefined, fallback: string) {
+  const raw = value?.trim() || fallback;
+  return raw.startsWith('/') ? raw : `/${raw}`;
+}
+
 export function loadConfig(env: Environment = process.env): AppConfig {
+  const redisHost = env.REDIS_HOST?.trim() || null;
+  const redisPort = redisHost ? parsePort(env.REDIS_PORT, 6379) : null;
   return {
     nodeEnv: env.NODE_ENV ?? 'development',
     host: env.API_HOST ?? '0.0.0.0',
@@ -52,6 +77,19 @@ export function loadConfig(env: Environment = process.env): AppConfig {
       user: env.MYSQL_USER ?? 'oxygen_cms',
       password: env.MYSQL_PASSWORD ?? 'oxygen_cms_dev_password',
       database: env.MYSQL_DATABASE ?? 'O2IAS_CMS'
+    },
+    queues: {
+      enabled: parseBoolean(env.BULLMQ_ENABLED, false) && Boolean(redisHost),
+      redis: {
+        host: redisHost,
+        port: redisPort,
+        password: env.REDIS_PASSWORD ?? null,
+        tls: parseBoolean(env.REDIS_TLS, false)
+      },
+      bullBoard: {
+        enabled: parseBoolean(env.BULL_BOARD_ENABLED, false),
+        path: normalizeBasePath(env.BULL_BOARD_PATH, '/admin/queues')
+      }
     }
   };
 }

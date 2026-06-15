@@ -18,6 +18,20 @@ services:
       retries: 10
       start_period: 30s
 
+  redis:
+    image: redis:7-alpine
+    container_name: ${CMS_REDIS_CONTAINER_NAME:-oxygen-cms-prod-redis}
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - oxygen-cms-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
   app:
     build:
       context: .
@@ -38,6 +52,11 @@ services:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}
       CMS_MANAGED_MYSQL: "true"
       OXYGEN_CMS_ENCRYPTION_KEY: ${OXYGEN_CMS_ENCRYPTION_KEY:?OXYGEN_CMS_ENCRYPTION_KEY is required}
+      BULLMQ_ENABLED: ${BULLMQ_ENABLED:-false}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      BULL_BOARD_ENABLED: ${BULL_BOARD_ENABLED:-false}
+      BULL_BOARD_PATH: ${BULL_BOARD_PATH:-/admin/queues}
     ports:
       - "${CMS_HTTP_PORT:-8080}:3000"
     volumes:
@@ -45,7 +64,10 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+      redis:
+        condition: service_healthy
 
 volumes:
   oxygen-cms-mysql:
   oxygen-cms-app-data:
+  oxygen-cms-redis:

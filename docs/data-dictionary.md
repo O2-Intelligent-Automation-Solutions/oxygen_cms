@@ -109,6 +109,19 @@ Gating rule: Resolve/Connect/TLS/auth blockers are Connectivity Errors and suppr
 | `labels` | `{ tenant: string }` | Display label customization. |
 | `logRetention` | `{ days: number }` | Activity retention setting managed from Settings → General. Default is 90 days. It prunes `application_logs.created_at` and `oxygen_instance_check_history.started_at`; Settings → Database can trigger the same retention cleanup immediately via `POST /api/logs/retention/run`. |
 
+
+### `GET /api/system/queues`
+
+Phase 1.5 queue orchestration status is exposed as a read-only SystemAdmin endpoint. It does not add CMS tables in the 8A foundation slice. Redis/BullMQ owns queue execution state when enabled; MySQL remains the source of truth for domain state, instance status/history, logs, and future user-facing job summaries.
+
+| Field group | Description |
+| --- | --- |
+| `enabled` / `mode` | Indicates whether BullMQ mode is enabled or the MVP in-process poller remains the active execution path. |
+| `redis` | Safe connectivity/configuration summary: configured/connected booleans, host/port, and non-secret error text. |
+| `queues[]` | Named queue counts for `instance-checks`, `database-maintenance`, and `system-maintenance`: waiting, active, delayed, failed, and completed. |
+
+Bull Board can be mounted at the configured admin path when enabled, but it is protected by CMS authentication and the same SystemAdmin queue-management permission.
+
 ### `GET /api/system/version`
 
 The Settings → General update panel is backed by a read-only SystemAdmin endpoint. It does not add CMS tables or store GitHub state. The route derives current version metadata from the package/build environment and performs a non-blocking GitHub latest-release check with tag fallback.

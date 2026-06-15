@@ -46,8 +46,9 @@ Recent dashboard/service-log work adds:
 - The Service card is a compact operational strip; Last Summary is widened for thousands-scale `checked / skipped / failed` values while In Flight remains compact.
 - Instances grid includes CSV Export/Import controls for SystemAdmin and TenantAdmin users. Global users export/import a `tenant` column by Tenant name and may leave it blank for global/unassigned instances; tenant-scoped users export without the `tenant` column and imports are forced to their assigned Tenant. `instance_guid` maps to the instance `id`; blank creates a new instance, existing GUID updates, unknown nonblank GUID creates with that GUID. Passwords are never exported; blank import passwords preserve existing credentials on update and are rejected on create.
 - Settings → General includes an OxyGen CMS Version & Update Readiness panel backed by `GET /api/system/version` and `GET /api/system/update-status`, showing current package/build metadata, GitHub latest-release/latest-tag update status, offline warning handling, guarded dry-run/confirmed update commands, ordered dry-run/backup/checkout/build/restart/schema readiness steps, and a newer-version notice/banner for SystemAdmin users. Live runner execution remains the next Milestone 7D backend slice.
+- Phase 1.5/Milestone 8A queue foundation is underway: BullMQ/Bull Board dependencies are installed, Redis is available in local/deployment Compose, queue env settings are documented, `GET /api/system/queues` exposes disabled/BullMQ queue counts for SystemAdmins, optional Bull Board mounts at `/admin/queues` when enabled, and Settings → General shows a BullMQ / Redis Orchestration card with mode, Redis status, totals, named queue counts, and Bull Board link. Per-instance scheduled jobs and worker execution remain next Milestone 8 slices.
 
-Active next implementation focus: Milestone 7D — non-technical in-place app/database update orchestration.
+Active next implementation focus: Phase 1.5/Milestone 8 — queue foundation, worker execution, and substantial frontend review surface; Milestone 7D live runner execution remains pending.
 
 Validation gate for this state:
 

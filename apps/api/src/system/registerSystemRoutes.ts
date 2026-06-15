@@ -3,6 +3,7 @@ import { profileHasPermission } from '../auth/permissions.js';
 import { requireAuth, requirePermission } from '../auth/registerAuthRoutes.js';
 import type { AuthProfile, AuthRepository } from '../auth/types.js';
 import type { InstancePoller } from '../instances/instancePoller.js';
+import type { QueueStatusProvider } from '../queues/queueStatus.js';
 import type { DatabasePerformanceReader } from './databasePerformance.js';
 import type { IssueCatalogReader, IssueCatalogSnapshot } from './issueCatalog.js';
 import type { UpdateStatusProvider } from './updateStatus.js';
@@ -46,7 +47,7 @@ function filterIssueCatalogForProfile(snapshot: IssueCatalogSnapshot, profile: A
   return { ...snapshot, issueTypes };
 }
 
-export async function registerSystemRoutes(app: FastifyInstance, authRepository: AuthRepository, poller: InstancePoller | null, databasePerformanceReader: DatabasePerformanceReader, issueCatalogReader: IssueCatalogReader, updateChecker: UpdateChecker, updateStatusProvider: UpdateStatusProvider) {
+export async function registerSystemRoutes(app: FastifyInstance, authRepository: AuthRepository, poller: InstancePoller | null, databasePerformanceReader: DatabasePerformanceReader, issueCatalogReader: IssueCatalogReader, updateChecker: UpdateChecker, updateStatusProvider: UpdateStatusProvider, queueStatusProvider: QueueStatusProvider) {
   const requireSignedIn = requireAuth(authRepository);
   const pollerPreHandler = [requireSignedIn, requirePermission('system.poller.manage')];
   const databasePreHandler = [requireSignedIn, requirePermission('settings.database.view')];
@@ -68,6 +69,7 @@ export async function registerSystemRoutes(app: FastifyInstance, authRepository:
   }
 
   app.get('/api/system/poller', { preHandler: pollerPreHandler }, async () => ({ poller: status() }));
+  app.get('/api/system/queues', { preHandler: pollerPreHandler }, async () => ({ queues: await queueStatusProvider.readStatus() }));
   app.get('/api/system/database-performance', { preHandler: databasePreHandler }, async () => ({ databasePerformance: await databasePerformanceReader.readSnapshot() }));
   app.get('/api/system/issue-types', { preHandler: issueTypesPreHandler }, async (request) => {
     const profile = (request as AuthenticatedRequest).authProfile;

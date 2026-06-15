@@ -9,7 +9,7 @@ The baseline stack runs:
 - `app` — the production OxyGen CMS image built from this repository. The API serves `/api/*` and the built React app from the same container.
 - `mysql` — MySQL 8.4 with persistent Docker volume storage.
 
-BullMQ/Redis workers are intentionally not part of this first deployment slice. They are planned for Phase 1.5 and a later Milestone 7 revisit.
+Redis is included as the Phase 1.5 queue foundation service. BullMQ and Bull Board are installed but disabled by default (`BULLMQ_ENABLED=false`, `BULL_BOARD_ENABLED=false`) so the MVP in-process poller remains the active execution path until worker scheduling is explicitly enabled.
 
 ## Quick start
 
@@ -125,6 +125,6 @@ Stopping the stack with `scripts/deploy.sh stop` preserves these volumes.
 This deployment baseline now includes GitHub update detection and the CMS Settings → General update notice. It does not yet include:
 
 - Full CMS UI/API-driven update orchestration. The host-side guarded `scripts/deploy.sh update` command is the first Milestone 7D implementation slice; UI progress/status and automatic schema-migration execution remain next.
-- BullMQ/Redis worker topology.
+- BullMQ worker execution topology and per-instance scheduled job reconciliation. Redis/BullMQ configuration, status API, optional Bull Board mount, and Settings → General queue visibility are present as the Phase 1.5 foundation.
 
 Bundled HTTPS/certificate automation is intentionally skipped for now in favor of external reverse-proxy/load-balancer TLS termination.

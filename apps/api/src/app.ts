@@ -14,7 +14,7 @@ import { registerAppSettingsRoutes } from './appSettings/registerAppSettingsRout
 import type { AppSettingsRepository } from './appSettings/types.js';
 import { createInMemoryAuthRepository } from './auth/inMemoryAuthRepository.js';
 import { createSetupAwareAuthRepository } from './auth/mysqlAuthRepository.js';
-import { registerAuthRoutes } from './auth/registerAuthRoutes.js';
+import { registerAuthRoutes, requireAuth, requirePermission } from './auth/registerAuthRoutes.js';
 import type { AuthRepository } from './auth/types.js';
 import { loadConfig } from './config/loadConfig.js';
 import { registerDashboardRoutes } from './dashboard/registerDashboardRoutes.js';
@@ -26,6 +26,7 @@ import { createInMemoryInstanceRepository } from './instances/inMemoryInstanceRe
 import { createInstancePoller, type InstancePoller } from './instances/instancePoller.js';
 import { createSetupAwareInstanceRepository } from './instances/mysqlInstanceRepository.js';
 import { registerInstanceRoutes } from './instances/registerInstanceRoutes.js';
+import { createQueueRuntime, type QueueRuntime, type QueueStatusProvider } from './queues/queueStatus.js';
 import type { InstanceRepository } from './instances/types.js';
 import { registerSetupRoutes } from './setup/registerSetupRoutes.js';
 import { createDatabasePerformanceReader, type DatabasePerformanceReader } from './system/databasePerformance.js';
@@ -53,6 +54,7 @@ type BuildAppOptions = FastifyServerOptions & {
   issueCatalogReader?: IssueCatalogReader;
   updateChecker?: UpdateChecker;
   updateStatusProvider?: UpdateStatusProvider;
+  queueStatusProvider?: QueueStatusProvider;
   enableBackgroundPolling?: boolean;
   backgroundPollingTickMs?: number;
   webDistPath?: string | false;
@@ -256,6 +258,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     issueCatalogReader: providedIssueCatalogReader,
     updateChecker: providedUpdateChecker,
     updateStatusProvider: providedUpdateStatusProvider,
+    queueStatusProvider: providedQueueStatusProvider,
     enableBackgroundPolling,
     backgroundPollingTickMs,
     webDistPath = defaultWebDistPath(),
@@ -304,6 +307,8 @@ export async function buildApp(options: BuildAppOptions = {}) {
     }).catch((error) => app.log.warn({ error }, 'Failed to persist application activity log'));
   });
   const config = loadConfig();
+  const queueRuntime: QueueRuntime = providedQueueStatusProvider ?? await createQueueRuntime(config);
+  const queueStatusProvider: QueueStatusProvider = queueRuntime;
 
   await app.register(helmet);
   await app.register(cors, {
@@ -328,7 +333,20 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await registerGridPreferenceRoutes(app, authRepository, gridPreferenceRepository);
   await registerAppSettingsRoutes(app, authRepository, appSettingsRepository);
   await registerAppLogRoutes(app, authRepository, appLogRepository, appSettingsRepository);
-  await registerSystemRoutes(app, authRepository, instancePoller, databasePerformanceReader, issueCatalogReader, updateChecker, updateStatusProvider);
+  await registerSystemRoutes(app, authRepository, instancePoller, databasePerformanceReader, issueCatalogReader, updateChecker, updateStatusProvider, queueStatusProvider);
+
+  if (queueRuntime.bullBoard) {
+    const requireSignedIn = requireAuth(authRepository);
+    const requireQueueAdmin = requirePermission('system.poller.manage');
+    await app.register(async (boardApp) => {
+      boardApp.addHook('onRequest', async (request, reply) => {
+        await requireSignedIn(request, reply);
+        if (reply.sent) return;
+        await requireQueueAdmin(request, reply);
+      });
+      await boardApp.register(queueRuntime.bullBoard!.plugin as never);
+    }, { prefix: queueRuntime.bullBoard.basePath });
+  }
 
   async function pruneExpiredApplicationLogs() {
     try {
@@ -348,6 +366,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     instancePoller.start();
     app.addHook('onClose', async () => { instancePoller.stop(); });
   }
+  if (queueStatusProvider.close) app.addHook('onClose', async () => { await queueStatusProvider.close?.(); });
 
   if (webDistPath && existsSync(join(webDistPath, 'index.html'))) {
     await app.register(fastifyStatic, {

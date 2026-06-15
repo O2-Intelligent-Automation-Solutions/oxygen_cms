@@ -101,6 +101,8 @@ type SystemVersionSnapshot = { current: { version: string; commit: string | null
 type SystemUpdateStepState = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
 type SystemUpdateStep = { code: 'dry-run' | 'backup' | 'checkout' | 'build' | 'restart' | 'schema'; label: string; description: string; state: SystemUpdateStepState; startedAt: string | null; finishedAt: string | null; message: string | null };
 type SystemUpdateStatus = { generatedAt: string; runner: { enabled: boolean; state: 'idle' | 'running' | 'blocked' | 'unavailable'; inProgress: boolean; canRun: boolean; mode: 'host-script'; command: string; dryRunCommand: string; requiresConfirmation: boolean; confirmationVariable: string; currentRef: string | null; targetRef: string | null }; steps: SystemUpdateStep[]; lastRun: { id: string; mode: 'dry-run' | 'update'; targetRef: string; startedAt: string; finishedAt: string | null; state: 'running' | 'completed' | 'failed'; summary: string | null } | null; lastError: string | null };
+type QueueStatusItem = { name: 'instance-checks' | 'database-maintenance' | 'system-maintenance'; description: string; waiting: number; active: number; delayed: number; failed: number; completed: number };
+type SystemQueueStatus = { enabled: boolean; mode: 'disabled' | 'bullmq'; generatedAt: string; redis: { configured: boolean; connected: boolean; host: string | null; port: number | null; error: string | null }; queues: QueueStatusItem[] };
 type DatabaseDetailPanel = 'schema' | 'status' | 'storage' | 'tables' | 'connections' | 'queries' | 'cache';
 type DatabaseMaintenanceAction = 'run-retention' | 'purge-logs' | 'compress' | 'defrag' | 'backup' | 'restore';
 type ActivityTableMaintenanceResult = { deleted: number; tables?: Array<{ tableName: string; deleted: number }> };
@@ -514,6 +516,7 @@ export function App() {
   const [selectedIssueType, setSelectedIssueType] = useState<IssueCatalogType | null>(null);
   const [systemVersion, setSystemVersion] = useState<SystemVersionSnapshot | null>(null);
   const [systemUpdateStatus, setSystemUpdateStatus] = useState<SystemUpdateStatus | null>(null);
+  const [systemQueueStatus, setSystemQueueStatus] = useState<SystemQueueStatus | null>(null);
   const [isSystemVersionRefreshing, setIsSystemVersionRefreshing] = useState(false);
   const [databaseDetailPanel, setDatabaseDetailPanel] = useState<DatabaseDetailPanel>('storage');
   const [databaseDetailModal, setDatabaseDetailModal] = useState<DatabaseDetailPanel | null>(null);
@@ -588,7 +591,7 @@ export function App() {
   const canManagePoller = hasPermission('system.poller.manage');
   const canViewVersion = hasPermission('system.version.view');
   const canViewIssueTypes = hasPermission('issueTypes.view');
-  const canUseSettings = canManageSettings || canViewLogs || canViewDatabase || canViewIssueTypes || canViewVersion;
+  const canUseSettings = canManageSettings || canViewLogs || canViewDatabase || canViewIssueTypes || canViewVersion || canManagePoller;
   const tenantLabel = appLabels.tenant || 'Tenant';
   const tenantLabelPlural = `${tenantLabel}s`;
   const tenantLabelLower = tenantLabel.toLowerCase();
@@ -845,14 +848,17 @@ export function App() {
     if (mode === 'manual') clearStatus();
     setIsSystemVersionRefreshing(true);
     try {
-      const [versionRes, statusRes] = await Promise.all([
+      const [versionRes, statusRes, queueRes] = await Promise.all([
         api<{ version: SystemVersionSnapshot }>('/api/system/version', { token: t }),
-        api<{ updateStatus: SystemUpdateStatus }>('/api/system/update-status', { token: t })
+        api<{ updateStatus: SystemUpdateStatus }>('/api/system/update-status', { token: t }),
+        canManagePoller ? api<{ queues: SystemQueueStatus }>('/api/system/queues', { token: t }).catch(() => null) : Promise.resolve(null)
       ]);
       setSystemVersion(versionRes.version);
       setSystemUpdateStatus(statusRes.updateStatus);
+      if (queueRes) setSystemQueueStatus(queueRes.queues);
       if (mode === 'manual') {
-        showStatus(versionRes.version.update.error ? 'Version/update readiness refreshed; update source is currently unavailable.' : 'Version/update readiness refreshed.', versionRes.version.update.error ? 'warning' : 'success');
+        const queueNote = queueRes ? ` Queue mode: ${queueRes.queues.mode}.` : '';
+        showStatus((versionRes.version.update.error ? 'Version/update readiness refreshed; update source is currently unavailable.' : 'Version/update readiness refreshed.') + queueNote, versionRes.version.update.error ? 'warning' : 'success');
       }
     } catch (err) {
       if (mode === 'manual') setError(err instanceof Error ? err.message : 'Version refresh failed.');
@@ -2160,13 +2166,41 @@ export function App() {
     return <section className="version-update-notice" role="status"><div><strong>OxyGen CMS update available</strong><span>{systemVersion.update.latestVersion} is available from GitHub. Current version: {systemVersion.current.version}.</span></div><Button className="compact-button" type="button" onClick={() => nav('settings-general')}><Download /> View Update</Button></section>;
   }
 
+
+  function queueHealthTone(snapshot: SystemQueueStatus | null): 'ok' | 'warning' | 'issue' | 'neutral' {
+    if (!snapshot) return 'neutral';
+    if (!snapshot.enabled || snapshot.mode === 'disabled') return 'warning';
+    if (!snapshot.redis.connected) return 'issue';
+    return 'ok';
+  }
+
+  function renderQueueOrchestrationPanel() {
+    const snapshot = systemQueueStatus;
+    const totals = snapshot?.queues.reduce((sum, queue) => ({ waiting: sum.waiting + queue.waiting, active: sum.active + queue.active, delayed: sum.delayed + queue.delayed, failed: sum.failed + queue.failed, completed: sum.completed + queue.completed }), { waiting: 0, active: 0, delayed: 0, failed: 0, completed: 0 }) ?? { waiting: 0, active: 0, delayed: 0, failed: 0, completed: 0 };
+    const tone = queueHealthTone(snapshot);
+    return <article className={`panel settings-panel queue-orchestration-panel ${tone}`}>
+      <div className="panel-heading"><Activity /><div><p className="eyebrow small">Phase 1.5 queue foundation</p><h3>BullMQ / Redis Orchestration</h3></div></div>
+      <section className={`version-update-summary queue-summary ${tone}`}>
+        <div><span>Mode</span><strong>{snapshot?.mode === 'bullmq' ? 'BullMQ' : snapshot ? 'Disabled' : 'Checking'}</strong><small>{snapshot?.enabled ? 'Durable queue mode enabled' : 'In-process poller remains active'}</small></div>
+        <div><span>Redis</span><strong>{snapshot?.redis.connected ? 'Connected' : snapshot?.redis.configured ? 'Configured' : 'Not configured'}</strong><small>{snapshot?.redis.host ? `${snapshot.redis.host}:${snapshot.redis.port}` : 'Set REDIS_HOST to enable'}</small></div>
+        <div><span>Active / Waiting</span><strong>{formatNumber(totals.active)} / {formatNumber(totals.waiting)}</strong><small>{formatNumber(totals.delayed)} delayed</small></div>
+        <div><span>Failures</span><strong>{formatNumber(totals.failed)}</strong><small>{formatNumber(totals.completed)} completed</small></div>
+      </section>
+      {snapshot?.redis.error && <p className="panel-copy version-update-message warning">Redis/BullMQ status is unavailable: {snapshot.redis.error}</p>}
+      {!snapshot?.enabled && <p className="panel-copy">BullMQ is installed but disabled until `BULLMQ_ENABLED=true` and Redis settings are configured. The existing background poller continues to run for MVP safety.</p>}
+      {snapshot && <section className="queue-card-grid" aria-label="Queue counts">{snapshot.queues.map((queue) => <article className="queue-card" key={queue.name}><header><strong>{queue.name}</strong><span>{queue.active > 0 ? 'active' : queue.failed > 0 ? 'needs attention' : 'idle'}</span></header><p>{queue.description}</p><dl><dt>Waiting</dt><dd>{formatNumber(queue.waiting)}</dd><dt>Active</dt><dd>{formatNumber(queue.active)}</dd><dt>Delayed</dt><dd>{formatNumber(queue.delayed)}</dd><dt>Failed</dt><dd>{formatNumber(queue.failed)}</dd><dt>Completed</dt><dd>{formatNumber(queue.completed)}</dd></dl></article>)}</section>}
+      <div className="version-update-actions"><Button className="compact-button" type="button" onClick={() => void loadSystemVersion(token, 'manual')} disabled={isSystemVersionRefreshing}><RotateCw className={isSystemVersionRefreshing ? 'spin-icon' : ''} /> Refresh Queues</Button>{snapshot?.mode === 'bullmq' && <Button className="compact-button" type="button" fillMode="flat" onClick={() => window.open('/admin/queues', '_blank', 'noopener,noreferrer')}><ExternalLink /> Bull Board</Button>}</div>
+    </article>;
+  }
+
   function renderSettingsGeneral() {
     const retentionDays = logRetention?.days ?? 90;
     return <div className="settings-basic-stack">
       {canViewVersion && renderVersionUpdatePanel()}
+      {canManagePoller && renderQueueOrchestrationPanel()}
       {canManageSettings && <article className="panel settings-panel"><div className="panel-heading"><Settings /><div><p className="eyebrow small">Application settings</p><h3>Labels</h3></div></div><p className="panel-copy">Customize display labels used by the application without changing the underlying data model.</p><form className="settings-form" onSubmit={handleSaveLabels}><label>Tenant<input name="tenant" defaultValue={tenantLabel} placeholder="Tenant" required /></label><small>Tenant is the only supported customer scope term in CMS.</small><button type="submit">Save Labels</button></form></article>}
       {canManageSettings && <article className="panel settings-panel"><div className="panel-heading"><Settings /><div><p className="eyebrow small">Application settings</p><h3>Log Retention</h3></div></div><p className="panel-copy">Configure how long CMS keeps database-backed activity history, including application logs and instance check history.</p><form className="settings-form compact-settings-form" onSubmit={handleSaveLogRetention}><label>Retention days<input name="days" type="number" min={1} max={3650} defaultValue={retentionDays} required /></label><button type="submit">Save Retention</button></form></article>}
-      {!canViewVersion && !canManageSettings && <article className="panel settings-panel"><p className="panel-copy">No general settings are available for your current permissions.</p></article>}
+      {!canViewVersion && !canManageSettings && !canManagePoller && <article className="panel settings-panel"><p className="panel-copy">No general settings are available for your current permissions.</p></article>}
     </div>;
   }
 
