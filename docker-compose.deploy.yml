@@ -67,6 +67,34 @@ services:
       redis:
         condition: service_healthy
 
+  worker:
+    image: ${CMS_IMAGE:-oxygen-cms:local}
+    container_name: ${CMS_WORKER_CONTAINER_NAME:-oxygen-cms-prod-worker}
+    profiles: ["workers"]
+    restart: unless-stopped
+    command: ["npm", "--workspace", "@oxygen-cms/api", "run", "start:worker"]
+    environment:
+      NODE_ENV: production
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-O2IAS_CMS}
+      MYSQL_USER: ${MYSQL_USER:-oxygen_cms}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
+      MYSQL_PRIVILEGED_USER: root
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}
+      CMS_MANAGED_MYSQL: "true"
+      OXYGEN_CMS_ENCRYPTION_KEY: ${OXYGEN_CMS_ENCRYPTION_KEY:?OXYGEN_CMS_ENCRYPTION_KEY is required}
+      BULLMQ_ENABLED: ${BULLMQ_ENABLED:-true}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+    volumes:
+      - oxygen-cms-app-data:/app/apps/api/data
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
 volumes:
   oxygen-cms-mysql:
   oxygen-cms-app-data:

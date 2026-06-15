@@ -46,6 +46,15 @@ export type QueueRuntime = QueueStatusProvider & {
   bullBoard?: QueueBoardRegistration;
 };
 
+export type QueueConnectionOptions = {
+  host: string;
+  port: number;
+  password?: string;
+  tls?: object;
+  maxRetriesPerRequest: null;
+  enableOfflineQueue: false;
+};
+
 const DESCRIPTIONS: Record<QueueName, string> = {
   'instance-checks': 'Manual and scheduled OxyGen instance connectivity, license, settings, and workflow checks.',
   'database-maintenance': 'CMS MySQL maintenance jobs such as purge, analyze, optimize, backup, and restore.',
@@ -77,13 +86,9 @@ export function createDisabledQueueStatusProvider(): QueueStatusProvider {
   };
 }
 
-export async function createQueueRuntime(config: AppConfig): Promise<QueueRuntime> {
-  if (!config.queues.enabled || !config.queues.redis.host || !config.queues.redis.port) {
-    return createDisabledQueueStatusProvider();
-  }
-
-  const { Queue } = await import('bullmq');
-  const connection = {
+export function createQueueConnectionOptions(config: AppConfig): QueueConnectionOptions | null {
+  if (!config.queues.enabled || !config.queues.redis.host || !config.queues.redis.port) return null;
+  return {
     host: config.queues.redis.host,
     port: config.queues.redis.port,
     password: config.queues.redis.password ?? undefined,
@@ -91,6 +96,15 @@ export async function createQueueRuntime(config: AppConfig): Promise<QueueRuntim
     maxRetriesPerRequest: null,
     enableOfflineQueue: false
   };
+}
+
+export async function createQueueRuntime(config: AppConfig): Promise<QueueRuntime> {
+  const connection = createQueueConnectionOptions(config);
+  if (!connection) {
+    return createDisabledQueueStatusProvider();
+  }
+
+  const { Queue } = await import('bullmq');
   const queues = QUEUE_NAMES.map((name) => new Queue(name, { connection }));
 
   const provider: QueueRuntime = {
