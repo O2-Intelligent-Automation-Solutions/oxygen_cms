@@ -103,6 +103,8 @@ type SystemUpdateStep = { code: 'dry-run' | 'backup' | 'checkout' | 'build' | 'r
 type SystemUpdateStatus = { generatedAt: string; runner: { enabled: boolean; state: 'idle' | 'running' | 'blocked' | 'unavailable'; inProgress: boolean; canRun: boolean; mode: 'host-script'; command: string; dryRunCommand: string; requiresConfirmation: boolean; confirmationVariable: string; currentRef: string | null; targetRef: string | null }; steps: SystemUpdateStep[]; lastRun: { id: string; mode: 'dry-run' | 'update'; targetRef: string; startedAt: string; finishedAt: string | null; state: 'running' | 'completed' | 'failed'; summary: string | null } | null; lastError: string | null };
 type QueueStatusItem = { name: 'instance-checks' | 'database-maintenance' | 'system-maintenance'; description: string; waiting: number; active: number; delayed: number; failed: number; completed: number };
 type SystemQueueStatus = { enabled: boolean; mode: 'disabled' | 'bullmq'; generatedAt: string; redis: { configured: boolean; connected: boolean; host: string | null; port: number | null; error: string | null }; queues: QueueStatusItem[] };
+type QueueJobSummary = { id: string | null; queue: QueueStatusItem['name']; name: string; state: 'waiting' | 'active' | 'delayed' | 'failed' | 'completed' | 'unknown'; attemptsMade: number; timestamp: string | null; processedOn: string | null; finishedOn: string | null; failedReason: string | null; data: { task?: string; source?: string; instanceId?: string; requestedBy?: string } };
+type SystemQueueJobs = { enabled: boolean; mode: 'disabled' | 'bullmq'; generatedAt: string; jobs: QueueJobSummary[] };
 type DatabaseDetailPanel = 'schema' | 'status' | 'storage' | 'tables' | 'connections' | 'queries' | 'cache';
 type DatabaseMaintenanceAction = 'run-retention' | 'purge-logs' | 'compress' | 'defrag' | 'backup' | 'restore';
 type ActivityTableMaintenanceResult = { deleted: number; tables?: Array<{ tableName: string; deleted: number }> };
@@ -517,6 +519,7 @@ export function App() {
   const [systemVersion, setSystemVersion] = useState<SystemVersionSnapshot | null>(null);
   const [systemUpdateStatus, setSystemUpdateStatus] = useState<SystemUpdateStatus | null>(null);
   const [systemQueueStatus, setSystemQueueStatus] = useState<SystemQueueStatus | null>(null);
+  const [systemQueueJobs, setSystemQueueJobs] = useState<SystemQueueJobs | null>(null);
   const [isSystemVersionRefreshing, setIsSystemVersionRefreshing] = useState(false);
   const [databaseDetailPanel, setDatabaseDetailPanel] = useState<DatabaseDetailPanel>('storage');
   const [databaseDetailModal, setDatabaseDetailModal] = useState<DatabaseDetailPanel | null>(null);
@@ -848,14 +851,16 @@ export function App() {
     if (mode === 'manual') clearStatus();
     setIsSystemVersionRefreshing(true);
     try {
-      const [versionRes, statusRes, queueRes] = await Promise.all([
+      const [versionRes, statusRes, queueRes, queueJobsRes] = await Promise.all([
         api<{ version: SystemVersionSnapshot }>('/api/system/version', { token: t }),
         api<{ updateStatus: SystemUpdateStatus }>('/api/system/update-status', { token: t }),
-        canManagePoller ? api<{ queues: SystemQueueStatus }>('/api/system/queues', { token: t }).catch(() => null) : Promise.resolve(null)
+        canManagePoller ? api<{ queues: SystemQueueStatus }>('/api/system/queues', { token: t }).catch(() => null) : Promise.resolve(null),
+        canManagePoller ? api<{ queueJobs: SystemQueueJobs }>('/api/system/queue-jobs?limit=8', { token: t }).catch(() => null) : Promise.resolve(null)
       ]);
       setSystemVersion(versionRes.version);
       setSystemUpdateStatus(statusRes.updateStatus);
       if (queueRes) setSystemQueueStatus(queueRes.queues);
+      if (queueJobsRes) setSystemQueueJobs(queueJobsRes.queueJobs);
       if (mode === 'manual') {
         const queueNote = queueRes ? ` Queue mode: ${queueRes.queues.mode}.` : '';
         showStatus((versionRes.version.update.error ? 'Version/update readiness refreshed; update source is currently unavailable.' : 'Version/update readiness refreshed.') + queueNote, versionRes.version.update.error ? 'warning' : 'success');
@@ -2174,6 +2179,11 @@ export function App() {
     return 'ok';
   }
 
+  function queueJobDetail(job: QueueJobSummary) {
+    const bits = [job.data.task, job.data.source, job.data.instanceId ? `Instance ${job.data.instanceId}` : null, job.data.requestedBy ? `By ${job.data.requestedBy}` : null].filter(Boolean);
+    return bits.length ? bits.join(' · ') : 'No public metadata';
+  }
+
   function renderQueueOrchestrationPanel() {
     const snapshot = systemQueueStatus;
     const totals = snapshot?.queues.reduce((sum, queue) => ({ waiting: sum.waiting + queue.waiting, active: sum.active + queue.active, delayed: sum.delayed + queue.delayed, failed: sum.failed + queue.failed, completed: sum.completed + queue.completed }), { waiting: 0, active: 0, delayed: 0, failed: 0, completed: 0 }) ?? { waiting: 0, active: 0, delayed: 0, failed: 0, completed: 0 };
@@ -2189,6 +2199,7 @@ export function App() {
       {snapshot?.redis.error && <p className="panel-copy version-update-message warning">Redis/BullMQ status is unavailable: {snapshot.redis.error}</p>}
       {!snapshot?.enabled && <p className="panel-copy">BullMQ is installed but disabled until `BULLMQ_ENABLED=true` and Redis settings are configured. The existing background poller continues to run for MVP safety.</p>}
       {snapshot && <section className="queue-card-grid" aria-label="Queue counts">{snapshot.queues.map((queue) => <article className="queue-card" key={queue.name}><header><strong>{queue.name}</strong><span>{queue.active > 0 ? 'active' : queue.failed > 0 ? 'needs attention' : 'idle'}</span></header><p>{queue.description}</p><dl><dt>Waiting</dt><dd>{formatNumber(queue.waiting)}</dd><dt>Active</dt><dd>{formatNumber(queue.active)}</dd><dt>Delayed</dt><dd>{formatNumber(queue.delayed)}</dd><dt>Failed</dt><dd>{formatNumber(queue.failed)}</dd><dt>Completed</dt><dd>{formatNumber(queue.completed)}</dd></dl></article>)}</section>}
+      {systemQueueJobs?.jobs.length ? <section className="queue-latest-jobs" aria-label="Latest queue jobs"><header><strong>Latest Jobs</strong><small>Sanitized CMS view</small></header>{systemQueueJobs.jobs.map((job) => <article className={`queue-job-row ${job.state}`} key={`${job.queue}-${job.id ?? job.name}`}><div><strong>{job.name}</strong><span>{job.queue}</span><small>{queueJobDetail(job)}</small></div><div><span className="queue-job-state">{job.state}</span><small>{job.attemptsMade ? `${job.attemptsMade} attempt${job.attemptsMade === 1 ? '' : 's'}` : 'Not retried'}</small><small>{formatDateTime(job.finishedOn ?? job.processedOn ?? job.timestamp)}</small></div></article>)}</section> : snapshot?.mode === 'bullmq' && <p className="panel-copy small-copy">No recent queue jobs returned from the sanitized CMS job view yet.</p>}
       <div className="version-update-actions"><Button className="compact-button" type="button" onClick={() => void loadSystemVersion(token, 'manual')} disabled={isSystemVersionRefreshing}><RotateCw className={isSystemVersionRefreshing ? 'spin-icon' : ''} /> Refresh Queues</Button>{snapshot?.mode === 'bullmq' && <Button className="compact-button" type="button" fillMode="flat" onClick={() => window.open('/admin/queues', '_blank', 'noopener,noreferrer')}><ExternalLink /> Bull Board</Button>}</div>
     </article>;
   }
@@ -2333,6 +2344,7 @@ export function App() {
   })();
 
   const gridSection = activeSection === 'users' || activeSection === 'user-groups' || activeSection === 'roles' || activeSection === 'organizations' || activeSection === 'instances' || activeSection === 'settings-logs' || activeSection === 'settings-issues';
+  const settingsSection = activeSection.startsWith('settings-');
 
   function TenantSelect({ disabled = false, allowGlobal = canSelectGlobalTenantScope }: { disabled?: boolean; allowGlobal?: boolean }) {
     const lockedToActorTenant = !canSelectAnyTenantScope;
@@ -2479,7 +2491,7 @@ export function App() {
       {profile && isMobileViewport && isMobileDrawerOpen && <button className="mobile-drawer-backdrop" type="button" aria-label="Close navigation" onClick={() => setIsMobileDrawerOpen(false)} />}
 
       {profile && (<div className={`admin-layout ${isDrawerExpanded ? 'drawer-expanded' : 'drawer-collapsed'} ${isMobileDrawerOpen ? 'mobile-drawer-open' : ''}`}><aside className={`admin-sidebar ${isDrawerExpanded ? 'expanded' : 'collapsed'} ${isMobileDrawerOpen ? 'mobile-open' : ''}`}><button className="mobile-drawer-close" type="button" onClick={() => setIsMobileDrawerOpen(false)} aria-label="Close navigation"><X /></button><button className="sidebar-toggle" type="button" onClick={() => setIsDrawerExpanded((v) => !v)} aria-label={isDrawerExpanded ? 'Collapse navigation' : 'Expand navigation'}>{isDrawerExpanded ? <ChevronLeft /> : <ChevronRight />}</button><div className="sidebar-user"><UserCircle /><div><span className="su-name">{profile.user.displayName}</span><span className="su-role">{displayRoleName(profile.roles[0])}</span></div></div><nav className="sidebar-nav"><button className={`nav-link${activeSection === 'dashboard' ? ' active' : ''}`} onClick={() => nav('dashboard')}><LayoutDashboard /><span>Dashboard</span></button>{(canViewTenants || canViewInstances) && <div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => handleSidebarParentClick('organizations')}><Server /><span>Organizations</span>{openAccordions.has('organizations') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('organizations') && (<div className="nav-accordion-children">{canViewTenants && <button className={`nav-link child${activeSection === 'organizations' ? ' active' : ''}`} onClick={() => nav('organizations')}><span>{tenantLabelPlural}</span></button>}{canViewInstances && <button className={`nav-link child${activeSection === 'instances' ? ' active' : ''}`} onClick={() => { nav('instances'); loadInstances(); }}><span>Instances</span></button>}</div>)}</div>}{canManageSecurity && <div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => handleSidebarParentClick('security')}><ShieldCheck /><span>Security</span>{openAccordions.has('security') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('security') && (<div className="nav-accordion-children">{canManageUsers && <button className={`nav-link child${activeSection === 'users' ? ' active' : ''}`} onClick={() => nav('users')}><span>Users</span></button>}{canManageGroups && <button className={`nav-link child${activeSection === 'user-groups' ? ' active' : ''}`} onClick={() => nav('user-groups')}><span>User Groups</span></button>}{canManageRoles && <button className={`nav-link child${activeSection === 'roles' ? ' active' : ''}`} onClick={() => nav('roles')}><span>Roles</span></button>}</div>)}</div>}{canUseSettings && <div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => handleSidebarParentClick('settings')}><Settings /><span>Settings</span>{openAccordions.has('settings') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('settings') && (<div className="nav-accordion-children">{(canManageSettings || canViewVersion) && <button className={`nav-link child${activeSection === 'settings-general' ? ' active' : ''}`} onClick={() => nav('settings-general')}><span>General</span></button>}{canViewLogs && <button className={`nav-link child${activeSection === 'settings-logs' ? ' active' : ''}`} onClick={() => nav('settings-logs')}><span>Logs</span></button>}{canViewDatabase && <button className={`nav-link child${activeSection === 'settings-database' ? ' active' : ''}`} onClick={() => nav('settings-database')}><span>Database</span></button>}{canViewIssueTypes && <button className={`nav-link child${activeSection === 'settings-issues' ? ' active' : ''}`} onClick={() => nav('settings-issues')}><span>Issue Types</span></button>}{canManageSettings && <button className={`nav-link child${activeSection === 'settings-advanced' ? ' active' : ''}`} onClick={() => nav('settings-advanced', false, 'Advanced Settings')}><span>Advanced</span></button>}</div>)}</div>}</nav><button className="sidebar-logout" onClick={handleLogout}><LogOut /><span>Sign out</span></button></aside>
-        <section className={`admin-content ${gridSection ? 'grid-section' : ''}`}>{activeSection !== 'dashboard' && <div className="page-header"><p className="eyebrow small">{sectionMeta.eyebrow}</p><h2>{sectionMeta.heading}</h2></div>}
+        <section className={`admin-content ${gridSection ? 'grid-section' : ''} ${settingsSection ? 'settings-section' : ''}`}>{activeSection !== 'dashboard' && <div className="page-header"><p className="eyebrow small">{sectionMeta.eyebrow}</p><h2>{sectionMeta.heading}</h2></div>}
           {activeSection !== 'settings-general' && renderUpdateNotice()}
           {activeSection === 'dashboard' && renderDashboard()}
           {activeSection === 'organizations' && canViewTenants && <ManagedGrid gridKey="tenants" token={token!} rows={tenantRows} columns={tenantColumnDefs} actionCell={TenantActionCell} mobileActions={(row) => <TenantActionMenu tenant={row.raw} mobile />} toolbar={canManageTenants ? <Button className="btn-create" onClick={openCreateTenantModal} type="button" themeColor="primary"><Plus /> Create “{tenantLabel}”</Button> : null} />}

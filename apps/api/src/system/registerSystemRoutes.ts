@@ -71,6 +71,11 @@ export async function registerSystemRoutes(app: FastifyInstance, authRepository:
 
   app.get('/api/system/poller', { preHandler: pollerPreHandler }, async () => ({ poller: status() }));
   app.get('/api/system/queues', { preHandler: pollerPreHandler }, async () => ({ queues: await queueStatusProvider.readStatus() }));
+  app.get('/api/system/queue-jobs', { preHandler: pollerPreHandler }, async (request) => {
+    const query = request.query as { limit?: string | number };
+    const limit = typeof query.limit === 'number' ? query.limit : Number(query.limit ?? 25);
+    return { queueJobs: queueStatusProvider.readJobs ? await queueStatusProvider.readJobs(limit) : { enabled: false, mode: 'disabled', generatedAt: new Date().toISOString(), jobs: [] } };
+  });
   app.get('/api/system/database-performance', { preHandler: databasePreHandler }, async () => ({ databasePerformance: await databasePerformanceReader.readSnapshot() }));
   app.get('/api/system/issue-types', { preHandler: issueTypesPreHandler }, async (request) => {
     const profile = (request as AuthenticatedRequest).authProfile;

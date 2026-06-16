@@ -20,10 +20,32 @@ export type ProcessInstanceCheckJobOptions = {
   data: InstanceCheckJobData;
   repository: InstanceRepository;
   appLogRepository?: AppLogRepository;
+  runGuard?: InstanceCheckRunGuard;
+};
+
+export type InstanceCheckRunGuard = {
+  runExclusive<T>(instanceId: string, run: () => Promise<T>): Promise<T>;
 };
 
 const FORBIDDEN_PAYLOAD_KEYS = ['password', 'secret', 'credential', 'token', 'apiKey', 'connectionString'];
 const CMS_QUEUE_SOURCE = 'BullMQ';
+
+export function createInMemoryInstanceCheckRunGuard(): InstanceCheckRunGuard {
+  const activeInstanceIds = new Set<string>();
+  return {
+    async runExclusive<T>(instanceId: string, run: () => Promise<T>): Promise<T> {
+      if (activeInstanceIds.has(instanceId)) {
+        throw new Error(`Instance check already running for instance ${instanceId}.`);
+      }
+      activeInstanceIds.add(instanceId);
+      try {
+        return await run();
+      } finally {
+        activeInstanceIds.delete(instanceId);
+      }
+    }
+  };
+}
 
 function containsForbiddenKey(value: unknown): boolean {
   if (!value || typeof value !== 'object') return false;
@@ -73,21 +95,25 @@ export async function processInstanceCheckJob(options: ProcessInstanceCheckJobOp
     throw new Error('Instance check job payloads must not contain credentials, secrets, tokens, or connection strings.');
   }
 
-  const instance = await options.repository.getInstance(options.data.instanceId);
-  if (!instance) throw new Error('Instance not found.');
-  if (instance.archived || !instance.isEnabled) throw new Error('Instance is disabled or archived.');
+  const guard = options.runGuard ?? { runExclusive: async <T>(_instanceId: string, run: () => Promise<T>) => run() };
 
-  const result = await options.repository.testConnectivity(instance.id);
-  await options.appLogRepository?.append({
-    type: 'Connection',
-    severity: connectivitySeverity(result),
-    source: CMS_QUEUE_SOURCE,
-    userName: null,
-    entityGuid: instance.id,
-    tenantId: instance.tenantId,
-    message: `${instance.name} ${options.data.source} queue check completed: ${result.message}`,
-    details: connectivityDetails(instance, result, options.data.source)
+  return guard.runExclusive(options.data.instanceId, async () => {
+    const instance = await options.repository.getInstance(options.data.instanceId);
+    if (!instance) throw new Error('Instance not found.');
+    if (instance.archived || !instance.isEnabled) throw new Error('Instance is disabled or archived.');
+
+    const result = await options.repository.testConnectivity(instance.id);
+    await options.appLogRepository?.append({
+      type: 'Connection',
+      severity: connectivitySeverity(result),
+      source: CMS_QUEUE_SOURCE,
+      userName: null,
+      entityGuid: instance.id,
+      tenantId: instance.tenantId,
+      message: `${instance.name} ${options.data.source} queue check completed: ${result.message}`,
+      details: connectivityDetails(instance, result, options.data.source)
+    });
+
+    return { instanceId: instance.id, status: result.status, ok: result.ok, message: result.message };
   });
-
-  return { instanceId: instance.id, status: result.status, ok: result.ok, message: result.message };
 }

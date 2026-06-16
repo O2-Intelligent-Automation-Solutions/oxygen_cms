@@ -1,8 +1,8 @@
 # Security Policy
 
-OxyGen CMS is in pre-production Phase 1 development. Current schema target: `0.12`.
+OxyGen CMS is in pre-production Phase 1 development. Current schema target: `0.16`.
 
-The full security policy and security architecture notes have been migrated to the GitHub Wiki:
+The full security policy, finalized MVP RBAC notes, and future-state security backlog have been migrated to the GitHub Wiki:
 
 - [Security Policy](https://github.com/O2-Intelligent-Automation-Solutions/oxygen_cms/wiki/Security)
 

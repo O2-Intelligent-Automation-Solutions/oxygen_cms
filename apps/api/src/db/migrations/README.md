@@ -12,8 +12,8 @@ Runtime migration source of truth remains:
 apps/api/src/db/migrations/index.ts
 ```
 
-Current runtime schema version: `0.08`.
+Current runtime schema version: `0.16`.
 
-Schema `0.08` adds `application_logs` for persisted CMS Audit, Service, CRUD, Connection, Security, and UI logging used by the Settings → Logs page and background poller diagnostics.
+Current migrations include the MySQL-backed setup/auth foundation, persisted CMS Audit/Service/CRUD/Connection/Security/UI logging, instance health/detail indexes, static issue classification catalog tables, and durable `role_permissions` assignments for finalized MVP RBAC.
 
 SQL artifacts in this directory remain version-controlled because they are implementation/schema artifacts, not standalone documentation.

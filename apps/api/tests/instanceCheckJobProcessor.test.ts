@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { processInstanceCheckJob, type InstanceCheckJobData } from '../src/queues/instanceCheckProcessor.js';
+import { createInMemoryInstanceCheckRunGuard, processInstanceCheckJob, type InstanceCheckJobData } from '../src/queues/instanceCheckProcessor.js';
 import type { AppLogRepository } from '../src/appLogs/types.js';
 import type { ConnectivityResult, InstanceRepository, OxyGenInstance } from '../src/instances/types.js';
 
@@ -110,5 +110,28 @@ describe('processInstanceCheckJob', () => {
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({ type: 'Connection', severity: 'Verbose', source: 'BullMQ', entityGuid: saved.id, tenantId: saved.tenantId });
     expect(JSON.stringify(entries[0])).not.toMatch(/password|secret|credential/i);
+  });
+
+  it('prevents overlapping checks for the same instance within one worker runtime', async () => {
+    const saved = instance();
+    let releaseConnectivity!: (result: ConnectivityResult) => void;
+    const firstConnectivity = new Promise<ConnectivityResult>((resolve) => { releaseConnectivity = resolve; });
+    const repository = {
+      getInstance: vi.fn(async () => saved),
+      testConnectivity: vi.fn(() => firstConnectivity)
+    } as unknown as InstanceRepository;
+    const runGuard = createInMemoryInstanceCheckRunGuard();
+
+    const first = processInstanceCheckJob({ data: { instanceId: saved.id, source: 'scheduled' }, repository, runGuard });
+    await vi.waitFor(() => expect(repository.testConnectivity).toHaveBeenCalledTimes(1));
+
+    await expect(processInstanceCheckJob({ data: { instanceId: saved.id, source: 'manual' }, repository, runGuard })).rejects.toThrow('already running');
+    expect(repository.testConnectivity).toHaveBeenCalledTimes(1);
+
+    releaseConnectivity?.(connectivity());
+    await expect(first).resolves.toMatchObject({ instanceId: saved.id, ok: true });
+
+    await expect(processInstanceCheckJob({ data: { instanceId: saved.id, source: 'manual' }, repository, runGuard })).resolves.toMatchObject({ instanceId: saved.id, ok: true });
+    expect(repository.testConnectivity).toHaveBeenCalledTimes(2);
   });
 });

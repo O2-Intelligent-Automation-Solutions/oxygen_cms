@@ -4,7 +4,7 @@ import type { AppSettingsRepository } from '../appSettings/types.js';
 import type { AppConfig } from '../config/loadConfig.js';
 import type { InstanceRepository } from '../instances/types.js';
 import { processDatabaseMaintenanceJob } from './databaseMaintenanceProcessor.js';
-import { processInstanceCheckJob } from './instanceCheckProcessor.js';
+import { createInMemoryInstanceCheckRunGuard, processInstanceCheckJob, type InstanceCheckRunGuard } from './instanceCheckProcessor.js';
 import { QUEUE_NAMES, createQueueConnectionOptions, type QueueName } from './queueStatus.js';
 
 export type QueueWorkerState = 'disabled' | 'running';
@@ -23,6 +23,7 @@ export type QueueJobProcessorOptions = {
   instanceRepository: InstanceRepository;
   appLogRepository?: AppLogRepository;
   appSettingsRepository?: AppSettingsRepository;
+  instanceCheckRunGuard?: InstanceCheckRunGuard;
 };
 
 export type QueueWorkerRuntimeOptions = QueueJobProcessorOptions;
@@ -33,7 +34,8 @@ export function createQueueJobProcessor(options: QueueJobProcessorOptions) {
       return processInstanceCheckJob({
         data: data as Parameters<typeof processInstanceCheckJob>[0]['data'],
         repository: options.instanceRepository,
-        appLogRepository: options.appLogRepository
+        appLogRepository: options.appLogRepository,
+        runGuard: options.instanceCheckRunGuard
       });
     }
 
@@ -62,7 +64,7 @@ export async function createQueueWorkerRuntime(config: AppConfig, logger: Logger
 
   const { Worker: BullWorker } = await import('bullmq');
   if (!options) throw new Error('BullMQ worker dependencies are required when BULLMQ_ENABLED=true.');
-  const processQueueJob = createQueueJobProcessor(options);
+  const processQueueJob = createQueueJobProcessor({ ...options, instanceCheckRunGuard: options.instanceCheckRunGuard ?? createInMemoryInstanceCheckRunGuard() });
   const workers = QUEUE_NAMES.map((queueName) => new (BullWorker as WorkerConstructor)(
     queueName,
     async (job: Job) => processQueueJob(queueName, job.data),
