@@ -1647,7 +1647,7 @@ components:
         lastError: { type: [string, 'null'] }
     QueueStatusSnapshot:
       type: object
-      required: [enabled, mode, generatedAt, redis, queues]
+      required: [enabled, mode, generatedAt, redis, bullBoard, queues]
       properties:
         enabled: { type: boolean }
         mode: { type: string, enum: [disabled, bullmq] }
@@ -1661,6 +1661,12 @@ components:
             host: { type: [string, 'null'] }
             port: { type: [integer, 'null'] }
             error: { type: [string, 'null'] }
+        bullBoard:
+          type: object
+          required: [enabled, path]
+          properties:
+            enabled: { type: boolean }
+            path: { type: [string, 'null'], description: Configured Bull Board mount path when enabled. Browser launch requires an authenticated API session; CMS Settings uses native queue visibility as the primary UI. }
         queues:
           type: array
           items: { $ref: '#/components/schemas/QueueStatusItem' }

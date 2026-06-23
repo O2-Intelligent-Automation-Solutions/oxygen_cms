@@ -1,5 +1,6 @@
 import { Button } from '@progress/kendo-react-buttons';
 import { Grid, GridColumn, type GridColumnsStateChangeEvent, type GridCustomCellProps, type GridDataStateChangeEvent } from '@progress/kendo-react-grid';
+import { LoaderCircle } from 'lucide-react';
 import { process, type State } from '@progress/kendo-data-query';
 import { GripVertical } from 'lucide-react';
 import { type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
@@ -37,6 +38,8 @@ type ManagedGridProps<T extends { id: string }> = {
   actionCell?: (props: GridCustomCellProps) => ReactNode;
   actionWidth?: number | string;
   mobileActions?: (row: T) => ReactNode;
+  loading?: boolean;
+  loadingLabel?: string;
 };
 
 type ManagedGridStyle = CSSProperties & { '--cms-grid-min-width': string };
@@ -80,7 +83,7 @@ function mergeColumns<T extends { id: string }>(columns: ManagedGridColumn<T>[],
     .map((column, index) => ({ ...column, order: index }));
 }
 
-export function ManagedGrid<T extends { id: string }>({ gridKey, token, rows, columns, toolbar, actionCell, actionWidth = 104, mobileActions }: ManagedGridProps<T>) {
+export function ManagedGrid<T extends { id: string }>({ gridKey, token, rows, columns, toolbar, actionCell, actionWidth = 104, mobileActions, loading = false, loadingLabel = 'Loading records…' }: ManagedGridProps<T>) {
   const [columnPrefs, setColumnPrefs] = useState<ColumnPreference[]>(() => defaultPreferences(columns));
   const [gridState, setGridState] = useState<State>({ sort: [] });
   const [filtersVisible, setFiltersVisible] = useState(false);
@@ -220,6 +223,7 @@ export function ManagedGrid<T extends { id: string }>({ gridKey, token, rows, co
   }, [processedRows.data]);
 
   return <article className="panel data-panel kendo-data-panel">
+    {loading && <div className="cms-loading-overlay grid-loading-overlay" role="status" aria-live="polite"><LoaderCircle className="cms-loading-spinner" /><span>{loadingLabel}</span></div>}
     <div className="dp-head instance-grid-toolbar">
       {toolbar}
       <div className="column-selector-wrap">

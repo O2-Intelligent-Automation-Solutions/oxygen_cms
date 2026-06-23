@@ -44,7 +44,7 @@ describe('queue status API', () => {
   it('returns sanitized native queue job summaries without raw payload secrets', async () => {
     const queueStatusProvider: QueueRuntime = {
       async readStatus() {
-        return { enabled: true, mode: 'bullmq', generatedAt: '2026-06-16T00:00:00.000Z', redis: { configured: true, connected: true, host: '127.0.0.1', port: 6379, error: null }, queues: [] };
+        return { enabled: true, mode: 'bullmq', generatedAt: '2026-06-16T00:00:00.000Z', redis: { configured: true, connected: true, host: '127.0.0.1', port: 6379, error: null }, bullBoard: { enabled: true, path: '/admin/queues' }, queues: [] };
       },
       async readJobs(limit = 25) {
         return {

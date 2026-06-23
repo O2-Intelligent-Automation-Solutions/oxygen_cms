@@ -7014,3 +7014,184 @@ body.cms-notes-editor-active .k-actions .k-button-solid-primary {
   height: 18px;
   color: var(--brand-primary);
 }
+
+
+/* Shared loading indicators */
+.kendo-data-panel,
+.settings-basic-stack,
+.tenant-dashboard-empty,
+.database-performance-panel,
+.queue-orchestration-panel {
+  position: relative;
+}
+
+.cms-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 96px;
+  border-radius: inherit;
+  background: rgba(3, 10, 18, 0.72);
+  color: var(--brand-text);
+  font-size: 0.9rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  backdrop-filter: blur(4px);
+}
+
+.grid-loading-overlay {
+  top: 48px;
+  border-radius: 0 0 var(--brand-radius-lg) var(--brand-radius-lg);
+}
+
+.cms-loading-spinner {
+  width: 24px;
+  height: 24px;
+  color: var(--brand-primary);
+  animation: dashboard-spin 0.85s linear infinite;
+}
+
+.tenant-dashboard-empty .cms-loading-overlay {
+  position: static;
+  min-height: 160px;
+  background: transparent;
+}
+
+/* Settings queue operations layout */
+.queue-panel-heading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.queue-heading-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.queue-orchestration-panel {
+  grid-column: 1 / -1;
+}
+
+.queue-compact-table {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0;
+}
+
+.queue-table-head,
+.queue-table-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.8fr) 92px repeat(5, minmax(58px, 0.45fr));
+  align-items: center;
+  gap: 8px;
+}
+
+.queue-table-head {
+  color: var(--brand-muted-2);
+  font-size: 0.65rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0 10px;
+}
+
+.queue-table-row {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid rgba(0, 180, 216, 0.16);
+  border-radius: 12px;
+  background: rgba(4, 13, 22, 0.58);
+}
+
+.queue-table-row > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.queue-table-row strong {
+  color: var(--brand-text);
+  font-size: 0.84rem;
+}
+
+.queue-table-row small {
+  color: var(--brand-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-table-row > span:not(.queue-state-label) {
+  color: var(--brand-text);
+  font-weight: 800;
+  text-align: center;
+}
+
+.update-runner-workflow {
+  margin: 12px 0 14px;
+}
+
+.update-workflow-copy {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 8px;
+  color: var(--brand-muted);
+  font-size: 0.78rem;
+}
+
+.update-workflow-copy strong {
+  color: var(--brand-text);
+  white-space: nowrap;
+}
+
+@media (max-width: 1100px) {
+  .queue-panel-heading {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .queue-heading-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+
+  .queue-table-head {
+    display: none;
+  }
+
+  .queue-table-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .queue-table-row > span:not(.queue-state-label) {
+    text-align: left;
+  }
+
+  .queue-table-row > span:not(.queue-state-label)::before {
+    color: var(--brand-muted-2);
+    font-size: 0.62rem;
+    font-weight: 850;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-right: 4px;
+  }
+
+  .queue-table-row > span:nth-of-type(2)::before { content: 'Waiting'; }
+  .queue-table-row > span:nth-of-type(3)::before { content: 'Active'; }
+  .queue-table-row > span:nth-of-type(4)::before { content: 'Delayed'; }
+  .queue-table-row > span:nth-of-type(5)::before { content: 'Failed'; }
+  .queue-table-row > span:nth-of-type(6)::before { content: 'Completed'; }
+
+  .update-workflow-copy {
+    display: grid;
+  }
+}

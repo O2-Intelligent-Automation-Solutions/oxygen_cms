@@ -29,6 +29,10 @@ export type QueueStatusSnapshot = {
     port: number | null;
     error: string | null;
   };
+  bullBoard: {
+    enabled: boolean;
+    path: string | null;
+  };
   queues: QueueStatusItem[];
 };
 
@@ -134,6 +138,7 @@ export function createDisabledQueueStatusProvider(): QueueStatusProvider {
         mode: 'disabled',
         generatedAt: new Date().toISOString(),
         redis: { configured: false, connected: false, host: null, port: null, error: null },
+        bullBoard: { enabled: false, path: null },
         queues: QUEUE_NAMES.map(emptyQueue)
       };
     },
@@ -178,6 +183,7 @@ export async function createQueueRuntime(config: AppConfig): Promise<QueueRuntim
           mode: 'bullmq',
           generatedAt: new Date().toISOString(),
           redis: { configured: true, connected: true, host: config.queues.redis.host, port: config.queues.redis.port, error: null },
+          bullBoard: { enabled: config.queues.bullBoard.enabled, path: config.queues.bullBoard.enabled ? config.queues.bullBoard.path : null },
           queues: counts.map(({ queue, counts }) => ({
             name: queue.name as QueueName,
             description: DESCRIPTIONS[queue.name as QueueName],
@@ -194,6 +200,7 @@ export async function createQueueRuntime(config: AppConfig): Promise<QueueRuntim
           mode: 'bullmq',
           generatedAt: new Date().toISOString(),
           redis: { configured: true, connected: false, host: config.queues.redis.host, port: config.queues.redis.port, error: error instanceof Error ? error.message : 'Unable to read Redis queue status' },
+          bullBoard: { enabled: config.queues.bullBoard.enabled, path: config.queues.bullBoard.enabled ? config.queues.bullBoard.path : null },
           queues: QUEUE_NAMES.map(emptyQueue)
         };
       }

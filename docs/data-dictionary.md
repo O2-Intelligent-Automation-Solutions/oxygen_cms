@@ -118,6 +118,7 @@ Phase 1.5 queue orchestration status is exposed as a read-only SystemAdmin endpo
 | --- | --- |
 | `enabled` / `mode` | Indicates whether BullMQ mode is enabled or the MVP in-process poller remains the active execution path. |
 | `redis` | Safe connectivity/configuration summary: configured/connected booleans, host/port, and non-secret error text. |
+| `bullBoard` | Safe Bull Board mount metadata: whether the optional board is enabled and its configured path. The board remains protected by CMS auth/RBAC; Settings uses native queue status/latest-jobs as the primary UI because browser navigation cannot carry bearer auth headers to Bull Board. |
 | `queues[]` | Named queue counts for `instance-checks`, `database-maintenance`, and `system-maintenance`: waiting, active, delayed, failed, and completed. |
 
 Bull Board can be mounted at the configured admin path when enabled, but it is protected by CMS authentication and the same SystemAdmin queue-management permission.

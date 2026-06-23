@@ -1,6 +1,6 @@
 import {
   Activity, Archive, ArchiveRestore, ChevronDown, ChevronLeft, ChevronRight, Database, Download, ExternalLink, Eye, EyeOff, LayoutDashboard,
-  ClipboardList, LogOut, Menu, Pause, Pencil, Play, Plus, RotateCw, Server, Settings, ShieldCheck, Trash2, Upload, UserCircle, UserPlus, X
+  ClipboardList, LoaderCircle, LogOut, Menu, Pause, Pencil, Play, Plus, RotateCw, Server, Settings, ShieldCheck, Trash2, Upload, UserCircle, UserPlus, X
 } from 'lucide-react';
 import { type GridCustomCellProps } from '@progress/kendo-react-grid';
 import { Button } from '@progress/kendo-react-buttons';
@@ -102,7 +102,7 @@ type SystemUpdateStepState = 'pending' | 'running' | 'completed' | 'failed' | 's
 type SystemUpdateStep = { code: 'dry-run' | 'backup' | 'checkout' | 'build' | 'restart' | 'schema'; label: string; description: string; state: SystemUpdateStepState; startedAt: string | null; finishedAt: string | null; message: string | null };
 type SystemUpdateStatus = { generatedAt: string; runner: { enabled: boolean; state: 'idle' | 'running' | 'blocked' | 'unavailable'; inProgress: boolean; canRun: boolean; mode: 'host-script'; command: string; dryRunCommand: string; requiresConfirmation: boolean; confirmationVariable: string; currentRef: string | null; targetRef: string | null }; steps: SystemUpdateStep[]; lastRun: { id: string; mode: 'dry-run' | 'update'; targetRef: string; startedAt: string; finishedAt: string | null; state: 'running' | 'completed' | 'failed'; summary: string | null } | null; lastError: string | null };
 type QueueStatusItem = { name: 'instance-checks' | 'database-maintenance' | 'system-maintenance'; description: string; waiting: number; active: number; delayed: number; failed: number; completed: number };
-type SystemQueueStatus = { enabled: boolean; mode: 'disabled' | 'bullmq'; generatedAt: string; redis: { configured: boolean; connected: boolean; host: string | null; port: number | null; error: string | null }; queues: QueueStatusItem[] };
+type SystemQueueStatus = { enabled: boolean; mode: 'disabled' | 'bullmq'; generatedAt: string; bullBoard?: { enabled: boolean; path: string | null }; redis: { configured: boolean; connected: boolean; host: string | null; port: number | null; error: string | null }; queues: QueueStatusItem[] };
 type QueueJobSummary = { id: string | null; queue: QueueStatusItem['name']; name: string; state: 'waiting' | 'active' | 'delayed' | 'failed' | 'completed' | 'unknown'; attemptsMade: number; timestamp: string | null; processedOn: string | null; finishedOn: string | null; failedReason: string | null; data: { task?: string; source?: string; instanceId?: string; requestedBy?: string } };
 type SystemQueueJobs = { enabled: boolean; mode: 'disabled' | 'bullmq'; generatedAt: string; jobs: QueueJobSummary[] };
 type DatabaseDetailPanel = 'schema' | 'status' | 'storage' | 'tables' | 'connections' | 'queries' | 'cache';
@@ -521,6 +521,7 @@ export function App() {
   const [systemQueueStatus, setSystemQueueStatus] = useState<SystemQueueStatus | null>(null);
   const [systemQueueJobs, setSystemQueueJobs] = useState<SystemQueueJobs | null>(null);
   const [isSystemVersionRefreshing, setIsSystemVersionRefreshing] = useState(false);
+  const [isAdminDataRefreshing, setIsAdminDataRefreshing] = useState(false);
   const [databaseDetailPanel, setDatabaseDetailPanel] = useState<DatabaseDetailPanel>('storage');
   const [databaseDetailModal, setDatabaseDetailModal] = useState<DatabaseDetailPanel | null>(null);
   const [showDashboardInstanceBoard, setShowDashboardInstanceBoard] = useState(false);
@@ -608,6 +609,7 @@ export function App() {
   const launchUrlForInstance = (instance: OxyGenInstance) => `${instance.protocol}://${instance.host}:${instance.port ?? (instance.protocol === 'http' ? 80 : 443)}/optws/oxygen.aspx`;
   const formatDateTime = (value: string | null) => value ? new Date(value).toLocaleString() : 'Not checked';
   const formatNullable = (value: string | number | null | undefined, fallback = 'Unknown') => value === null || value === undefined || value === '' ? fallback : String(value);
+  const LoadingOverlay = ({ label = 'Loading…' }: { label?: string }) => <div className="cms-loading-overlay" role="status" aria-live="polite"><LoaderCircle className="cms-loading-spinner" /><span>{label}</span></div>;
   const formatBytes = (value: number | null | undefined) => {
     const bytes = Number(value ?? 0);
     if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
@@ -974,20 +976,25 @@ export function App() {
 
   async function refreshAdminData(t = token) {
     if (!t) return;
-    const [gr, ur, rr, tr] = await Promise.all([
-      api<{ groups: Group[] }>('/api/groups', { token: t }),
-      api<{ users: UserProfile[] }>('/api/users', { token: t }),
-      api<{ roles: Role[] }>('/api/roles', { token: t }),
-      api<{ tenants: Tenant[] }>('/api/tenants', { token: t }),
-    ]);
-    setGroups(gr.groups);
-    setUsers(ur.users);
-    setRoles(rr.roles);
-    setTenants(tr.tenants);
-    await loadInstances(t).catch(() => undefined);
-    await loadDashboard(t);
-    if (!selectedGroupId && gr.groups[0]) setSelectedGroupId(gr.groups[0].id);
-    if (!selectedRole && rr.roles[0]) setSelectedRole(rr.roles[0].name);
+    setIsAdminDataRefreshing(true);
+    try {
+      const [gr, ur, rr, tr] = await Promise.all([
+        api<{ groups: Group[] }>('/api/groups', { token: t }),
+        api<{ users: UserProfile[] }>('/api/users', { token: t }),
+        api<{ roles: Role[] }>('/api/roles', { token: t }),
+        api<{ tenants: Tenant[] }>('/api/tenants', { token: t }),
+      ]);
+      setGroups(gr.groups);
+      setUsers(ur.users);
+      setRoles(rr.roles);
+      setTenants(tr.tenants);
+      await loadInstances(t).catch(() => undefined);
+      await loadDashboard(t);
+      if (!selectedGroupId && gr.groups[0]) setSelectedGroupId(gr.groups[0].id);
+      if (!selectedRole && rr.roles[0]) setSelectedRole(rr.roles[0].name);
+    } finally {
+      setIsAdminDataRefreshing(false);
+    }
   }
 
   async function restoreSession(t: string) {
@@ -1066,6 +1073,15 @@ export function App() {
     }, 30000);
     return () => window.clearInterval(refreshTimer);
   }, [token, profile, activeSection]);
+
+  useEffect(() => {
+    if (!token || !profile || activeSection !== 'settings-general' || !canViewVersion) return undefined;
+    void loadSystemVersion(token).catch((err) => setError(err instanceof Error ? err.message : 'Settings status refresh failed.'));
+    const refreshTimer = window.setInterval(() => {
+      void loadSystemVersion(token).catch((err) => setError(err instanceof Error ? err.message : 'Settings status refresh failed.'));
+    }, 30000);
+    return () => window.clearInterval(refreshTimer);
+  }, [token, profile, activeSection, canViewVersion, canManagePoller]);
 
   useEffect(() => {
     document.body.classList.toggle('cms-notes-editor-active', healthModal === 'notes');
@@ -2070,7 +2086,7 @@ export function App() {
 
   function renderDashboard() {
     if (!dashboard) {
-      return <article className="panel tenant-dashboard-empty"><p className="panel-copy">Loading dashboard summary…</p></article>;
+      return <article className="panel tenant-dashboard-empty"><LoadingOverlay label="Loading dashboard summary…" /></article>;
     }
     const metricCards = [
       { label: 'Instances', value: `${dashboardScopedCounts.healthyInstances} / ${dashboardScopedCounts.totalInstances}`, detail: 'No-issue instances / total instances', tone: dashboardScopedCounts.issueInstances ? 'issue' : 'ok' },
@@ -2151,7 +2167,7 @@ export function App() {
     return <article className={`panel settings-panel version-update-panel ${tone}`}>
       <div className="panel-heading"><Download /><div><p className="eyebrow small">Application updates</p><h3>OxyGen CMS Version & Update Readiness</h3></div></div>
       <section className={`version-update-summary ${tone}`}>
-        <div><span>Current</span><strong>{current?.version ?? 'Unknown'}</strong><small>{current?.commit ? `Commit ${current.commit.slice(0, 12)}` : 'Build commit unavailable'}</small></div>
+        <div><span>Current</span><strong>{current?.version ?? 'Unknown'}</strong><small>{current?.commit ? `Build ${current.commit.slice(0, 12)}` : 'Build commit not stamped'}</small></div>
         <div><span>Latest</span><strong>{update?.latestVersion ?? 'Unknown'}</strong><small>{update?.source === 'unavailable' ? 'GitHub unavailable' : update?.source === 'github-tag' ? 'GitHub tag' : update?.source === 'github-branch' ? 'GitHub branch' : 'GitHub release'}</small></div>
         <div><span>Version Status</span><strong>{updateStatusLabel(snapshot)}</strong><small>{update ? `Checked ${formatDateTime(update.checkedAt)}` : 'Not checked yet'}</small></div>
         <div><span>Update Runner</span><strong>{updateRunnerLabel(status)}</strong><small>{status ? `Generated ${formatDateTime(status.generatedAt)}` : 'Checking host command'}</small></div>
@@ -2159,8 +2175,8 @@ export function App() {
       {update?.available && <p className="panel-copy version-update-message">A newer OxyGen CMS version is available. CMS shows guarded update readiness and host-side execution can be enabled explicitly for self-hosted deployments.</p>}
       {update?.error && <p className="panel-copy version-update-message warning">Update checks are non-blocking. CMS could not reach GitHub: {update.error}</p>}
       {status?.lastError && <p className="panel-copy version-update-message warning">Last update runner error: {status.lastError}</p>}
-      <dl className="detail-list version-detail-list"><dt>Repository</dt><dd>{current?.repository ?? 'Unknown'}</dd><dt>Channel</dt><dd>{current?.updateChannel ?? 'stable'}</dd><dt>Build date</dt><dd>{current?.buildDate ? formatDateTime(current.buildDate) : 'Unavailable'}</dd><dt>Published</dt><dd>{update?.publishedAt ? formatDateTime(update.publishedAt) : 'Unavailable'}</dd><dt>Dry run</dt><dd><code>{status?.runner.dryRunCommand ?? 'scripts/deploy.sh update --dry-run'}</code></dd><dt>Confirmed update</dt><dd><code>{status ? `${status.runner.confirmationVariable}=YES ${status.runner.command}` : 'CONFIRM_UPDATE=YES scripts/deploy.sh update'}</code></dd></dl>
-      {status && <section className="update-readiness-grid" aria-label="Update readiness steps">{status.steps.map((step, index) => <article className={`update-readiness-step ${updateStepTone(step.state)}`} key={step.code}><span className="update-step-index">{index + 1}</span><div><strong>{step.label}</strong><p>{step.description}</p>{step.message && <small>{step.message}</small>}</div><span className="update-step-state">{step.state.replace('-', ' ')}</span></article>)}</section>}
+      <dl className="detail-list version-detail-list"><dt>Repository</dt><dd>{current?.repository ?? 'Unknown'}</dd><dt>Channel</dt><dd>{current?.updateChannel ?? 'stable'}</dd><dt>Build date</dt><dd>{current?.buildDate ? formatDateTime(current.buildDate) : 'Not stamped by deployment'}</dd><dt>Published</dt><dd>{update?.publishedAt ? formatDateTime(update.publishedAt) : 'Unavailable'}</dd><dt>Dry run</dt><dd><code>{status?.runner.dryRunCommand ?? 'scripts/deploy.sh update --dry-run'}</code></dd><dt>Confirmed update</dt><dd><code>{status ? `${status.runner.confirmationVariable}=YES ${status.runner.command}` : 'CONFIRM_UPDATE=YES scripts/deploy.sh update'}</code></dd></dl>
+      {status && <section className="update-runner-workflow" aria-label="Guarded update workflow"><div className="update-workflow-copy"><strong>Guarded update workflow</strong><span>These steps are the host-side deployment workflow. They remain pending until an authorized dry run or confirmed update is started.</span></div><div className="update-readiness-grid">{status.steps.map((step, index) => <article className={`update-readiness-step ${updateStepTone(step.state)}`} key={step.code}><span className="update-step-index">{index + 1}</span><div><strong>{step.label}</strong><p>{step.description}</p>{step.message && <small>{step.message}</small>}</div><span className="update-step-state">{step.state.replace('-', ' ')}</span></article>)}</div></section>}
       {status?.lastRun && <p className="panel-copy version-update-message">Last {status.lastRun.mode === 'dry-run' ? 'dry run' : 'update'} for {status.lastRun.targetRef} is {status.lastRun.state}{status.lastRun.summary ? `: ${status.lastRun.summary}` : ''}.</p>}
       <div className="version-update-actions"><Button className="compact-button" type="button" onClick={() => void loadSystemVersion(token, 'manual')} disabled={isSystemVersionRefreshing}><RotateCw className={isSystemVersionRefreshing ? 'spin-icon' : ''} /> Refresh Readiness</Button>{(update?.releaseUrl || current?.sourceUrl) && <Button className="compact-button" type="button" fillMode="flat" onClick={() => window.open(update?.releaseUrl || current?.sourceUrl, '_blank', 'noopener,noreferrer')}><ExternalLink /> View Source</Button>}</div>
     </article>;
@@ -2189,24 +2205,25 @@ export function App() {
     const totals = snapshot?.queues.reduce((sum, queue) => ({ waiting: sum.waiting + queue.waiting, active: sum.active + queue.active, delayed: sum.delayed + queue.delayed, failed: sum.failed + queue.failed, completed: sum.completed + queue.completed }), { waiting: 0, active: 0, delayed: 0, failed: 0, completed: 0 }) ?? { waiting: 0, active: 0, delayed: 0, failed: 0, completed: 0 };
     const tone = queueHealthTone(snapshot);
     return <article className={`panel settings-panel queue-orchestration-panel ${tone}`}>
-      <div className="panel-heading"><Activity /><div><p className="eyebrow small">Phase 1.5 queue foundation</p><h3>BullMQ / Redis Orchestration</h3></div></div>
+      {isSystemVersionRefreshing && !snapshot && <LoadingOverlay label="Loading queue status…" />}
+      <div className="panel-heading queue-panel-heading"><Activity /><div><p className="eyebrow small">Phase 1.5 queue foundation</p><h3>BullMQ / Redis Orchestration</h3></div><div className="queue-heading-actions"><Button className="compact-button" type="button" onClick={() => void loadSystemVersion(token, 'manual')} disabled={isSystemVersionRefreshing}><RotateCw className={isSystemVersionRefreshing ? 'spin-icon' : ''} /> Refresh</Button></div></div>
       <section className={`version-update-summary queue-summary ${tone}`}>
-        <div><span>Mode</span><strong>{snapshot?.mode === 'bullmq' ? 'BullMQ' : snapshot ? 'Disabled' : 'Checking'}</strong><small>{snapshot?.enabled ? 'Durable queue mode enabled' : 'In-process poller remains active'}</small></div>
-        <div><span>Redis</span><strong>{snapshot?.redis.connected ? 'Connected' : snapshot?.redis.configured ? 'Configured' : 'Not configured'}</strong><small>{snapshot?.redis.host ? `${snapshot.redis.host}:${snapshot.redis.port}` : 'Set REDIS_HOST to enable'}</small></div>
+        <div><span>Mode</span><strong>{snapshot?.mode === 'bullmq' ? 'BullMQ' : snapshot ? 'Disabled' : 'Checking'}</strong><small>{snapshot?.enabled ? 'Durable queue mode enabled' : snapshot ? 'In-process poller active' : 'Loading runtime state'}</small></div>
+        <div><span>Redis</span><strong>{snapshot?.redis.connected ? 'Connected' : snapshot?.redis.configured ? 'Configured' : 'Not configured'}</strong><small>{snapshot?.redis.host ? `${snapshot.redis.host}:${snapshot.redis.port}` : snapshot ? 'Set REDIS_HOST to enable' : 'Checking Redis'}</small></div>
         <div><span>Active / Waiting</span><strong>{formatNumber(totals.active)} / {formatNumber(totals.waiting)}</strong><small>{formatNumber(totals.delayed)} delayed</small></div>
         <div><span>Failures</span><strong>{formatNumber(totals.failed)}</strong><small>{formatNumber(totals.completed)} completed</small></div>
       </section>
       {snapshot?.redis.error && <p className="panel-copy version-update-message warning">Redis/BullMQ status is unavailable: {snapshot.redis.error}</p>}
       {!snapshot?.enabled && <p className="panel-copy">BullMQ is installed but disabled until `BULLMQ_ENABLED=true` and Redis settings are configured. The existing background poller continues to run for MVP safety.</p>}
-      {snapshot && <section className="queue-card-grid" aria-label="Queue counts">{snapshot.queues.map((queue) => <article className="queue-card" key={queue.name}><header><strong>{queue.name}</strong><span>{queue.active > 0 ? 'active' : queue.failed > 0 ? 'needs attention' : 'idle'}</span></header><p>{queue.description}</p><dl><dt>Waiting</dt><dd>{formatNumber(queue.waiting)}</dd><dt>Active</dt><dd>{formatNumber(queue.active)}</dd><dt>Delayed</dt><dd>{formatNumber(queue.delayed)}</dd><dt>Failed</dt><dd>{formatNumber(queue.failed)}</dd><dt>Completed</dt><dd>{formatNumber(queue.completed)}</dd></dl></article>)}</section>}
+      {snapshot && <section className="queue-compact-table" aria-label="Queue counts"><div className="queue-table-head"><span>Queue</span><span>State</span><span>Waiting</span><span>Active</span><span>Delayed</span><span>Failed</span><span>Completed</span></div>{snapshot.queues.map((queue) => <article className="queue-table-row" key={queue.name}><div><strong>{queue.name}</strong><small>{queue.description}</small></div><span className={`queue-state-label ${queue.active > 0 ? 'enabled' : queue.failed > 0 ? 'paused' : 'unknown'}`}>{queue.active > 0 ? 'active' : queue.failed > 0 ? 'attention' : 'idle'}</span><span>{formatNumber(queue.waiting)}</span><span>{formatNumber(queue.active)}</span><span>{formatNumber(queue.delayed)}</span><span>{formatNumber(queue.failed)}</span><span>{formatNumber(queue.completed)}</span></article>)}</section>}
       {systemQueueJobs?.jobs.length ? <section className="queue-latest-jobs" aria-label="Latest queue jobs"><header><strong>Latest Jobs</strong><small>Sanitized CMS view</small></header>{systemQueueJobs.jobs.map((job) => <article className={`queue-job-row ${job.state}`} key={`${job.queue}-${job.id ?? job.name}`}><div><strong>{job.name}</strong><span>{job.queue}</span><small>{queueJobDetail(job)}</small></div><div><span className="queue-job-state">{job.state}</span><small>{job.attemptsMade ? `${job.attemptsMade} attempt${job.attemptsMade === 1 ? '' : 's'}` : 'Not retried'}</small><small>{formatDateTime(job.finishedOn ?? job.processedOn ?? job.timestamp)}</small></div></article>)}</section> : snapshot?.mode === 'bullmq' && <p className="panel-copy small-copy">No recent queue jobs returned from the sanitized CMS job view yet.</p>}
-      <div className="version-update-actions"><Button className="compact-button" type="button" onClick={() => void loadSystemVersion(token, 'manual')} disabled={isSystemVersionRefreshing}><RotateCw className={isSystemVersionRefreshing ? 'spin-icon' : ''} /> Refresh Queues</Button>{snapshot?.mode === 'bullmq' && <Button className="compact-button" type="button" fillMode="flat" onClick={() => window.open('/admin/queues', '_blank', 'noopener,noreferrer')}><ExternalLink /> Bull Board</Button>}</div>
     </article>;
   }
 
   function renderSettingsGeneral() {
     const retentionDays = logRetention?.days ?? 90;
     return <div className="settings-basic-stack">
+      {isSystemVersionRefreshing && !systemVersion && <LoadingOverlay label="Loading Settings status…" />}
       {canViewVersion && renderVersionUpdatePanel()}
       {canManagePoller && renderQueueOrchestrationPanel()}
       {canManageSettings && <article className="panel settings-panel"><div className="panel-heading"><Settings /><div><p className="eyebrow small">Application settings</p><h3>Labels</h3></div></div><p className="panel-copy">Customize display labels used by the application without changing the underlying data model.</p><form className="settings-form" onSubmit={handleSaveLabels}><label>Tenant<input name="tenant" defaultValue={tenantLabel} placeholder="Tenant" required /></label><small>Tenant is the only supported customer scope term in CMS.</small><button type="submit">Save Labels</button></form></article>}
@@ -2219,6 +2236,8 @@ export function App() {
     return <ManagedGrid
       gridKey="application-logs"
       token={token!}
+      loading={isLogsRefreshing}
+      loadingLabel="Loading Logs…"
       rows={appLogRows}
       columns={appLogColumnDefs}
       toolbar={<div className="logs-toolbar">
@@ -2242,6 +2261,8 @@ export function App() {
     const affectedTotal = snapshot.issueTypes.reduce((total, issueType) => total + issueType.affectedCount, 0);
     return <ManagedGrid
       gridKey="issue-types"
+      loading={isIssueCatalogRefreshing}
+      loadingLabel="Loading Issue Types…"
       token={token!}
       rows={visibleIssueCatalogRows}
       columns={issueCatalogColumnDefs}
@@ -2494,13 +2515,13 @@ export function App() {
         <section className={`admin-content ${gridSection ? 'grid-section' : ''} ${settingsSection ? 'settings-section' : ''}`}>{activeSection !== 'dashboard' && <div className="page-header"><p className="eyebrow small">{sectionMeta.eyebrow}</p><h2>{sectionMeta.heading}</h2></div>}
           {activeSection !== 'settings-general' && renderUpdateNotice()}
           {activeSection === 'dashboard' && renderDashboard()}
-          {activeSection === 'organizations' && canViewTenants && <ManagedGrid gridKey="tenants" token={token!} rows={tenantRows} columns={tenantColumnDefs} actionCell={TenantActionCell} mobileActions={(row) => <TenantActionMenu tenant={row.raw} mobile />} toolbar={canManageTenants ? <Button className="btn-create" onClick={openCreateTenantModal} type="button" themeColor="primary"><Plus /> Create “{tenantLabel}”</Button> : null} />}
-          {activeSection === 'instances' && canViewInstances && <ManagedGrid gridKey="instances" token={token!} rows={visibleInstanceRows} columns={labeledInstanceColumnDefs} actionCell={InstanceActionCell} actionWidth={58} mobileActions={mobileInstanceActions} toolbar={canImportExportInstances || canManageInstances ? renderInstanceToolbar() : null} />}
+          {activeSection === 'organizations' && canViewTenants && <ManagedGrid gridKey="tenants" token={token!} rows={tenantRows} loading={isAdminDataRefreshing} loadingLabel="Loading Tenants…" columns={tenantColumnDefs} actionCell={TenantActionCell} mobileActions={(row) => <TenantActionMenu tenant={row.raw} mobile />} toolbar={canManageTenants ? <Button className="btn-create" onClick={openCreateTenantModal} type="button" themeColor="primary"><Plus /> Create “{tenantLabel}”</Button> : null} />}
+          {activeSection === 'instances' && canViewInstances && <ManagedGrid gridKey="instances" token={token!} rows={visibleInstanceRows} loading={isAdminDataRefreshing || isDashboardRefreshing} loadingLabel="Loading Instances…" columns={labeledInstanceColumnDefs} actionCell={InstanceActionCell} actionWidth={58} mobileActions={mobileInstanceActions} toolbar={canImportExportInstances || canManageInstances ? renderInstanceToolbar() : null} />}
           {activeSection === 'instance-dashboard' && selectedInstance && <div className="instance-detail-dashboard"><div className="instance-dashboard-actions"><Button className="compact-button" type="button" fillMode="flat" onClick={closeInstanceDashboard}><ChevronLeft /> Back to Instances</Button>{canManageInstances && <Button className="compact-button" type="button" onClick={() => openEditInstanceModal(selectedInstance)}><Pencil /> Edit</Button>}{canManageInstances && <Button className="compact-button" type="button" onClick={() => testInstanceConnectivity(selectedInstance)}><RotateCw /> Run Health Check</Button>}{canManageInstances && <Button className="compact-button" type="button" onClick={() => void setInstanceArchived(selectedInstance, !selectedInstance.archived)}>{selectedInstance.archived ? <ArchiveRestore /> : <Archive />} {selectedInstance.archived ? 'Unarchive' : 'Archive'}</Button>}{canViewLogs && <Button className="compact-button" type="button" onClick={() => openInstanceLogs(selectedInstance)}><ClipboardList /> View Logs</Button>}<Button className="compact-button" type="button" onClick={() => window.open(launchUrlForInstance(selectedInstance), '_blank', 'noopener,noreferrer')}><ExternalLink /> Launch OxyGen</Button></div><div className="instance-health-strip"><button className={`instance-health-card clickable status-${selectedInstance.status}`} type="button" onClick={() => void openInstanceHealthModal('availability')}><span>Availability</span><strong>{availabilityLabel(selectedInstance)}</strong><small>{formatDateTime(selectedInstance.lastCheckedAt)}</small></button>{selectedInstance.protocol === 'https' && <button className="instance-health-card clickable status-unknown" type="button" onClick={() => void openInstanceHealthModal('ssl')}><span>SSL Certificate</span><strong>{sslCardLabel(selectedInstance)}</strong><small>{sslCardDetail(selectedInstance, connectivityDetails(healthDetails?.latestConnectivity).ssl)}</small></button>}{selectedInstance.checkLicense && <button className={`instance-health-card clickable status-${licenseCardStatusClass(selectedInstance, connectivityDetails(healthDetails?.latestConnectivity).license)}`} type="button" onClick={() => void openInstanceHealthModal('license')}><span>License</span><strong>{licenseCardLabel(selectedInstance)}</strong><small>{licenseCardDetail(selectedInstance, connectivityDetails(healthDetails?.latestConnectivity).license)}</small></button>}<button className={`instance-health-card clickable status-${selectedInstance.status}`} type="button" onClick={() => void openInstanceHealthModal('response')}><span>Response</span><strong>{selectedInstance.responseTimeMs === null ? '—' : `${selectedInstance.responseTimeMs} ms`}</strong><small>Polling every {selectedInstance.pollingIntervalSeconds}s</small></button></div><div className="instance-detail-grid"><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('endpoint')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'endpoint')}><div className="panel-heading"><Server /><div><p className="eyebrow small">Endpoint</p><h3>Connection Details</h3></div></div><dl className="detail-list"><dt>{tenantLabel}</dt><dd>{tenantName(selectedInstance.tenantId)}</dd><dt>Host</dt><dd>{selectedInstance.host}</dd><dt>Resolved IP</dt><dd>{resolvedIpLabel(connectivityDetails(healthDetails?.latestConnectivity))}</dd><dt>Port</dt><dd>{formatNullable(selectedInstance.port)}</dd><dt>Base URL</dt><dd>{selectedInstance.baseUrl}</dd><dt>API Base URL</dt><dd>{selectedInstance.apiBaseUrl}</dd><dt>Launch URL</dt><dd>{selectedInstance.launchUrl}</dd><dt>Username</dt><dd>{selectedInstance.username}</dd></dl></article><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('monitoring')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'monitoring')}><div className="panel-heading"><Activity /><div><p className="eyebrow small">Monitoring</p><h3>Health Status</h3></div></div><dl className="detail-list"><dt>Enabled</dt><dd>{booleanPill(selectedInstance.isEnabled, 'green', 'red', { trueLabel: 'Enabled', falseLabel: 'Disabled' })}</dd><dt>Last Success</dt><dd>{formatDateTime(selectedInstance.lastSuccessAt)}</dd><dt>Last Failure</dt><dd>{formatDateTime(selectedInstance.lastFailureAt)}</dd><dt>Uptime 24h</dt><dd>{selectedInstance.uptimePercent24h === null ? 'Unknown' : `${selectedInstance.uptimePercent24h}%`}</dd><dt>Uptime 7d</dt><dd>{selectedInstance.uptimePercent7d === null ? 'Unknown' : `${selectedInstance.uptimePercent7d}%`}</dd><dt>Check License</dt><dd>{booleanPill(selectedInstance.checkLicense, 'green', 'grey', { trueLabel: 'Enabled', falseLabel: 'Disabled' })}</dd><dt>Archived</dt><dd>{booleanPill(selectedInstance.archived, 'red', 'green')}</dd><dt>Last Error</dt><dd>{formatNullable(selectedInstance.lastError, 'None')}</dd></dl></article><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('workflow')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'workflow')}><div className="panel-heading"><Database /><div><p className="eyebrow small">OxyGen BPM</p><h3>Workflow & Components</h3></div></div><dl className="detail-list workflow-queue-detail-list">{renderQueueStatusList(selectedInstance)}<dt>Workflow Summary</dt><dd>{selectedInstance.workflowSummaryJson ? 'Collected' : 'Not collected yet'}</dd></dl></article><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('settings')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'settings')}><div className="panel-heading"><Settings /><div><p className="eyebrow small">OxyGen BPM</p><h3>Settings</h3></div></div>{renderSettingsTree(selectedInstance.settingsJson, true)}<dl className="detail-list settings-card-summary"><dt>Raw JSON</dt><dd>{selectedInstance.settingsJson ? `${collectedSettingsCount(selectedInstance.settingsJson)} key setting(s) found` : 'Not collected yet'}</dd></dl></article><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('metadata')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'metadata')}><div className="panel-heading"><Database /><div><p className="eyebrow small">Custom Data</p><h3>Metadata</h3></div></div><dl className="detail-list"><dt>Status</dt><dd>{selectedInstance.metadata ? 'Custom metadata added' : 'No metadata'}</dd><dt>Type</dt><dd>{selectedInstance.metadata === null ? 'None' : Array.isArray(selectedInstance.metadata) ? 'Array' : typeof selectedInstance.metadata}</dd></dl></article><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('notes')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'notes')}><div className="panel-heading"><ClipboardList /><div><p className="eyebrow small">Knowledge</p><h3>Notes</h3></div></div><dl className="detail-list"><dt>Detected format</dt><dd>{detectNotesFormat(selectedInstance.notes).toUpperCase()}</dd><dt>Status</dt><dd>{selectedInstance.notes ? 'Notes added' : 'No notes'}</dd></dl></article><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('record')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'record')}><div className="panel-heading"><ShieldCheck /><div><p className="eyebrow small">Record</p><h3>Metadata</h3></div></div><dl className="detail-list"><dt>Description</dt><dd>{formatNullable(selectedInstance.description, 'No description')}</dd><dt>Created</dt><dd>{formatDateTime(selectedInstance.createdAt)}</dd><dt>Updated</dt><dd>{formatDateTime(selectedInstance.updatedAt)}</dd><dt>Instance ID</dt><dd>{selectedInstance.id}</dd></dl></article></div></div>}
           {activeSection === 'instance-dashboard' && !selectedInstance && <article className="panel"><p className="panel-copy">Select an instance from the grid to open its dashboard.</p><Button className="compact-button" type="button" onClick={() => setActiveSection('instances')}><ChevronLeft /> Back to Instances</Button></article>}
-          {activeSection === 'user-groups' && canManageGroups && <ManagedGrid gridKey="user-groups" token={token!} rows={groupRows} columns={labeledGroupColumnDefs} actionCell={GroupActionCell} mobileActions={(row) => <MobileStandardActions onEdit={() => openEditGroupModal(row.raw)} onDelete={() => deleteItem('group', row.raw.id, `group ${row.raw.name}`)} />} toolbar={<Button className="btn-create" onClick={openCreateGroupModal} type="button" themeColor="primary"><Plus /> Create &quot;Group&quot;</Button>} />}
-          {activeSection === 'users' && canManageUsers && <ManagedGrid gridKey="users" token={token!} rows={userRows} columns={labeledUserColumnDefs} actionCell={UserActionCell} mobileActions={(row) => <MobileStandardActions onEdit={() => openEditUserModal(row.raw)} onDelete={() => deleteItem('user', row.raw.user.id, `user ${row.raw.user.email}`)} />} toolbar={<Button className="btn-create" onClick={openCreateUserModal} type="button" themeColor="primary"><Plus /> Create &quot;User&quot;</Button>} />}
-          {activeSection === 'roles' && canManageRoles && <ManagedGrid gridKey="roles" token={token!} rows={roleRows} columns={labeledRoleColumnDefs} actionCell={RoleActionCell} mobileActions={(row) => row.raw.isSystem ? <MobileStandardActions protectedOnly onEdit={() => setMessage(`${row.raw.name} is a protected global role and cannot be modified/deleted.`)} /> : <MobileStandardActions onEdit={() => openEditRoleModal(row.raw)} onDelete={() => deleteItem('role', row.raw.id, `role ${row.raw.name}`)} />} toolbar={<Button className="btn-create" onClick={openCreateRoleModal} type="button" themeColor="primary"><Plus /> Create &quot;Role&quot;</Button>} />}
+          {activeSection === 'user-groups' && canManageGroups && <ManagedGrid gridKey="user-groups" token={token!} rows={groupRows} loading={isAdminDataRefreshing} loadingLabel="Loading User Groups…" columns={labeledGroupColumnDefs} actionCell={GroupActionCell} mobileActions={(row) => <MobileStandardActions onEdit={() => openEditGroupModal(row.raw)} onDelete={() => deleteItem('group', row.raw.id, `group ${row.raw.name}`)} />} toolbar={<Button className="btn-create" onClick={openCreateGroupModal} type="button" themeColor="primary"><Plus /> Create &quot;Group&quot;</Button>} />}
+          {activeSection === 'users' && canManageUsers && <ManagedGrid gridKey="users" token={token!} rows={userRows} loading={isAdminDataRefreshing} loadingLabel="Loading Users…" columns={labeledUserColumnDefs} actionCell={UserActionCell} mobileActions={(row) => <MobileStandardActions onEdit={() => openEditUserModal(row.raw)} onDelete={() => deleteItem('user', row.raw.user.id, `user ${row.raw.user.email}`)} />} toolbar={<Button className="btn-create" onClick={openCreateUserModal} type="button" themeColor="primary"><Plus /> Create &quot;User&quot;</Button>} />}
+          {activeSection === 'roles' && canManageRoles && <ManagedGrid gridKey="roles" token={token!} rows={roleRows} loading={isAdminDataRefreshing} loadingLabel="Loading Roles…" columns={labeledRoleColumnDefs} actionCell={RoleActionCell} mobileActions={(row) => row.raw.isSystem ? <MobileStandardActions protectedOnly onEdit={() => setMessage(`${row.raw.name} is a protected global role and cannot be modified/deleted.`)} /> : <MobileStandardActions onEdit={() => openEditRoleModal(row.raw)} onDelete={() => deleteItem('role', row.raw.id, `role ${row.raw.name}`)} />} toolbar={<Button className="btn-create" onClick={openCreateRoleModal} type="button" themeColor="primary"><Plus /> Create &quot;Role&quot;</Button>} />}
           {activeSection === 'settings-general' && renderSettingsGeneral()}{activeSection === 'settings-logs' && canViewLogs && renderSettingsLogs()}{activeSection === 'settings-database' && canViewDatabase && renderDatabasePerformance()}{activeSection === 'settings-issues' && canViewIssueTypes && renderIssueCatalog()}{activeSection === 'settings-advanced' && canManageSettings && <article className="panel"><p className="panel-copy">Advanced settings: Not Implemented.</p></article>}
         </section></div>)}
 

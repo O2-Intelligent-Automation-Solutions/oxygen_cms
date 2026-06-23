@@ -1,3 +1,6 @@
+import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import rootPackage from '../../../../package.json' with { type: 'json' };
 
 export type CurrentVersionInfo = {
@@ -73,6 +76,44 @@ export type UpdateCheckerOptions = {
 
 const DEFAULT_REPOSITORY = 'O2-Intelligent-Automation-Solutions/oxygen_cms';
 
+
+function findRepoRoot(start = process.cwd()) {
+  let current = resolve(start);
+  for (let depth = 0; depth < 6; depth += 1) {
+    if (existsSync(resolve(current, '.git')) && existsSync(resolve(current, 'package.json'))) return current;
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return resolve(start);
+}
+
+const repoRoot = findRepoRoot();
+
+function gitValue(args: string[]) {
+  if (!existsSync(resolve(repoRoot, '.git'))) return null;
+  try {
+    return execFileSync('git', args, { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function stampedVersion() {
+  const envVersion = envValue('OXYGEN_CMS_VERSION');
+  if (envVersion) return envVersion;
+  const sha = gitValue(['rev-parse', '--short=12', 'HEAD']);
+  return sha ? `${rootPackage.version}+${sha}` : rootPackage.version;
+}
+
+function stampedCommit() {
+  return envValue('OXYGEN_CMS_BUILD_COMMIT') ?? envValue('GITHUB_SHA') ?? envValue('COMMIT_SHA') ?? gitValue(['rev-parse', 'HEAD']);
+}
+
+function stampedBuildDate() {
+  return envValue('OXYGEN_CMS_BUILD_DATE') ?? envValue('BUILD_DATE') ?? gitValue(['show', '-s', '--format=%cI', 'HEAD']);
+}
+
 function envValue(name: string) {
   const value = process.env[name];
   return value && value.trim() ? value.trim() : null;
@@ -84,9 +125,9 @@ function stringOrNull(value: unknown) {
 
 function currentVersion(repository: string, sourceUrl: string, updateChannel: string): CurrentVersionInfo {
   return {
-    version: envValue('OXYGEN_CMS_VERSION') ?? rootPackage.version,
-    commit: envValue('OXYGEN_CMS_BUILD_COMMIT') ?? envValue('GITHUB_SHA') ?? envValue('COMMIT_SHA'),
-    buildDate: envValue('OXYGEN_CMS_BUILD_DATE') ?? envValue('BUILD_DATE'),
+    version: stampedVersion(),
+    commit: stampedCommit(),
+    buildDate: stampedBuildDate(),
     repository,
     sourceUrl,
     updateChannel
