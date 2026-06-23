@@ -310,14 +310,13 @@ export function createIssueCatalogReader(setupSettingsStore: SetupSettingsStore,
               h.error_message AS errorMessage,
               h.http_status_code AS httpStatusCode,
               h.details_json AS detailsJson
-            FROM oxygen_instance_check_history h
-            INNER JOIN (
-              SELECT instance_id, MAX(id) AS id
-              FROM oxygen_instance_check_history
-              WHERE check_type = 'connectivity'
-              GROUP BY instance_id
-            ) latest ON latest.instance_id = h.instance_id AND latest.id = h.id
-            WHERE h.check_type = 'connectivity'
+            FROM oxygen_instances i
+            INNER JOIN oxygen_instance_check_history h ON h.id = (
+              SELECT MAX(latest.id)
+              FROM oxygen_instance_check_history latest FORCE INDEX (idx_oxygen_instance_check_history_type_instance_id)
+              WHERE latest.instance_id = i.id AND latest.check_type = 'connectivity'
+            )
+            WHERE i.archived = 0
           `),
           client.raw(`
             SELECT
@@ -327,14 +326,13 @@ export function createIssueCatalogReader(setupSettingsStore: SetupSettingsStore,
               h.error_message AS errorMessage,
               h.http_status_code AS httpStatusCode,
               h.details_json AS detailsJson
-            FROM oxygen_instance_check_history h
-            INNER JOIN (
-              SELECT instance_id, MAX(id) AS id
-              FROM oxygen_instance_check_history
-              WHERE check_type = 'license'
-              GROUP BY instance_id
-            ) latest ON latest.instance_id = h.instance_id AND latest.id = h.id
-            WHERE h.check_type = 'license'
+            FROM oxygen_instances i
+            INNER JOIN oxygen_instance_check_history h ON h.id = (
+              SELECT MAX(latest.id)
+              FROM oxygen_instance_check_history latest FORCE INDEX (idx_oxygen_instance_check_history_type_instance_id)
+              WHERE latest.instance_id = i.id AND latest.check_type = 'license'
+            )
+            WHERE i.archived = 0
           `),
           instanceRepository.listInstances({ includeAll: true, includeArchived: true })
         ]);

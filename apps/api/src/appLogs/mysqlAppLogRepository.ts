@@ -18,8 +18,6 @@ type AppLogRow = RowDataPacket & {
   created_at: Date | string;
 };
 
-type CountRow = RowDataPacket & { total: number };
-
 function parseDetails(value: AppLogRow['details_json']) {
   if (value === null || value === undefined) return null;
   if (typeof value !== 'string') return value;
@@ -92,8 +90,10 @@ export function createMysqlAppLogRepository(pool: Pool): AppLogRepository {
       const offset = Math.max(query.offset ?? 0, 0);
       const where = whereClause(query);
       const [rows] = await pool.query<AppLogRow[]>(`SELECT * FROM application_logs ${where.sql} ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`, [...where.values, limit, offset]);
-      const [countRows] = await pool.query<CountRow[]>(`SELECT COUNT(*) AS total FROM application_logs ${where.sql}`, where.values);
-      return { logs: rows.map(mapRow), total: Number(countRows[0]?.total ?? 0) };
+      // The Logs page refreshes repeatedly. Avoid a full COUNT(*) over the growing activity table on every poll;
+      // callers only need the current page, and this bounded value still communicates whether more rows may exist.
+      const boundedTotal = offset + rows.length + (rows.length === limit ? 1 : 0);
+      return { logs: rows.map(mapRow), total: boundedTotal };
     },
     async pruneOlderThan(days: number) {
       const [applicationLogResult] = await pool.query<ResultSetHeader>('DELETE FROM application_logs WHERE created_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)', [days]);

@@ -32,7 +32,7 @@ describe('system version/update routes', () => {
     const response = await app.inject({ method: 'GET', url: '/api/system/version', headers: { authorization: `Bearer ${token}` } });
     expect(response.statusCode).toBe(200);
     const body = response.json();
-    expect(body.version.current.version).toBe('0.1.0');
+    expect(body.version.current.version).toMatch(/^0\.1\.0\+[0-9a-f]{12}$/);
     expect(body.version.current.repository).toBe('O2-Intelligent-Automation-Solutions/oxygen_cms');
     expect(body.version.update.source).toBe('github-release');
     expect(body.version.update.latestVersion).toBe('v0.2.0');
@@ -162,5 +162,25 @@ describe('system version/update routes', () => {
     expect(snapshot.update.source).toBe('unavailable');
     expect(snapshot.update.available).toBe(false);
     expect(snapshot.update.error).toBe('network unavailable');
+  });
+
+  it('caches GitHub update checks within the configured TTL', async () => {
+    let calls = 0;
+    let currentTime = new Date('2026-06-11T12:00:00Z');
+    const checker = createUpdateChecker({
+      fetchImpl: async () => {
+        calls += 1;
+        return new Response(JSON.stringify({ tag_name: 'v0.2.0' }), { status: 200 });
+      },
+      now: () => currentTime,
+      timeoutMs: 1000
+    });
+
+    const first = await checker.getVersionSnapshot();
+    currentTime = new Date('2026-06-11T12:01:00Z');
+    const second = await checker.getVersionSnapshot();
+
+    expect(first).toBe(second);
+    expect(calls).toBe(1);
   });
 });

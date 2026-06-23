@@ -144,16 +144,6 @@ export function createInstancePoller(options: InstancePollerOptions): InstancePo
       try {
         const result = await options.repository.testConnectivity(instance.id);
         summary.checked += 1;
-        await appendServiceLog({
-          type: 'Connection',
-          severity: 'Verbose',
-          source: CMS_SERVICE_SOURCE,
-          userName: null,
-          entityGuid: instance.id,
-          tenantId: instance.tenantId,
-          message: `${instance.name} poller check completed: ${result.message}`,
-          details: checkDetails(instance, result)
-        });
         const signature = issueSignature(result);
         const previousSignature = activeIssueSignatures.get(instance.id);
         if (signature) {
@@ -205,7 +195,7 @@ export function createInstancePoller(options: InstancePollerOptions): InstancePo
     lastRunAt = currentTime.toISOString();
     lastSummary = summary;
     lastError = null;
-    await writeServiceLog(summary);
+    if (summary.checked > 0 || summary.failed > 0) await writeServiceLog(summary);
     setNextRun(currentTime);
     return summary;
   }

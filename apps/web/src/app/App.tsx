@@ -1028,59 +1028,89 @@ export function App() {
 
   useEffect(() => {
     if (!token || !profile || activeSection !== 'dashboard') return undefined;
-    void loadDashboard(token).catch((err) => setError(err instanceof Error ? err.message : 'Dashboard refresh failed.'));
-    const refreshTimer = window.setInterval(() => {
-      void loadDashboard(token).catch((err) => setError(err instanceof Error ? err.message : 'Dashboard refresh failed.'));
-    }, 30000);
-    const handleFocus = () => {
+    const refresh = () => {
       if (document.visibilityState === 'hidden') return;
       void loadDashboard(token).catch((err) => setError(err instanceof Error ? err.message : 'Dashboard refresh failed.'));
     };
-    window.addEventListener('focus', handleFocus);
-    document.addEventListener('visibilitychange', handleFocus);
+    refresh();
+    const refreshTimer = window.setInterval(refresh, 30000);
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
     return () => {
       window.clearInterval(refreshTimer);
-      window.removeEventListener('focus', handleFocus);
-      document.removeEventListener('visibilitychange', handleFocus);
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
     };
-  }, [token, profile, activeSection, canViewDatabase]);
+  }, [token, profile, activeSection]);
 
   useEffect(() => {
     if (!token || !profile || activeSection !== 'settings-logs' || !canViewLogs) return undefined;
-    void loadLogRetention(token).catch((err) => setError(err instanceof Error ? err.message : 'Log retention load failed.'));
-    void loadAppLogs(token).catch((err) => setError(err instanceof Error ? err.message : 'Logs refresh failed.'));
-    if (isLogRefreshPaused) return undefined;
-    const refreshTimer = window.setInterval(() => {
+    const refresh = () => {
+      if (document.visibilityState === 'hidden') return;
       void loadAppLogs(token).catch((err) => setError(err instanceof Error ? err.message : 'Logs refresh failed.'));
-    }, 10000);
-    return () => window.clearInterval(refreshTimer);
+    };
+    void loadLogRetention(token).catch((err) => setError(err instanceof Error ? err.message : 'Log retention load failed.'));
+    refresh();
+    if (isLogRefreshPaused) return undefined;
+    const refreshTimer = window.setInterval(refresh, 30000);
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      window.clearInterval(refreshTimer);
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
   }, [token, profile, activeSection, logTypeFilter, logSeverityFilter, logEntityGuidFilter, isLogRefreshPaused, canViewLogs]);
 
   useEffect(() => {
     if (!token || !profile || activeSection !== 'settings-database' || !canViewDatabase) return undefined;
-    void loadDatabasePerformance(token).catch((err) => setError(err instanceof Error ? err.message : 'Database performance refresh failed.'));
-    const refreshTimer = window.setInterval(() => {
+    const refresh = () => {
+      if (document.visibilityState === 'hidden') return;
       void loadDatabasePerformance(token).catch((err) => setError(err instanceof Error ? err.message : 'Database performance refresh failed.'));
-    }, 30000);
-    return () => window.clearInterval(refreshTimer);
-  }, [token, profile, activeSection, canViewIssueTypes]);
+    };
+    refresh();
+    const refreshTimer = window.setInterval(refresh, 60000);
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      window.clearInterval(refreshTimer);
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, [token, profile, activeSection, canViewDatabase]);
 
   useEffect(() => {
     if (!token || !profile || activeSection !== 'settings-issues' || !canViewIssueTypes) return undefined;
-    void loadIssueCatalog(token).catch((err) => setError(err instanceof Error ? err.message : 'Issue catalog refresh failed.'));
-    const refreshTimer = window.setInterval(() => {
+    const refresh = () => {
+      if (document.visibilityState === 'hidden') return;
       void loadIssueCatalog(token).catch((err) => setError(err instanceof Error ? err.message : 'Issue catalog refresh failed.'));
-    }, 30000);
-    return () => window.clearInterval(refreshTimer);
-  }, [token, profile, activeSection]);
+    };
+    refresh();
+    const refreshTimer = window.setInterval(refresh, 60000);
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      window.clearInterval(refreshTimer);
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, [token, profile, activeSection, canViewIssueTypes]);
 
   useEffect(() => {
     if (!token || !profile || activeSection !== 'settings-general' || !canViewVersion) return undefined;
-    void loadSystemVersion(token).catch((err) => setError(err instanceof Error ? err.message : 'Settings status refresh failed.'));
-    const refreshTimer = window.setInterval(() => {
+    const refresh = () => {
+      if (document.visibilityState === 'hidden') return;
       void loadSystemVersion(token).catch((err) => setError(err instanceof Error ? err.message : 'Settings status refresh failed.'));
-    }, 30000);
-    return () => window.clearInterval(refreshTimer);
+    };
+    refresh();
+    const refreshTimer = window.setInterval(refresh, 60000);
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      window.clearInterval(refreshTimer);
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
   }, [token, profile, activeSection, canViewVersion, canManagePoller]);
 
   useEffect(() => {

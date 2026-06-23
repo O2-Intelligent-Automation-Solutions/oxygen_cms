@@ -8,7 +8,7 @@ This documentation has been migrated to the GitHub Wiki:
 
 ### Schema version
 
-Current CMS schema version: `0.16`.
+Current CMS schema version: `0.17`.
 
 ### `role_permissions`
 
@@ -42,11 +42,16 @@ Database-backed CMS activity log table used by the Settings → Logs page and ba
 Indexes:
 
 - `idx_application_logs_created_at`
-- `idx_application_logs_type`
-- `idx_application_logs_severity`
+- `idx_application_logs_created_id`
+- `idx_application_logs_type_severity`
+- `idx_application_logs_severity_created_id`
+- `idx_application_logs_source`
 - `idx_application_logs_user_name`
 - `idx_application_logs_entity_guid`
+- `idx_application_logs_entity_created_id`
 - `idx_application_logs_tenant_id`
+- `idx_application_logs_tenant_created_id`
+- `idx_application_logs_tenant_entity`
 
 ### Instance CSV import/export contract
 
@@ -78,7 +83,7 @@ The Settings > Database dashboard does not add CMS tables; it reads existing set
 
 `oxygen_instance_check_history.details_json` for `check_type='connectivity'` stores the latest phase details used by Response Details: `dns` (Resolve), `connect`, `ssl`, `authentication`, `license`, `api` (Settings via `/web-api/global/settings`), and `settingsJson` (the raw Settings JSON payload when collected). DNS details may include `address`; connect details include the resolved `host`/`port`. TCP connection failure or TLS handshake closure/reset/timeout sets the instance availability to `down` and stores skipped Auth/License/Settings details rather than reporting an auth error; when the TLS handshake fails before a certificate is received, `oxygen_instance_status.ssl_valid` is stored as `NULL` because certificate validity was not evaluated. Certificate-validation failures that still allow TLS are the only `ssl-error` warnings. Authentication succeeds only when `/v2/Auth/Login` returns a 2xx/3xx response that is not a login/forbidden page and includes an OxyGen session cookie; missing/non-session cookies, forbidden pages, and login forms are auth failures. License/Settings/Triggers are skipped after auth failure. Skipped License phases preserve the prior license rollup and do not count as License Errors on the dashboard; License issue counts require the instance to be reachable enough to evaluate License. When `check_license=true`, License runs before Settings; attempted License failures are stored as license `error` and Settings/Triggers are skipped. When `check_license=false`, License is skipped and can be hidden by the UI. `oxygen_instance_status.response_time_ms` is Resolve + Connect + SSL + Auth for collected, non-skipped phases.
 
-Schema `0.13` adds `idx_oxygen_instance_check_history_instance_started_id_type (instance_id, started_at, id, check_type)` so Instance Dashboard health-detail reads can satisfy `WHERE instance_id = ? AND check_type IN (...) ORDER BY started_at DESC, id DESC LIMIT 50` with a backward index scan instead of a filesort. Schema `0.14` adds `idx_oxygen_instance_check_history_started_at (started_at)` so activity retention can prune old history rows without a full table scan.
+Schema `0.13` adds `idx_oxygen_instance_check_history_instance_started_id_type (instance_id, started_at, id, check_type)` so Instance Dashboard health-detail reads can satisfy `WHERE instance_id = ? AND check_type IN (...) ORDER BY started_at DESC, id DESC LIMIT 50` with a backward index scan instead of a filesort. Schema `0.14` adds `idx_oxygen_instance_check_history_started_at (started_at)` so activity retention can prune old history rows without a full table scan. Schema `0.17` adds `idx_oxygen_instance_check_history_type_instance_id (check_type, instance_id, id)` so Settings → Issue Types can read latest connectivity/license evidence with indexed per-instance `MAX(id)` probes instead of grouping the full activity-history table.
 
 `oxygen_instance_status.settings_json` stores the most recent raw `/web-api/global/settings` JSON payload. The Instance Dashboard Settings card extracts non-queue values from `BUS_Auto_Purge`, `OxyGen_Version`, and `ClientDomain`; its Raw JSON count is based on all `Variables[]` entries in the full payload. Queue-oriented flags from `BUS_Trigger_Processing`, `EMM_Delayed_Processing`, `SMS_Delayed_Processing`, and `Hangfire_CheckIn` are displayed on Workflow & Components queue rows instead of in Settings. The Settings dialog shows the full read-only JSON payload, matching the License JSON dialog pattern.
 

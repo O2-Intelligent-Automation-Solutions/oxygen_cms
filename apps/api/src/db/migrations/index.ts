@@ -376,6 +376,81 @@ UNION ALL SELECT id, 'system.version.view' FROM roles WHERE name IN ('SystemAdmi
 UNION ALL SELECT id, 'issueTypes.view' FROM roles WHERE name IN ('SystemAdmin', 'TenantAdmin', 'Operator', 'Viewer')
 UNION ALL SELECT id, 'gridPreferences.manage' FROM roles WHERE name IN ('SystemAdmin', 'TenantAdmin', 'Operator', 'Viewer');`;
 
+const performanceIndexesSql = `SET @add_check_history_latest_type_instance_id_sql = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE oxygen_instance_check_history ADD INDEX idx_oxygen_instance_check_history_type_instance_id (check_type, instance_id, id)',
+    'SELECT 1'
+  )
+  FROM information_schema.statistics
+  WHERE table_schema = DATABASE()
+    AND table_name = 'oxygen_instance_check_history'
+    AND index_name = 'idx_oxygen_instance_check_history_type_instance_id'
+);
+PREPARE add_check_history_latest_type_instance_id_stmt FROM @add_check_history_latest_type_instance_id_sql;
+EXECUTE add_check_history_latest_type_instance_id_stmt;
+DEALLOCATE PREPARE add_check_history_latest_type_instance_id_stmt;
+
+SET @add_application_logs_created_id_sql = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE application_logs ADD INDEX idx_application_logs_created_id (created_at, id)',
+    'SELECT 1'
+  )
+  FROM information_schema.statistics
+  WHERE table_schema = DATABASE()
+    AND table_name = 'application_logs'
+    AND index_name = 'idx_application_logs_created_id'
+);
+PREPARE add_application_logs_created_id_stmt FROM @add_application_logs_created_id_sql;
+EXECUTE add_application_logs_created_id_stmt;
+DEALLOCATE PREPARE add_application_logs_created_id_stmt;
+
+SET @add_application_logs_entity_created_id_sql = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE application_logs ADD INDEX idx_application_logs_entity_created_id (entity_guid, created_at, id)',
+    'SELECT 1'
+  )
+  FROM information_schema.statistics
+  WHERE table_schema = DATABASE()
+    AND table_name = 'application_logs'
+    AND index_name = 'idx_application_logs_entity_created_id'
+);
+PREPARE add_application_logs_entity_created_id_stmt FROM @add_application_logs_entity_created_id_sql;
+EXECUTE add_application_logs_entity_created_id_stmt;
+DEALLOCATE PREPARE add_application_logs_entity_created_id_stmt;
+
+SET @add_application_logs_tenant_created_id_sql = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE application_logs ADD INDEX idx_application_logs_tenant_created_id (tenant_id, created_at, id)',
+    'SELECT 1'
+  )
+  FROM information_schema.statistics
+  WHERE table_schema = DATABASE()
+    AND table_name = 'application_logs'
+    AND index_name = 'idx_application_logs_tenant_created_id'
+);
+PREPARE add_application_logs_tenant_created_id_stmt FROM @add_application_logs_tenant_created_id_sql;
+EXECUTE add_application_logs_tenant_created_id_stmt;
+DEALLOCATE PREPARE add_application_logs_tenant_created_id_stmt;
+
+SET @add_application_logs_severity_created_id_sql = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE application_logs ADD INDEX idx_application_logs_severity_created_id (severity, created_at, id)',
+    'SELECT 1'
+  )
+  FROM information_schema.statistics
+  WHERE table_schema = DATABASE()
+    AND table_name = 'application_logs'
+    AND index_name = 'idx_application_logs_severity_created_id'
+);
+PREPARE add_application_logs_severity_created_id_stmt FROM @add_application_logs_severity_created_id_sql;
+EXECUTE add_application_logs_severity_created_id_stmt;
+DEALLOCATE PREPARE add_application_logs_severity_created_id_stmt;`;
+
 const issueClassificationCatalogSql = `CREATE TABLE IF NOT EXISTS issue_categories (
   id VARCHAR(32) NOT NULL PRIMARY KEY,
   code VARCHAR(64) NOT NULL,
@@ -560,5 +635,11 @@ export const schemaMigrations: SchemaMigration[] = [
     name: 'role permission catalog assignments',
     checksum: '32f2ea9cf2621d6770a5fbd63122a1ae2906661762d2fb9433635b4419f3f16c',
     upSql: rolePermissionsSchemaSql
+  },
+  {
+    version: '0.17',
+    name: 'performance indexes for activity dashboards',
+    checksum: '2610b56bd2335f469dfacaef0c1e85a1ea81f0df1cd7075eaecae0c3de0ad013',
+    upSql: performanceIndexesSql
   }
 ];

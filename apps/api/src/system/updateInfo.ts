@@ -195,86 +195,98 @@ export function createUpdateChecker(options: UpdateCheckerOptions = {}): UpdateC
   const sourceUrl = options.sourceUrl ?? envValue('OXYGEN_CMS_SOURCE_URL') ?? `https://github.com/${repository}`;
   const updateChannel = options.updateChannel ?? envValue('OXYGEN_CMS_UPDATE_CHANNEL') ?? 'stable';
   const timeoutMs = options.timeoutMs ?? Number(envValue('OXYGEN_CMS_UPDATE_TIMEOUT_MS') ?? 5000);
+  const cacheTtlMs = Math.max(0, Number(envValue('OXYGEN_CMS_UPDATE_CACHE_TTL_MS') ?? 300_000));
   const fetchImpl = options.fetchImpl ?? globalThis.fetch;
   const now = options.now ?? (() => new Date());
+  let cachedSnapshot: VersionSnapshot | null = null;
+  let cachedUntil = 0;
+
+  async function readFreshSnapshot(): Promise<VersionSnapshot> {
+    const current = currentVersion(repository, sourceUrl, updateChannel);
+    const checkedAt = now().toISOString();
+    if (typeof fetchImpl !== 'function') return unavailable(current, checkedAt, 'Fetch is not available in this runtime.');
+
+    try {
+      const releaseUrl = `https://api.github.com/repos/${repository}/releases/latest`;
+      const release = await fetchJson<GitHubRelease>(fetchImpl, releaseUrl, timeoutMs);
+      if (release.ok && release.body) {
+        const latestVersion = stringOrNull(release.body.tag_name);
+        return {
+          current,
+          update: {
+            checkedAt,
+            source: 'github-release',
+            available: compareVersions(current.version, latestVersion) > 0,
+            currentVersion: current.version,
+            latestVersion,
+            latestName: stringOrNull(release.body.name) ?? latestVersion,
+            releaseUrl: stringOrNull(release.body.html_url),
+            publishedAt: stringOrNull(release.body.published_at),
+            error: null
+          }
+        };
+      }
+
+      const tagsUrl = `https://api.github.com/repos/${repository}/tags?per_page=1`;
+      const tags = await fetchJson<GitHubTag[]>(fetchImpl, tagsUrl, timeoutMs);
+      if (tags.ok && Array.isArray(tags.body) && tags.body.length > 0) {
+        const tag = tags.body[0];
+        const latestVersion = stringOrNull(tag.name);
+        return {
+          current,
+          update: {
+            checkedAt,
+            source: 'github-tag',
+            available: compareVersions(current.version, latestVersion) > 0,
+            currentVersion: current.version,
+            latestVersion,
+            latestName: latestVersion,
+            releaseUrl: latestVersion ? `${sourceUrl}/releases/tag/${encodeURIComponent(latestVersion)}` : sourceUrl,
+            publishedAt: null,
+            error: null
+          }
+        };
+      }
+
+      const repositoryUrl = `https://api.github.com/repos/${repository}`;
+      const repositoryMetadata = await fetchJson<GitHubRepository>(fetchImpl, repositoryUrl, timeoutMs);
+      const defaultBranch = repositoryMetadata.ok && repositoryMetadata.body ? stringOrNull(repositoryMetadata.body.default_branch) : null;
+      if (defaultBranch) {
+        const branchUrl = `https://api.github.com/repos/${repository}/commits/${encodeURIComponent(defaultBranch)}`;
+        const branchCommit = await fetchJson<GitHubCommit>(fetchImpl, branchUrl, timeoutMs);
+        const sha = branchCommit.ok && branchCommit.body ? stringOrNull(branchCommit.body.sha) : null;
+        const commitUrl = branchCommit.ok && branchCommit.body ? stringOrNull(branchCommit.body.html_url) : null;
+        return {
+          current,
+          update: {
+            checkedAt,
+            source: 'github-branch',
+            available: Boolean(current.commit && sha && !sha.startsWith(current.commit) && !current.commit.startsWith(sha)),
+            currentVersion: current.version,
+            latestVersion: sha ? sha.slice(0, 12) : defaultBranch,
+            latestName: sha ? `${defaultBranch} @ ${sha.slice(0, 12)}` : defaultBranch,
+            releaseUrl: commitUrl ?? stringOrNull(repositoryMetadata.body?.html_url) ?? sourceUrl,
+            publishedAt: branchCommit.ok && branchCommit.body ? stringOrNull(branchCommit.body.commit?.committer?.date) ?? stringOrNull(branchCommit.body.commit?.author?.date) : stringOrNull(repositoryMetadata.body?.pushed_at) ?? stringOrNull(repositoryMetadata.body?.updated_at),
+            error: null
+          }
+        };
+      }
+
+      return unavailable(current, checkedAt, `GitHub update metadata unavailable. Latest release status ${release.status}; tags status ${tags.status}; repository status ${repositoryMetadata.status}.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Update check failed.';
+      return unavailable(current, checkedAt, message);
+    }
+  }
 
   return {
     async getVersionSnapshot() {
-      const current = currentVersion(repository, sourceUrl, updateChannel);
-      const checkedAt = now().toISOString();
-      if (typeof fetchImpl !== 'function') return unavailable(current, checkedAt, 'Fetch is not available in this runtime.');
-
-      try {
-        const releaseUrl = `https://api.github.com/repos/${repository}/releases/latest`;
-        const release = await fetchJson<GitHubRelease>(fetchImpl, releaseUrl, timeoutMs);
-        if (release.ok && release.body) {
-          const latestVersion = stringOrNull(release.body.tag_name);
-          return {
-            current,
-            update: {
-              checkedAt,
-              source: 'github-release',
-              available: compareVersions(current.version, latestVersion) > 0,
-              currentVersion: current.version,
-              latestVersion,
-              latestName: stringOrNull(release.body.name) ?? latestVersion,
-              releaseUrl: stringOrNull(release.body.html_url),
-              publishedAt: stringOrNull(release.body.published_at),
-              error: null
-            }
-          };
-        }
-
-        const tagsUrl = `https://api.github.com/repos/${repository}/tags?per_page=1`;
-        const tags = await fetchJson<GitHubTag[]>(fetchImpl, tagsUrl, timeoutMs);
-        if (tags.ok && Array.isArray(tags.body) && tags.body.length > 0) {
-          const tag = tags.body[0];
-          const latestVersion = stringOrNull(tag.name);
-          return {
-            current,
-            update: {
-              checkedAt,
-              source: 'github-tag',
-              available: compareVersions(current.version, latestVersion) > 0,
-              currentVersion: current.version,
-              latestVersion,
-              latestName: latestVersion,
-              releaseUrl: latestVersion ? `${sourceUrl}/releases/tag/${encodeURIComponent(latestVersion)}` : sourceUrl,
-              publishedAt: null,
-              error: null
-            }
-          };
-        }
-
-        const repositoryUrl = `https://api.github.com/repos/${repository}`;
-        const repositoryMetadata = await fetchJson<GitHubRepository>(fetchImpl, repositoryUrl, timeoutMs);
-        const defaultBranch = repositoryMetadata.ok && repositoryMetadata.body ? stringOrNull(repositoryMetadata.body.default_branch) : null;
-        if (defaultBranch) {
-          const branchUrl = `https://api.github.com/repos/${repository}/commits/${encodeURIComponent(defaultBranch)}`;
-          const branchCommit = await fetchJson<GitHubCommit>(fetchImpl, branchUrl, timeoutMs);
-          const sha = branchCommit.ok && branchCommit.body ? stringOrNull(branchCommit.body.sha) : null;
-          const commitUrl = branchCommit.ok && branchCommit.body ? stringOrNull(branchCommit.body.html_url) : null;
-          return {
-            current,
-            update: {
-              checkedAt,
-              source: 'github-branch',
-              available: Boolean(current.commit && sha && !sha.startsWith(current.commit) && !current.commit.startsWith(sha)),
-              currentVersion: current.version,
-              latestVersion: sha ? sha.slice(0, 12) : defaultBranch,
-              latestName: sha ? `${defaultBranch} @ ${sha.slice(0, 12)}` : defaultBranch,
-              releaseUrl: commitUrl ?? stringOrNull(repositoryMetadata.body?.html_url) ?? sourceUrl,
-              publishedAt: branchCommit.ok && branchCommit.body ? stringOrNull(branchCommit.body.commit?.committer?.date) ?? stringOrNull(branchCommit.body.commit?.author?.date) : stringOrNull(repositoryMetadata.body?.pushed_at) ?? stringOrNull(repositoryMetadata.body?.updated_at),
-              error: null
-            }
-          };
-        }
-
-        return unavailable(current, checkedAt, `GitHub update metadata unavailable. Latest release status ${release.status}; tags status ${tags.status}; repository status ${repositoryMetadata.status}.`);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Update check failed.';
-        return unavailable(current, checkedAt, message);
-      }
+      const currentTime = now().getTime();
+      if (cachedSnapshot && currentTime < cachedUntil) return cachedSnapshot;
+      const snapshot = await readFreshSnapshot();
+      cachedSnapshot = snapshot;
+      cachedUntil = currentTime + cacheTtlMs;
+      return snapshot;
     }
   };
 }

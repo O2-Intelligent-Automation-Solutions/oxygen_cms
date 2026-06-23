@@ -11,7 +11,7 @@ function fakeDatabaseSnapshot(): DatabasePerformanceSnapshot {
     database: 'O2IAS_CMS',
     generatedAt: '2026-06-13T12:00:00.000Z',
     error: null,
-    schema: { currentVersion: '0.16', targetVersion: '0.16', current: true, upgradeAvailable: false },
+    schema: { currentVersion: '0.17', targetVersion: '0.17', current: true, upgradeAvailable: false },
     queryDigestStatus: { available: true, state: 'empty', reason: null },
     summary: { tableCount: 0, estimatedRows: 0, dataSizeBytes: 0, indexSizeBytes: 0, freeBytes: 0, totalSizeBytes: 0 },
     server: { version: null, uptimeSeconds: null, maxConnections: null, threadsConnected: null, maxUsedConnections: null, slowQueries: null, longQueryTimeSeconds: null, questions: null, abortedConnects: null, bufferPoolReadHitPercent: null },

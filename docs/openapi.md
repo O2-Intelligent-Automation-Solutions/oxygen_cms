@@ -7,7 +7,7 @@ docs/openapi.yaml
 ```
 
 Current API spec version: `0.8.0`.
-Current CMS schema version: `0.16`.
+Current CMS schema version: `0.17`.
 
 The canonical rich contract summary is maintained in the GitHub Wiki. This repo pointer tracks the current schema/security checkpoint: protected routes use bearer authentication plus explicit permission and Tenant/global/instance scope checks; auth profiles expose effective permission keys; role create/update accepts explicit `permissionKeys` assignments.
 
@@ -32,7 +32,7 @@ This update documents:
   - `POST /api/system/poller/resume`
   - `POST /api/system/poller/run-now`
 - persisted application logs:
-  - `GET /api/logs` lists persisted Audit, Service, CRUD, Connection, Security, and UI logs after enforcing the configured retention window across application logs and instance check history. CRUD is reserved for user-initiated entity create/update/delete operations; settings/grid preference saves log as UI. `type` and `severity` accept one or more values via repeated or comma-separated query parameters, `entityGuid` filters logs for a specific instance/entity, and `tenantId` filters tenant-associated logs. Tenant-scoped users are automatically limited to their tenant. API activity details include friendly `message`, `apiCall` with `{Entity_Guid}` route tokens, `responseCode`, nullable `entityGuid`, nullable `tenantId`, and failed response error text when available. Manual connectivity checks log Warning/Error based on the connectivity result even when the test endpoint itself returns HTTP 200.
+  - `GET /api/logs` lists persisted Audit, Service, CRUD, Connection, Security, and UI logs after enforcing the configured retention window across application logs and instance check history. CRUD is reserved for user-initiated entity create/update/delete operations; settings/grid preference saves log as UI. `type` and `severity` accept one or more values via repeated or comma-separated query parameters, `entityGuid` filters logs for a specific instance/entity, and `tenantId` filters tenant-associated logs. Tenant-scoped users are automatically limited to their tenant. API activity details include friendly `message`, `apiCall` with `{Entity_Guid}` route tokens, `responseCode`, nullable `entityGuid`, nullable `tenantId`, and failed response error text when available. Manual connectivity checks log Warning/Error based on the connectivity result even when the test endpoint itself returns HTTP 200. The route returns a bounded page total for refresh performance instead of running a full activity-table count on every poll.
   - `POST /api/logs/retention/run` runs the configured activity retention window immediately, deletes expired `application_logs` and `oxygen_instance_check_history` rows, refreshes table statistics when rows are removed, and returns `{ retention, deleted, tables }` with per-table row counts.
   - `POST /api/logs/retention/queue` enqueues the same retention purge as a credential-free `database-maintenance` `purge-logs` job when BullMQ/database maintenance queueing is enabled; returns `202` with `{ queued, queue, jobId, task }` or `400` when queueing is disabled.
   - `DELETE /api/logs` truncates current CMS activity tables (`application_logs` and `oxygen_instance_check_history`), refreshes table statistics, and returns `{ deleted, tables }` with per-table row counts; this endpoint is excluded from automatic application log capture so clearing activity does not recreate a log row.

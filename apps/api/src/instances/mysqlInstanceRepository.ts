@@ -176,6 +176,32 @@ const instanceSelectSql = `
   LEFT JOIN oxygen_instance_status s ON s.instance_id = i.id
 `;
 
+const instanceListSelectSql = `
+  SELECT
+    i.*,
+    s.availability_status,
+    s.ssl_valid,
+    s.ssl_expires_at,
+    s.last_checked_at,
+    s.last_success_at,
+    s.last_failure_at,
+    s.uptime_percent_24h,
+    s.uptime_percent_7d,
+    s.response_time_ms,
+    s.last_error,
+    s.processing_status,
+    s.emm_queue_status,
+    s.sms_status,
+    s.hangfire_status,
+    s.license_key,
+    s.license_status,
+    NULL AS license_json,
+    NULL AS settings_json,
+    NULL AS workflow_summary_json
+  FROM oxygen_instances i
+  LEFT JOIN oxygen_instance_status s ON s.instance_id = i.id
+`;
+
 function createPoolFromDatabaseSettings(settings: DatabaseSettings): Pool {
   return createPool({
     host: settings.host,
@@ -400,13 +426,13 @@ export function createMysqlInstanceRepository(pool: Pool, credentialCipher?: Cre
     async listInstances(scope) {
       const archiveSql = scope?.includeArchived ? '' : ' WHERE i.archived = 0';
       if (scope?.includeAll) {
-        return (await many<InstanceRow>(`${instanceSelectSql}${archiveSql} ORDER BY i.name ASC`)).map(mapInstance);
+        return (await many<InstanceRow>(`${instanceListSelectSql}${archiveSql} ORDER BY i.name ASC`)).map(mapInstance);
       }
       const instanceIds = scope?.instanceIds ?? [];
       if (instanceIds.length === 0) return [];
       const placeholders = instanceIds.map(() => '?').join(', ');
       const archivedClause = scope?.includeArchived ? '' : ' AND i.archived = 0';
-      return (await many<InstanceRow>(`${instanceSelectSql} WHERE i.id IN (${placeholders})${archivedClause} ORDER BY i.name ASC`, instanceIds)).map(mapInstance);
+      return (await many<InstanceRow>(`${instanceListSelectSql} WHERE i.id IN (${placeholders})${archivedClause} ORDER BY i.name ASC`, instanceIds)).map(mapInstance);
     },
 
     getInstance: findInstanceById,
@@ -416,7 +442,7 @@ export function createMysqlInstanceRepository(pool: Pool, credentialCipher?: Cre
       if (!instance) throw new Error('Instance not found.');
       const rows = await many<InstanceCheckHistoryRow>(
         `SELECT check_type, status, started_at, finished_at, duration_ms, http_status_code, error_code, error_message, details_json
-         FROM oxygen_instance_check_history
+         FROM oxygen_instance_check_history FORCE INDEX (idx_oxygen_instance_check_history_instance_started_id_type)
          WHERE instance_id = ? AND check_type IN ('connectivity', 'license')
          ORDER BY started_at DESC, id DESC
          LIMIT 50`,
