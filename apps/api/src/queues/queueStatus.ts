@@ -51,6 +51,8 @@ export type QueueJobSummary = {
   processedOn: string | null;
   finishedOn: string | null;
   failedReason: string | null;
+  everySeconds?: number;
+  iterationCount?: number;
   data: {
     task?: string;
     source?: string;
@@ -218,10 +220,11 @@ function schedulerToQueueJob(queue: QueueName, scheduler: BullMqJobSchedulerReco
     processedOn: null,
     finishedOn: null,
     failedReason: null,
+    ...(everyMs ? { everySeconds: Math.round(everyMs / 1000) } : {}),
+    ...(iterationCount !== null ? { iterationCount } : {}),
     data: {
       ...data,
-      task: everyMs ? `Every ${Math.round(everyMs / 1000)} seconds` : data.task,
-      requestedBy: iterationCount !== null ? `Run count ${iterationCount}` : data.requestedBy
+      requestedBy: data.requestedBy
     }
   };
 }

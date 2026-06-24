@@ -108,7 +108,7 @@ type SystemUpdateStep = { code: 'dry-run' | 'backup' | 'checkout' | 'build' | 'r
 type SystemUpdateStatus = { generatedAt: string; runner: { enabled: boolean; state: 'idle' | 'running' | 'blocked' | 'unavailable'; inProgress: boolean; canRun: boolean; mode: 'host-script'; command: string; dryRunCommand: string; requiresConfirmation: boolean; confirmationVariable: string; currentRef: string | null; targetRef: string | null }; steps: SystemUpdateStep[]; lastRun: { id: string; mode: 'dry-run' | 'update'; targetRef: string; startedAt: string; finishedAt: string | null; state: 'running' | 'completed' | 'failed'; summary: string | null } | null; lastError: string | null };
 type QueueStatusItem = { name: 'instance-checks' | 'database-maintenance' | 'system-maintenance'; description: string; waiting: number; active: number; delayed: number; failed: number; completed: number };
 type SystemQueueStatus = { enabled: boolean; mode: 'disabled' | 'bullmq'; generatedAt: string; bullBoard?: { enabled: boolean; path: string | null }; redis: { configured: boolean; connected: boolean; host: string | null; port: number | null; error: string | null }; queues: QueueStatusItem[] };
-type QueueJobSummary = { id: string | null; queue: QueueStatusItem['name']; name: string; state: 'scheduled' | 'waiting' | 'active' | 'delayed' | 'failed' | 'completed' | 'unknown'; attemptsMade: number; queueSequence: number; nextProcessAt: string | null; timestamp: string | null; processedOn: string | null; finishedOn: string | null; failedReason: string | null; data: { task?: string; source?: string; instanceId?: string; instanceName?: string; tenantId?: string | null; tenantName?: string | null; requestedBy?: string } };
+type QueueJobSummary = { id: string | null; queue: QueueStatusItem['name']; name: string; state: 'scheduled' | 'waiting' | 'active' | 'delayed' | 'failed' | 'completed' | 'unknown'; attemptsMade: number; queueSequence: number; nextProcessAt: string | null; timestamp: string | null; processedOn: string | null; finishedOn: string | null; failedReason: string | null; everySeconds?: number; iterationCount?: number; data: { task?: string; source?: string; instanceId?: string; instanceName?: string; tenantId?: string | null; tenantName?: string | null; requestedBy?: string } };
 type QueueJobGridRow = { id: string; sequence: number; job: string; tenant: string; instance: string; instanceGuid: string; queue: string; state: string; attempts: string; nextProcessAt: string; lastActivity: string; metadata: string; raw: QueueJobSummary };
 type SystemQueueJobs = { enabled: boolean; mode: 'disabled' | 'bullmq'; generatedAt: string; jobs: QueueJobSummary[] };
 type DatabaseDetailPanel = 'schema' | 'status' | 'storage' | 'tables' | 'connections' | 'queries' | 'cache';
@@ -2505,13 +2505,30 @@ export function App() {
   }
 
   function queueJobDetail(job: QueueJobSummary) {
-    const bits = [job.data.task, job.data.source, job.data.requestedBy ? `By ${job.data.requestedBy}` : null].filter(Boolean);
+    const bits = [job.data.task, job.data.source, typeof job.iterationCount === 'number' ? `Run count ${job.iterationCount}` : null, job.data.requestedBy ? `By ${job.data.requestedBy}` : null].filter(Boolean);
     return bits.length ? bits.join(' · ') : 'No public metadata';
+  }
+
+  function formatRecurringSchedule(everySeconds: number | undefined) {
+    if (typeof everySeconds !== 'number' || !Number.isFinite(everySeconds) || everySeconds <= 0) return null;
+    const seconds = Math.round(everySeconds);
+    const units = [
+      { label: 'Year', seconds: 365 * 24 * 60 * 60 },
+      { label: 'Month', seconds: 30 * 24 * 60 * 60 },
+      { label: 'Week', seconds: 7 * 24 * 60 * 60 },
+      { label: 'Day', seconds: 24 * 60 * 60 },
+      { label: 'Hour', seconds: 60 * 60 },
+      { label: 'Minute', seconds: 60 },
+      { label: 'Second', seconds: 1 }
+    ];
+    const unit = units.find((candidate) => seconds >= candidate.seconds && seconds % candidate.seconds === 0) ?? units[units.length - 1];
+    const count = Math.max(1, Math.round(seconds / unit.seconds));
+    return count === 1 ? `Every ${unit.label}` : `Every ${count} ${unit.label}s`;
   }
 
   function queueJobAttemptLabel(job: QueueJobSummary) {
     if (job.state === 'active') return 'Running now';
-    if (job.state === 'scheduled') return job.data.task ?? 'Scheduled recurrence';
+    if (job.state === 'scheduled') return formatRecurringSchedule(job.everySeconds) ?? job.data.task ?? 'Scheduled recurrence';
     if (job.state === 'delayed' && job.attemptsMade === 0) return 'Scheduled; not run yet';
     if (job.attemptsMade) return `${job.attemptsMade} attempt${job.attemptsMade === 1 ? '' : 's'}`;
     return 'No attempts yet';

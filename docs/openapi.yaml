@@ -1888,8 +1888,10 @@ components:
         id: { type: [string, 'null'] }
         queue: { type: string, enum: [instance-checks, database-maintenance, system-maintenance] }
         name: { type: string }
-        state: { type: string, enum: [waiting, active, delayed, failed, completed, unknown] }
+        state: { type: string, enum: [scheduled, waiting, active, delayed, failed, completed, unknown] }
         attemptsMade: { type: integer, minimum: 0 }
+        everySeconds: { type: integer, minimum: 1, description: "Recurring scheduler cadence in seconds when the row represents a scheduled job. The UI formats this as a friendly label such as Every Day, Every 14 Days, or Every 5 Minutes." }
+        iterationCount: { type: integer, minimum: 0, description: BullMQ scheduler iteration count when available. }
         timestamp: { type: [string, 'null'], format: date-time }
         processedOn: { type: [string, 'null'], format: date-time }
         finishedOn: { type: [string, 'null'], format: date-time }

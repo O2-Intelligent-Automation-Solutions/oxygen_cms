@@ -1,10 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import type { AuthRepository } from '../auth/types.js';
 import { requireAuth, requirePermission } from '../auth/registerAuthRoutes.js';
+import type { QueueStatusProvider } from '../queues/queueStatus.js';
 import { appLabelsSchema, logRetentionSchema, sslCertificateWarningSchema, licenseExpirationWarningSchema, queueSchedulesSchema } from './schemas.js';
 import type { AppSettingsRepository } from './types.js';
 
-export async function registerAppSettingsRoutes(app: FastifyInstance, authRepository: AuthRepository, repository: AppSettingsRepository) {
+export async function registerAppSettingsRoutes(app: FastifyInstance, authRepository: AuthRepository, repository: AppSettingsRepository, queueStatusProvider?: Pick<QueueStatusProvider, 'reconcileQueueSchedules'>) {
   const requireSignedIn = requireAuth(authRepository);
   const requireSettingsManage = [requireSignedIn, requirePermission('settings.manage')];
 
@@ -45,6 +46,8 @@ export async function registerAppSettingsRoutes(app: FastifyInstance, authReposi
   app.put('/api/app-settings/queue-schedules', { preHandler: requireSettingsManage }, async (request, reply) => {
     const parsed = queueSchedulesSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: 'Invalid queue schedule settings.' });
-    return { queueSchedules: await repository.saveQueueSchedules(parsed.data) };
+    const queueSchedules = await repository.saveQueueSchedules(parsed.data);
+    await queueStatusProvider?.reconcileQueueSchedules?.(queueSchedules);
+    return { queueSchedules };
   });
 }

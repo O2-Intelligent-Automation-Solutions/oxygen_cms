@@ -352,7 +352,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
 
   await registerDashboardRoutes(app, authRepository, instanceRepository, instancePoller, appSettingsRepository);
   await registerGridPreferenceRoutes(app, authRepository, gridPreferenceRepository);
-  await registerAppSettingsRoutes(app, authRepository, appSettingsRepository);
+  await registerAppSettingsRoutes(app, authRepository, appSettingsRepository, queueStatusProvider);
   await registerAppLogRoutes(app, authRepository, appLogRepository, appSettingsRepository, databaseMaintenanceQueue);
   await registerSystemRoutes(app, authRepository, instancePoller, instanceRepository, appSettingsRepository, databasePerformanceReader, issueCatalogReader, updateChecker, updateStatusProvider, queueStatusProvider, reconcileInstanceCheckQueueSchedules);
 

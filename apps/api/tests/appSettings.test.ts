@@ -1,12 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { createInMemoryAuthRepository } from '../src/auth/inMemoryAuthRepository.js';
 import { createInMemoryAppSettingsRepository } from '../src/appSettings/inMemoryAppSettingsRepository.js';
+import type { QueueRuntime } from '../src/queues/queueStatus.js';
 
-async function loginAdmin() {
+async function loginAdmin(queueStatusProvider?: QueueRuntime) {
   const authRepository = createInMemoryAuthRepository();
   const appSettingsRepository = createInMemoryAppSettingsRepository();
-  const app = await buildApp({ logger: false, authRepository, appSettingsRepository });
+  const app = await buildApp({ logger: false, authRepository, appSettingsRepository, queueStatusProvider });
   await app.inject({ method: 'POST', url: '/api/auth/bootstrap', payload: { email: 'admin@example.com', displayName: 'Admin User', password: 'AdminPassword!42' } });
   const login = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: 'admin@example.com', password: 'AdminPassword!42' } });
   return { app, token: login.json().token as string };
@@ -80,7 +81,17 @@ describe('application settings API', () => {
   });
 
   it('returns and updates configurable queue job schedules', async () => {
-    const { app, token } = await loginAdmin();
+    const reconcileQueueSchedules = vi.fn(async () => undefined);
+    const queueStatusProvider: QueueRuntime = {
+      async readStatus() {
+        return { enabled: true, mode: 'bullmq', generatedAt: '2026-06-16T00:00:00.000Z', redis: { configured: true, connected: true, host: '127.0.0.1', port: 6379, error: null }, bullBoard: { enabled: false, path: null }, queues: [] };
+      },
+      async readJobs() {
+        return { enabled: true, mode: 'bullmq', generatedAt: '2026-06-16T00:00:00.000Z', jobs: [] };
+      },
+      reconcileQueueSchedules
+    };
+    const { app, token } = await loginAdmin(queueStatusProvider);
 
     const defaults = await app.inject({ method: 'GET', url: '/api/app-settings/queue-schedules', headers: { authorization: `Bearer ${token}` } });
     expect(defaults.statusCode).toBe(200);
@@ -98,6 +109,11 @@ describe('application settings API', () => {
       expect.objectContaining({ key: 'database-maintenance:purge-logs', enabled: false, everySeconds: 172800 }),
       expect.objectContaining({ key: 'system-maintenance:check-application-updates', enabled: true, everySeconds: 86400 })
     ]));
+    expect(reconcileQueueSchedules).toHaveBeenCalledWith(expect.objectContaining({
+      jobs: expect.arrayContaining([
+        expect.objectContaining({ key: 'database-maintenance:purge-logs', everySeconds: 172800 })
+      ])
+    }));
 
     const invalid = await app.inject({ method: 'PUT', url: '/api/app-settings/queue-schedules', headers: { authorization: `Bearer ${token}` }, payload: { jobs: [{ key: 'database-maintenance:purge-logs', enabled: true, everySeconds: 10 }] } });
     expect(invalid.statusCode).toBe(400);
