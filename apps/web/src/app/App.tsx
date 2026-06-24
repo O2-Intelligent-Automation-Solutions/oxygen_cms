@@ -77,6 +77,11 @@ type AppLogGridRow = { id: string; createdAt: string; type: AppLogType; severity
 type InstanceImportRowResult = { rowNumber: number; instanceGuid: string | null; name: string | null; action: 'create' | 'update' | 'skip' | 'error'; errors: string[]; warnings: string[] };
 type InstanceImportResult = { dryRun: boolean; created: number; updated: number; failed: number; rows: InstanceImportRowResult[] };
 type LogRetentionSettings = { days: number };
+type SslCertificateWarningSettings = { daysBeforeExpiration: number };
+type LicenseExpirationWarningSettings = { daysBeforeExpiration: number };
+type QueueScheduleJobKey = 'database-maintenance:purge-logs' | 'database-maintenance:prune-check-history' | 'system-maintenance:check-application-updates' | 'system-maintenance:prune-queue-history';
+type QueueScheduleJobSettings = { key: QueueScheduleJobKey; queue: QueueStatusItem['name']; name: string; label: string; enabled: boolean; everySeconds: number };
+type QueueScheduleSettings = { jobs: QueueScheduleJobSettings[] };
 type ConnectivityStepDetail = { ok?: boolean; skipped?: boolean; message?: string; httpStatusCode?: number; errorCode?: string; valid?: boolean | null; expiresAt?: string | null; durationMs?: number; address?: string | null; family?: number; host?: string; port?: number };
 type ConnectivityDetailsJson = { dns?: ConnectivityStepDetail; connect?: ConnectivityStepDetail; ssl?: ConnectivityStepDetail; authentication?: ConnectivityStepDetail; api?: ConnectivityStepDetail; license?: ConnectivityStepDetail };
 type DashboardIssueDetail = { label: string; severity: Exclude<DashboardSeverity, 'ok' | 'unknown'> };
@@ -103,7 +108,8 @@ type SystemUpdateStep = { code: 'dry-run' | 'backup' | 'checkout' | 'build' | 'r
 type SystemUpdateStatus = { generatedAt: string; runner: { enabled: boolean; state: 'idle' | 'running' | 'blocked' | 'unavailable'; inProgress: boolean; canRun: boolean; mode: 'host-script'; command: string; dryRunCommand: string; requiresConfirmation: boolean; confirmationVariable: string; currentRef: string | null; targetRef: string | null }; steps: SystemUpdateStep[]; lastRun: { id: string; mode: 'dry-run' | 'update'; targetRef: string; startedAt: string; finishedAt: string | null; state: 'running' | 'completed' | 'failed'; summary: string | null } | null; lastError: string | null };
 type QueueStatusItem = { name: 'instance-checks' | 'database-maintenance' | 'system-maintenance'; description: string; waiting: number; active: number; delayed: number; failed: number; completed: number };
 type SystemQueueStatus = { enabled: boolean; mode: 'disabled' | 'bullmq'; generatedAt: string; bullBoard?: { enabled: boolean; path: string | null }; redis: { configured: boolean; connected: boolean; host: string | null; port: number | null; error: string | null }; queues: QueueStatusItem[] };
-type QueueJobSummary = { id: string | null; queue: QueueStatusItem['name']; name: string; state: 'waiting' | 'active' | 'delayed' | 'failed' | 'completed' | 'unknown'; attemptsMade: number; timestamp: string | null; processedOn: string | null; finishedOn: string | null; failedReason: string | null; data: { task?: string; source?: string; instanceId?: string; requestedBy?: string } };
+type QueueJobSummary = { id: string | null; queue: QueueStatusItem['name']; name: string; state: 'scheduled' | 'waiting' | 'active' | 'delayed' | 'failed' | 'completed' | 'unknown'; attemptsMade: number; queueSequence: number; nextProcessAt: string | null; timestamp: string | null; processedOn: string | null; finishedOn: string | null; failedReason: string | null; data: { task?: string; source?: string; instanceId?: string; instanceName?: string; tenantId?: string | null; tenantName?: string | null; requestedBy?: string } };
+type QueueJobGridRow = { id: string; sequence: number; job: string; tenant: string; instance: string; instanceGuid: string; queue: string; state: string; attempts: string; nextProcessAt: string; lastActivity: string; metadata: string; raw: QueueJobSummary };
 type SystemQueueJobs = { enabled: boolean; mode: 'disabled' | 'bullmq'; generatedAt: string; jobs: QueueJobSummary[] };
 type DatabaseDetailPanel = 'schema' | 'status' | 'storage' | 'tables' | 'connections' | 'queries' | 'cache';
 type DatabaseMaintenanceAction = 'run-retention' | 'purge-logs' | 'compress' | 'defrag' | 'backup' | 'restore';
@@ -112,7 +118,7 @@ type LogPurgeResult = ActivityTableMaintenanceResult;
 type ActivityRetentionRunResult = ActivityTableMaintenanceResult & { retention: LogRetentionSettings };
 type DatabaseMode = 'managed-mysql' | 'local-mysql' | 'existing-mysql';
 type DbWizardStep = 'mode' | 'connection' | 'credentials' | 'review';
-type NavSection = 'dashboard' | 'organizations' | 'instances' | 'instance-dashboard' | 'users' | 'user-groups' | 'roles' | 'settings-general' | 'settings-logs' | 'settings-database' | 'settings-issues' | 'settings-advanced';
+type NavSection = 'dashboard' | 'organizations' | 'instances' | 'instance-dashboard' | 'users' | 'user-groups' | 'roles' | 'settings-general' | 'settings-operations' | 'settings-logs' | 'settings-database' | 'settings-issues' | 'settings-advanced';
 type ModalKind = 'user' | 'group' | 'role' | 'tenant' | 'instance';
 type ModalEntity = UserProfile | Group | Role | Tenant | OxyGenInstance;
 type ModalState = { kind: ModalKind; data?: ModalEntity } | null;
@@ -158,6 +164,7 @@ function cmsPathFor(section: NavSection, instanceId?: string) {
   if (section === 'users') return '/Users';
   if (section === 'user-groups') return '/Groups';
   if (section === 'roles') return '/Roles';
+  if (section === 'settings-operations') return '/Settings/Operations';
   if (section === 'settings-logs') return instanceId ? `/Logs/Entity/${instanceId}` : '/Logs';
   if (section === 'settings-database') return '/Settings/Database';
   if (section === 'settings-issues') return '/Settings/Issue-Types';
@@ -176,7 +183,7 @@ function sectionFromPath(pathname: string): { section: NavSection; entityId?: st
   if (first === 'groups' || first === 'user-groups') return { section: 'user-groups' };
   if (first === 'roles') return { section: 'roles' };
   if (first === 'logs') return parts[1]?.toLowerCase() === 'entity' && parts[2] ? { section: 'settings-logs', entityId: parts[2] } : { section: 'settings-logs' };
-  if (first === 'settings') return parts[1]?.toLowerCase() === 'advanced' ? { section: 'settings-advanced' } : parts[1]?.toLowerCase() === 'logs' ? { section: 'settings-logs' } : parts[1]?.toLowerCase() === 'database' ? { section: 'settings-database' } : ['issue-types', 'issues'].includes(parts[1]?.toLowerCase() || '') ? { section: 'settings-issues' } : { section: 'settings-general' };
+  if (first === 'settings') return parts[1]?.toLowerCase() === 'advanced' ? { section: 'settings-advanced' } : ['operations', 'system'].includes(parts[1]?.toLowerCase() || '') ? { section: 'settings-operations' } : parts[1]?.toLowerCase() === 'logs' ? { section: 'settings-logs' } : parts[1]?.toLowerCase() === 'database' ? { section: 'settings-database' } : ['issue-types', 'issues'].includes(parts[1]?.toLowerCase() || '') ? { section: 'settings-issues' } : { section: 'settings-general' };
   return { section: 'dashboard' };
 }
 
@@ -374,6 +381,19 @@ const issueCatalogColumnDefs: ManagedGridColumn<IssueCatalogGridRow>[] = [
   { key: 'description', title: 'Description', width: 480 },
   { key: 'condition', title: 'Match Rule', width: 260, defaultVisible: false }
 ];
+const queueJobColumnDefs: ManagedGridColumn<QueueJobGridRow>[] = [
+  { key: 'sequence', title: 'Seq', width: 90, filter: 'numeric' },
+  { key: 'job', title: 'Job', width: 220 },
+  { key: 'tenant', title: 'Tenant', width: 170 },
+  { key: 'instance', title: 'Instance', width: 220 },
+  { key: 'queue', title: 'Queue', width: 170 },
+  { key: 'state', title: 'State', width: 130 },
+  { key: 'attempts', title: 'Schedule', width: 180 },
+  { key: 'nextProcessAt', title: 'Next Run', width: 190 },
+  { key: 'lastActivity', title: 'Last Activity', width: 190, defaultVisible: false },
+  { key: 'metadata', title: 'Metadata', width: 240, defaultVisible: false },
+  { key: 'instanceGuid', title: 'Instance GUID', width: 360, defaultVisible: false }
+];
 
 const logTypes: AppLogType[] = ['Audit', 'Service', 'CRUD', 'Connection', 'Security', 'UI'];
 const logSeverities: AppLogSeverity[] = ['Critical', 'Error', 'Warning', 'Logging', 'Verbose'];
@@ -512,6 +532,11 @@ export function App() {
   const [selectedInstanceDetail, setSelectedInstanceDetail] = useState<OxyGenInstance | null>(null);
   const [appLabels, setAppLabels] = useState<AppLabels>({ tenant: 'Tenant' });
   const [logRetention, setLogRetention] = useState<LogRetentionSettings>({ days: 90 });
+  const [sslCertificateWarning, setSslCertificateWarning] = useState<SslCertificateWarningSettings>({ daysBeforeExpiration: 30 });
+  const [licenseExpirationWarning, setLicenseExpirationWarning] = useState<LicenseExpirationWarningSettings>({ daysBeforeExpiration: 30 });
+  const [queueSchedules, setQueueSchedules] = useState<QueueScheduleSettings>({ jobs: [] });
+  const [queueScheduleEnabledDraft, setQueueScheduleEnabledDraft] = useState<Record<string, boolean>>({});
+  const [queueActionKey, setQueueActionKey] = useState<string | null>(null);
   const [appLogs, setAppLogs] = useState<AppLogEntry[]>([]);
   const [databasePerformance, setDatabasePerformance] = useState<DatabasePerformanceSnapshot | null>(null);
   const [issueCatalog, setIssueCatalog] = useState<IssueCatalogSnapshot | null>(null);
@@ -541,6 +566,8 @@ export function App() {
   const [isInstanceImporting, setIsInstanceImporting] = useState(false);
   const [isInstanceExporting, setIsInstanceExporting] = useState(false);
   const instanceImportFileRef = useRef<HTMLInputElement | null>(null);
+  const hydratingInstanceDashboardIdsRef = useRef<Set<string>>(new Set());
+  const hydratedInstanceDashboardIdsRef = useRef<Set<string>>(new Set());
   const [message, setMessage] = useState('');
   const [messageTone, setMessageTone] = useState<StatusTone>('success');
   const [error, setError] = useState('');
@@ -608,6 +635,80 @@ export function App() {
   const accessLabel = (mode: string, instanceIds: string[]) => mode === 'all' ? 'All instances' : mode === 'none' ? 'No instances' : mode === 'inherit' ? 'Inherited from groups' : `${instanceIds.length} specific instance${instanceIds.length === 1 ? '' : 's'}`;
   const launchUrlForInstance = (instance: OxyGenInstance) => `${instance.protocol}://${instance.host}:${instance.port ?? (instance.protocol === 'http' ? 80 : 443)}/optws/oxygen.aspx`;
   const formatDateTime = (value: string | null) => value ? new Date(value).toLocaleString() : 'Not checked';
+  const daysUntilDate = (value: string | null) => value ? Math.ceil((new Date(value).getTime() - Date.now()) / 86400000) : null;
+  const tlsConnectionPattern = /\bTLS connection failed\b|secure TLS connection|TLS handshake|ECONNRESET|ERR_CONNECTION_CLOSED|unexpected eof/i;
+  const isTlsConnectionError = (instance: Pick<OxyGenInstance, 'status' | 'lastError'>) => instance.status === 'down' && tlsConnectionPattern.test(instance.lastError || '');
+  const sslDisplayStatus = (instance: OxyGenInstance) => {
+    if (instance.protocol !== 'https') return 'hidden' as const;
+    if (isTlsConnectionError(instance)) return 'not-evaluated' as const;
+    const expiresAt = instance.sslExpiresAt ? new Date(instance.sslExpiresAt).getTime() : null;
+    if (expiresAt !== null && Number.isFinite(expiresAt) && expiresAt < Date.now()) return 'expired' as const;
+    if (instance.sslValid === false || instance.status === 'ssl-error') return 'invalid' as const;
+    if (instance.sslValid === null) return 'unknown' as const;
+    if (expiresAt !== null && Number.isFinite(expiresAt) && expiresAt - Date.now() <= Math.max(0, sslCertificateWarning.daysBeforeExpiration) * 86400000) return 'expiring-soon' as const;
+    return 'valid' as const;
+  };
+  const sslStatusLabel = (instance: OxyGenInstance) => {
+    const status = sslDisplayStatus(instance);
+    if (status === 'hidden') return 'Hidden';
+    if (status === 'not-evaluated') return 'Not Evaluated';
+    if (status === 'expired') return 'Expired';
+    if (status === 'expiring-soon') return 'Expiring Soon';
+    if (status === 'invalid') return 'Invalid';
+    if (status === 'valid') return 'Valid';
+    return 'Unknown';
+  };
+  const sslStatusHasIssue = (instance: OxyGenInstance) => ['expired', 'expiring-soon', 'invalid'].includes(sslDisplayStatus(instance));
+  const objectRecord = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const firstRecordValue = (record: Record<string, unknown>, keys: string[]) => {
+    for (const key of keys) if (key in record) return record[key];
+    return null;
+  };
+  const licenseExpirationDate = (instance: OxyGenInstance) => {
+    const raw = firstRecordValue(objectRecord(instance.licenseJson), ['ExpiryDate', 'ExpirationDate', 'ExpiresAt', 'ExpiresOn', 'ValidUntil', 'validUntil', 'expiryDate']);
+    if (raw === null || raw === undefined || raw === '') return null;
+    const date = raw instanceof Date ? raw : typeof raw === 'number' ? new Date(raw > 10000000000 ? raw : raw * 1000) : typeof raw === 'string' ? new Date(raw) : null;
+    return date && Number.isFinite(date.getTime()) ? date : null;
+  };
+  const licensePayloadBoolean = (instance: OxyGenInstance, keys: string[]) => {
+    const raw = firstRecordValue(objectRecord(instance.licenseJson), keys);
+    return typeof raw === 'boolean' ? raw : null;
+  };
+  const daysUntilLicenseExpiration = (instance: OxyGenInstance) => {
+    const expiresAt = licenseExpirationDate(instance);
+    return expiresAt ? Math.ceil((expiresAt.getTime() - Date.now()) / 86400000) : null;
+  };
+  const licenseDisplayStatus = (instance: OxyGenInstance) => {
+    if (!instance.checkLicense) return 'hidden' as const;
+    if (instance.status !== 'up') return 'unavailable' as const;
+    const expiresAt = licenseExpirationDate(instance);
+    const isExpired = licensePayloadBoolean(instance, ['IsExpired', 'isExpired']) === true;
+    const evaluatedPayload = ['IsValid', 'isValid', 'IsExpired', 'isExpired', 'ExpiryDate', 'ExpirationDate', 'ExpiresAt', 'ExpiresOn', 'ValidUntil', 'validUntil', 'expiryDate', 'Features', 'features'].some((key) => key in objectRecord(instance.licenseJson));
+    if (!evaluatedPayload && instance.licenseStatus === 'error') return 'unavailable' as const;
+    if (!instance.licenseKey && instance.licenseStatus === 'unknown') return 'unavailable' as const;
+    if (!instance.licenseKey && evaluatedPayload && instance.licenseStatus !== 'warning') return 'missing' as const;
+    if (instance.licenseStatus === 'expired' || isExpired || (expiresAt && expiresAt.getTime() < Date.now())) return 'expired' as const;
+    if (instance.licenseStatus === 'error') return 'invalid' as const;
+    if (!instance.licenseKey && instance.licenseStatus !== 'warning') return 'unavailable' as const;
+    if (instance.licenseStatus === 'warning') return evaluatedPayload ? 'warning' as const : 'unavailable' as const;
+    if (instance.licenseStatus === 'unknown') return 'unknown' as const;
+    const isValid = instance.licenseStatus === 'valid' || licensePayloadBoolean(instance, ['IsValid', 'isValid']) === true;
+    if (isValid && expiresAt && expiresAt.getTime() - Date.now() <= Math.max(0, licenseExpirationWarning.daysBeforeExpiration) * 86400000) return 'expiring-soon' as const;
+    return isValid ? 'valid' as const : 'unknown' as const;
+  };
+  const licenseStatusLabel = (instance: OxyGenInstance) => {
+    const status = licenseDisplayStatus(instance);
+    if (status === 'hidden') return 'Hidden';
+    if (status === 'unavailable') return 'Unavailable';
+    if (status === 'expired') return 'Expired';
+    if (status === 'expiring-soon') return 'Expiring Soon';
+    if (status === 'missing') return 'Missing';
+    if (status === 'invalid') return 'Invalid';
+    if (status === 'warning') return 'Warning';
+    if (status === 'valid') return 'Valid';
+    return 'Unknown';
+  };
+
   const formatNullable = (value: string | number | null | undefined, fallback = 'Unknown') => value === null || value === undefined || value === '' ? fallback : String(value);
   const LoadingOverlay = ({ label = 'Loading…' }: { label?: string }) => <div className="cms-loading-overlay" role="status" aria-live="polite"><LoaderCircle className="cms-loading-spinner" /><span>{label}</span></div>;
   const formatBytes = (value: number | null | undefined) => {
@@ -765,7 +866,11 @@ export function App() {
     if (!t) return;
     const res = await api<{ instances: OxyGenInstance[] }>(`/api/instances${includeArchived ? '?includeArchived=true' : ''}`, { token: t });
     setInstances(res.instances);
-    setSelectedInstanceDetail((current) => current ? res.instances.find((instance) => instance.id === current.id) || current : current);
+    setSelectedInstanceDetail((current) => {
+      if (!current) return current;
+      const refreshed = res.instances.find((instance) => instance.id === current.id);
+      return refreshed ? { ...current, ...refreshed, licenseJson: refreshed.licenseJson ?? current.licenseJson, settingsJson: refreshed.settingsJson ?? current.settingsJson, workflowSummaryJson: refreshed.workflowSummaryJson ?? current.workflowSummaryJson } : current;
+    });
   }
 
   async function loadDashboard(t = token, mode: DashboardRefreshMode = 'quiet') {
@@ -791,10 +896,45 @@ export function App() {
     setAppLabels(res.labels);
   }
 
+  function applyQueueSchedules(settings: QueueScheduleSettings) {
+    setQueueSchedules(settings);
+    setQueueScheduleEnabledDraft(Object.fromEntries(settings.jobs.map((job) => [job.key, job.enabled])));
+  }
+
+  function queueScheduleDescription(job: QueueScheduleJobSettings) {
+    if (job.key === 'database-maintenance:purge-logs') return 'Removes CMS activity logs older than the configured retention window.';
+    if (job.key === 'database-maintenance:prune-check-history') return 'Prunes old instance health-check history using the same retention window.';
+    if (job.key === 'system-maintenance:check-application-updates') return 'Refreshes GitHub release/update metadata shown in Operations.';
+    if (job.key === 'system-maintenance:prune-queue-history') return 'Cleans retained BullMQ completed/failed job history to keep Redis tidy.';
+    return 'Recurring CMS maintenance job.';
+  }
+
+  function queueScheduleDays(job: QueueScheduleJobSettings) {
+    return Math.max(1, Math.ceil(job.everySeconds / 86400)).toString();
+  }
+
   async function loadLogRetention(t = token) {
     if (!t) return;
     const res = await api<{ retention: LogRetentionSettings }>('/api/app-settings/log-retention', { token: t });
     setLogRetention(res.retention ?? { days: 90 });
+  }
+
+  async function loadSslCertificateWarning(t = token) {
+    if (!t) return;
+    const res = await api<{ sslCertificateWarning: SslCertificateWarningSettings }>('/api/app-settings/ssl-certificate-warning', { token: t });
+    setSslCertificateWarning(res.sslCertificateWarning ?? { daysBeforeExpiration: 30 });
+  }
+
+  async function loadLicenseExpirationWarning(t = token) {
+    if (!t) return;
+    const res = await api<{ licenseExpirationWarning: LicenseExpirationWarningSettings }>('/api/app-settings/license-expiration-warning', { token: t });
+    setLicenseExpirationWarning(res.licenseExpirationWarning ?? { daysBeforeExpiration: 30 });
+  }
+
+  async function loadQueueSchedules(t = token) {
+    if (!t) return;
+    const res = await api<{ queueSchedules: QueueScheduleSettings }>('/api/app-settings/queue-schedules', { token: t });
+    applyQueueSchedules(res.queueSchedules ?? { jobs: [] });
   }
 
   async function loadAppLogs(t = token, overrides: { type?: AppLogType[]; severity?: AppLogSeverity[]; entityGuid?: string; tenantId?: string } = {}) {
@@ -857,12 +997,13 @@ export function App() {
         api<{ version: SystemVersionSnapshot }>('/api/system/version', { token: t }),
         api<{ updateStatus: SystemUpdateStatus }>('/api/system/update-status', { token: t }),
         canManagePoller ? api<{ queues: SystemQueueStatus }>('/api/system/queues', { token: t }).catch(() => null) : Promise.resolve(null),
-        canManagePoller ? api<{ queueJobs: SystemQueueJobs }>('/api/system/queue-jobs?limit=8', { token: t }).catch(() => null) : Promise.resolve(null)
+        canManagePoller ? api<{ queueJobs: SystemQueueJobs }>('/api/system/queue-jobs?limit=1000', { token: t }).catch(() => null) : Promise.resolve(null)
       ]);
       setSystemVersion(versionRes.version);
       setSystemUpdateStatus(statusRes.updateStatus);
       if (queueRes) setSystemQueueStatus(queueRes.queues);
       if (queueJobsRes) setSystemQueueJobs(queueJobsRes.queueJobs);
+      if (canManagePoller) await loadQueueSchedules(t).catch(() => undefined);
       if (mode === 'manual') {
         const queueNote = queueRes ? ` Queue mode: ${queueRes.queues.mode}.` : '';
         showStatus((versionRes.version.update.error ? 'Version/update readiness refreshed; update source is currently unavailable.' : 'Version/update readiness refreshed.') + queueNote, versionRes.version.update.error ? 'warning' : 'success');
@@ -964,6 +1105,86 @@ export function App() {
     } catch (err) { setError(err instanceof Error ? err.message : 'Log retention update failed.'); }
   }
 
+  async function handleSaveSslCertificateWarning(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault(); clearStatus();
+    const f = new FormData(e.currentTarget);
+    try {
+      const res = await api<{ sslCertificateWarning: SslCertificateWarningSettings }>('/api/app-settings/ssl-certificate-warning', { method: 'PUT', token, body: JSON.stringify({ daysBeforeExpiration: Number(f.get('daysBeforeExpiration')) }) });
+      const nextSettings = res.sslCertificateWarning ?? { daysBeforeExpiration: 30 };
+      setSslCertificateWarning(nextSettings);
+      setMessage(`SSL certificates will show Expiring Soon ${nextSettings.daysBeforeExpiration} day${nextSettings.daysBeforeExpiration === 1 ? '' : 's'} before expiration.`);
+      await loadDashboard(token).catch(() => undefined);
+    } catch (err) { setError(err instanceof Error ? err.message : 'SSL certificate warning settings update failed.'); }
+  }
+
+  async function handleSaveLicenseExpirationWarning(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault(); clearStatus();
+    const f = new FormData(e.currentTarget);
+    try {
+      const res = await api<{ licenseExpirationWarning: LicenseExpirationWarningSettings }>('/api/app-settings/license-expiration-warning', { method: 'PUT', token, body: JSON.stringify({ daysBeforeExpiration: Number(f.get('daysBeforeExpiration')) }) });
+      const nextSettings = res.licenseExpirationWarning ?? { daysBeforeExpiration: 30 };
+      setLicenseExpirationWarning(nextSettings);
+      setMessage(`Licenses will show Expiring Soon ${nextSettings.daysBeforeExpiration} day${nextSettings.daysBeforeExpiration === 1 ? '' : 's'} before expiration.`);
+      await loadDashboard(token).catch(() => undefined);
+    } catch (err) { setError(err instanceof Error ? err.message : 'License expiration warning settings update failed.'); }
+  }
+
+  async function handleQueueJobAction(key: QueueScheduleJobKey | string, action: 'pause' | 'resume' | 'run-now') {
+    if (!token) return;
+    clearStatus();
+    setQueueActionKey(`${key}:${action}`);
+    try {
+      const encodedKey = encodeURIComponent(key);
+      if (action === 'run-now') {
+        await api<{ queued: true; key: QueueScheduleJobKey; jobId: string | null }>(`/api/system/queue-jobs/${encodedKey}/run-now`, { method: 'POST', token });
+        showStatus(`${queueSchedules.jobs.find((job) => job.key === key)?.label ?? key} moved to the front of the queue as a one-off run.`);
+      } else {
+        const res = await api<{ queueSchedules: QueueScheduleSettings }>(`/api/system/queue-jobs/${encodedKey}/${action}`, { method: 'POST', token });
+        applyQueueSchedules(res.queueSchedules);
+        showStatus(`${queueSchedules.jobs.find((job) => job.key === key)?.label ?? key} ${action === 'pause' ? 'paused' : 'resumed'}.`, action === 'pause' ? 'warning' : 'success');
+      }
+      await loadSystemVersion(token).catch(() => undefined);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Unable to ${action} queue job.`);
+    } finally {
+      setQueueActionKey(null);
+    }
+  }
+
+  async function saveQueueScheduleJobs(jobs: Array<{ key: QueueScheduleJobKey; enabled: boolean; everySeconds: number }>, successMessage: string) {
+    if (!token) return;
+    clearStatus();
+    try {
+      const res = await api<{ queueSchedules: QueueScheduleSettings }>('/api/app-settings/queue-schedules', { method: 'PUT', token, body: JSON.stringify({ jobs }) });
+      applyQueueSchedules(res.queueSchedules);
+      showStatus(successMessage);
+      await loadSystemVersion(token).catch(() => undefined);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Queue schedule update failed.');
+    }
+  }
+
+  async function handleSaveQueueSchedule(job: QueueScheduleJobSettings, e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const f = new FormData(e.currentTarget);
+    const jobs = queueSchedules.jobs.map((entry) => entry.key === job.key ? {
+      key: entry.key,
+      enabled: f.get('enabled') === 'on',
+      everySeconds: Math.max(86_400, Math.round(Number(f.get('everyDays') ?? queueScheduleDays(entry)) * 86400))
+    } : { key: entry.key, enabled: entry.enabled, everySeconds: entry.everySeconds });
+    await saveQueueScheduleJobs(jobs, `${job.label} schedule updated.`);
+  }
+
+  async function handleToggleQueueSchedule(job: QueueScheduleJobSettings, enabled: boolean) {
+    setQueueScheduleEnabledDraft((current) => ({ ...current, [job.key]: enabled }));
+    const jobs = queueSchedules.jobs.map((entry) => entry.key === job.key ? {
+      key: entry.key,
+      enabled,
+      everySeconds: entry.everySeconds
+    } : { key: entry.key, enabled: entry.enabled, everySeconds: entry.everySeconds });
+    await saveQueueScheduleJobs(jobs, `${job.label} ${enabled ? 'enabled' : 'disabled'}.`);
+  }
+
   async function handleSaveLabels(e: FormEvent<HTMLFormElement>) {
     e.preventDefault(); clearStatus();
     const f = new FormData(e.currentTarget);
@@ -1003,6 +1224,9 @@ export function App() {
       setProfile(restored);
       await loadAppLabels(t);
       await loadLogRetention(t).catch(() => undefined);
+      await loadSslCertificateWarning(t).catch(() => undefined);
+      await loadLicenseExpirationWarning(t).catch(() => undefined);
+      await loadQueueSchedules(t).catch(() => undefined);
       if (restored.permissions.includes('system.version.view')) await loadSystemVersion(t).catch(() => undefined);
       if (restored.permissions.some((permission) => ['users.manage', 'groups.manage', 'roles.manage', 'tenants.view', 'tenants.manage'].includes(permission))) await refreshAdminData(t);
       else await loadDashboard(t);
@@ -1097,10 +1321,10 @@ export function App() {
   }, [token, profile, activeSection, canViewIssueTypes]);
 
   useEffect(() => {
-    if (!token || !profile || activeSection !== 'settings-general' || !canViewVersion) return undefined;
+    if (!token || !profile || activeSection !== 'settings-operations' || (!canViewVersion && !canManagePoller)) return undefined;
     const refresh = () => {
       if (document.visibilityState === 'hidden') return;
-      void loadSystemVersion(token).catch((err) => setError(err instanceof Error ? err.message : 'Settings status refresh failed.'));
+      void loadSystemVersion(token).catch((err) => setError(err instanceof Error ? err.message : 'Operations status refresh failed.'));
     };
     refresh();
     const refreshTimer = window.setInterval(refresh, 60000);
@@ -1118,6 +1342,28 @@ export function App() {
     return () => document.body.classList.remove('cms-notes-editor-active');
   }, [healthModal]);
 
+  async function hydrateInstanceDashboard(instanceId: string, force = false) {
+    if (!token || !instanceId) return;
+    if (!force && hydratedInstanceDashboardIdsRef.current.has(instanceId)) return;
+    if (hydratingInstanceDashboardIdsRef.current.has(instanceId)) return;
+    hydratingInstanceDashboardIdsRef.current.add(instanceId);
+    try {
+      const [detailRes, detailHealthRes] = await Promise.all([
+        api<{ instance: OxyGenInstance }>(`/api/instances/${instanceId}`, { token }),
+        api<{ healthDetails: InstanceHealthDetails }>(`/api/instances/${instanceId}/health-details`, { token })
+      ]);
+      const hydrated = detailHealthRes.healthDetails.instance || detailRes.instance;
+      setHealthDetails(detailHealthRes.healthDetails);
+      setSelectedInstanceDetail(hydrated);
+      setInstances((current) => current.map((entry) => entry.id === hydrated.id ? hydrated : entry));
+      hydratedInstanceDashboardIdsRef.current.add(instanceId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to load instance dashboard.');
+    } finally {
+      hydratingInstanceDashboardIdsRef.current.delete(instanceId);
+    }
+  }
+
   useEffect(() => {
     if (!profile) return undefined;
     function applyCurrentRoute(replace = false) {
@@ -1131,9 +1377,11 @@ export function App() {
         }
       }
       if (route.section === 'instance-dashboard') {
-        setSelectedInstanceId(route.entityId || '');
-        const matched = route.entityId ? instances.find((instance) => instance.id === route.entityId) : null;
-        setSelectedInstanceDetail(matched || null);
+        const routeInstanceId = route.entityId || '';
+        setSelectedInstanceId(routeInstanceId);
+        const matched = routeInstanceId ? instances.find((instance) => instance.id === routeInstanceId) : null;
+        setSelectedInstanceDetail((current) => current?.id === routeInstanceId && current.licenseJson ? current : matched || current);
+        if (routeInstanceId && token) void hydrateInstanceDashboard(routeInstanceId);
       }
       setRoute(route.section, route.entityId, replace);
     }
@@ -1259,6 +1507,8 @@ export function App() {
       setMessage(`Signed in as ${login.user.displayName}.`);
       await loadAppLabels(login.token);
       await loadLogRetention(login.token).catch(() => undefined);
+      await loadSslCertificateWarning(login.token).catch(() => undefined);
+      await loadLicenseExpirationWarning(login.token).catch(() => undefined);
       if (login.permissions.includes('system.version.view')) await loadSystemVersion(login.token).catch(() => undefined);
       if (login.permissions.some((permission) => ['users.manage', 'groups.manage', 'roles.manage', 'tenants.view', 'tenants.manage'].includes(permission))) await refreshAdminData(login.token);
       else await loadDashboard(login.token);
@@ -1441,15 +1691,7 @@ export function App() {
     setSelectedInstanceDetail(instance);
     setRoute('instance-dashboard', instance.id);
     setActiveSection('instance-dashboard');
-    try {
-      const res = await api<{ instance: OxyGenInstance }>(`/api/instances/${instance.id}`, { token });
-      setSelectedInstanceDetail(res.instance);
-      setInstances((current) => current.map((entry) => entry.id === res.instance.id ? res.instance : entry));
-      const detailRes = await api<{ healthDetails: InstanceHealthDetails }>(`/api/instances/${instance.id}/health-details`, { token });
-      setHealthDetails(detailRes.healthDetails);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to load instance dashboard.');
-    }
+    await hydrateInstanceDashboard(instance.id, true);
   }
 
 
@@ -1561,7 +1803,7 @@ export function App() {
   const groupRows = useMemo<GroupGridRow[]>(() => groups.map((group) => ({ id: group.id, name: group.name, description: group.description || '', tenant: tenantName(group.tenantId), instanceAccess: accessLabel(group.instanceAccessMode, group.instanceIds), raw: group })), [groups, tenants, instances]);
   const roleRows = useMemo<RoleGridRow[]>(() => roles.map((role) => ({ id: role.id, name: role.name, description: role.description || '', tenant: tenantName(role.tenantId), system: role.isSystem ? 'Yes' : 'No', raw: role })), [roles, tenants]);
   const tenantRows = useMemo<TenantGridRow[]>(() => tenants.map((tenant) => ({ id: tenant.id, name: tenant.name, description: tenant.description || '', raw: tenant })), [tenants]);
-  const instanceRows = useMemo<InstanceGridRow[]>(() => instances.filter((instance) => !showArchivedInstances || instance.archived).map((instance) => ({ id: instance.id, name: instance.name, tenant: tenantName(instance.tenantId), host: instance.host, status: instance.status, ssl: instance.sslValid === null ? 'Unknown' : instance.sslValid ? 'Valid' : 'Invalid', license: instance.licenseStatus, processing: instance.processingStatus, enabled: instance.isEnabled ? 'Yes' : 'No', checkLicense: instance.checkLicense ? 'Yes' : 'No', archived: instance.archived ? 'Yes' : 'No', metadata: instance.metadata ? 'Yes' : 'No', notes: instance.notes ? 'Yes' : 'No', description: instance.description || '', protocol: instance.protocol.toUpperCase(), port: String(instance.port ?? ''), hostname: instance.hostname, baseUrl: instance.baseUrl, apiBaseUrl: instance.apiBaseUrl, username: instance.username, pollingInterval: `${instance.pollingIntervalSeconds}s`, sslExpiresAt: instance.sslExpiresAt || '', lastCheckedAt: instance.lastCheckedAt || '', uptime24h: instance.uptimePercent24h === null ? '' : `${instance.uptimePercent24h}%`, emmQueue: instance.emmQueueStatus, sms: instance.smsStatus, hangfire: instance.hangfireStatus, licenseKey: instance.licenseKey || '', lastError: instance.lastError || '', raw: instance })), [instances, tenants, showArchivedInstances]);
+  const instanceRows = useMemo<InstanceGridRow[]>(() => instances.filter((instance) => !showArchivedInstances || instance.archived).map((instance) => ({ id: instance.id, name: instance.name, tenant: tenantName(instance.tenantId), host: instance.host, status: instance.status, ssl: sslStatusLabel(instance), license: licenseStatusLabel(instance), processing: instance.processingStatus, enabled: instance.isEnabled ? 'Yes' : 'No', checkLicense: instance.checkLicense ? 'Yes' : 'No', archived: instance.archived ? 'Yes' : 'No', metadata: instance.metadata ? 'Yes' : 'No', notes: instance.notes ? 'Yes' : 'No', description: instance.description || '', protocol: instance.protocol.toUpperCase(), port: String(instance.port ?? ''), hostname: instance.hostname, baseUrl: instance.baseUrl, apiBaseUrl: instance.apiBaseUrl, username: instance.username, pollingInterval: `${instance.pollingIntervalSeconds}s`, sslExpiresAt: instance.sslExpiresAt || '', lastCheckedAt: instance.lastCheckedAt || '', uptime24h: instance.uptimePercent24h === null ? '' : `${instance.uptimePercent24h}%`, emmQueue: instance.emmQueueStatus, sms: instance.smsStatus, hangfire: instance.hangfireStatus, licenseKey: instance.licenseKey || '', lastError: instance.lastError || '', raw: instance })), [instances, tenants, showArchivedInstances]);
   const appLogRows = useMemo<AppLogGridRow[]>(() => appLogs.map((entry) => {
     const details = appLogDetails(entry.details);
     const apiCall = stringDetail(details.apiCall) || [stringDetail(details.method), stringDetail(details.url)].filter(Boolean).join(' ');
@@ -1600,6 +1842,21 @@ export function App() {
     (issueSeverityFilter.length === 0 || issueSeverityFilter.includes(row.severity)) &&
     (issueTypeFilter.length === 0 || issueTypeFilter.includes(row.label))
   ), [issueCatalogRows, issueCategoryFilter, issueSeverityFilter, issueTypeFilter]);
+  const queueJobRows = useMemo<QueueJobGridRow[]>(() => (systemQueueJobs?.jobs ?? []).map((job, index) => ({
+    id: `${String(job.queueSequence).padStart(4, '0')}-${job.queue}-${job.id ?? job.timestamp ?? index}`,
+    sequence: job.queueSequence,
+    job: job.name,
+    tenant: job.data.tenantName ?? (job.data.tenantId ? tenantName(job.data.tenantId) : 'Global'),
+    instance: queueJobInstanceLabel(job),
+    instanceGuid: job.data.instanceId ?? '',
+    queue: job.queue,
+    state: job.state,
+    attempts: queueJobAttemptLabel(job),
+    nextProcessAt: job.nextProcessAt ? formatDateTime(job.nextProcessAt) : '—',
+    lastActivity: formatDateTime(job.finishedOn ?? job.processedOn ?? job.timestamp),
+    metadata: queueJobDetail(job),
+    raw: job
+  })).sort((left, right) => left.sequence - right.sequence), [systemQueueJobs, tenants]);
 
 
   const cell = <T extends { raw: ModalEntity }>(edit: (raw: T['raw']) => void, remove?: (raw: T['raw']) => void) => ({ dataItem, tdProps }: GridCustomCellProps) => {
@@ -1608,6 +1865,26 @@ export function App() {
   };
   const GroupActionCell = cell<GroupGridRow>((raw) => openEditGroupModal(raw as Group), (raw) => deleteItem('group', (raw as Group).id, `group ${(raw as Group).name}`));
   const UserActionCell = cell<UserGridRow>((raw) => openEditUserModal(raw as UserProfile), (raw) => deleteItem('user', (raw as UserProfile).user.id, `user ${(raw as UserProfile).user.email}`));
+  function queueActionKeyForRow(row: QueueJobGridRow): QueueScheduleJobKey | string | null {
+    if (row.raw.queue === 'instance-checks' && row.raw.data.instanceId) return `instance-check:${row.raw.data.instanceId}`;
+    const key = `${row.raw.queue}:${row.raw.name}`;
+    return queueSchedules.jobs.some((job) => job.key === key) ? key as QueueScheduleJobKey : null;
+  }
+  function queueScheduleEnabled(key: QueueScheduleJobKey | string) {
+    if (key.startsWith('instance-check:')) return !instances.find((instance) => instance.id === key.slice('instance-check:'.length))?.isEnabled ? false : true;
+    return queueSchedules.jobs.find((job) => job.key === key)?.enabled ?? true;
+  }
+  function QueueJobActionCell({ dataItem, tdProps }: GridCustomCellProps) {
+    const row = dataItem as QueueJobGridRow;
+    const key = queueActionKeyForRow(row);
+    if (!key) return <td {...tdProps} className="k-command-cell"><span className="muted-table-text">—</span></td>;
+    const enabled = queueScheduleEnabled(key);
+    const busy = queueActionKey?.startsWith(`${key}:`);
+    return <td {...tdProps} className="k-command-cell queue-actions-cell">
+      <Button className="btn-icon-info" type="button" fillMode="flat" title="Run now" disabled={busy} onClick={() => void handleQueueJobAction(key, 'run-now')}><RotateCw /></Button>
+      <Button className={enabled ? 'btn-icon-warning' : 'btn-icon-info'} type="button" fillMode="flat" title={enabled ? 'Pause recurring job' : 'Resume recurring job'} disabled={busy || row.raw.state === 'active'} onClick={() => void handleQueueJobAction(key, enabled ? 'pause' : 'resume')}>{enabled ? <Pause /> : <Play />}</Button>
+    </td>;
+  }
   function RoleActionCell({ dataItem, tdProps }: GridCustomCellProps) {
     const row = dataItem as RoleGridRow;
     if (row.raw.isSystem) {
@@ -1696,15 +1973,13 @@ export function App() {
 
 
   const dashboardTitle = 'CMS Dashboard';
-  const tlsConnectionPattern = /\bTLS connection failed\b|secure TLS connection|TLS handshake|ECONNRESET|ERR_CONNECTION_CLOSED|unexpected eof/i;
-  const isTlsConnectionError = (instance: Pick<OxyGenInstance, 'status' | 'lastError'>) => instance.status === 'down' && tlsConnectionPattern.test(instance.lastError || '');
   const effectiveDashboardTenantFilter = canSelectAnyTenantScope ? dashboardTenantFilter : actorTenantId || 'global';
   const dashboardTenantMatches = (tenantId: TenantId) => effectiveDashboardTenantFilter === 'all' || (effectiveDashboardTenantFilter === 'global' ? tenantId === null : tenantId === effectiveDashboardTenantFilter);
-  const hasSslIssue = (instance: OxyGenInstance) => instance.protocol === 'https' && !isTlsConnectionError(instance) && (instance.sslValid === false || instance.status === 'ssl-error');
+  const hasSslIssue = (instance: OxyGenInstance) => sslStatusHasIssue(instance);
   const hasConnectivityIssue = (instance: OxyGenInstance) => instance.status !== 'up' && instance.status !== 'unknown' && instance.status !== 'ssl-error';
-  const hasLicenseFailure = (instance: OxyGenInstance) => instance.checkLicense && (instance.licenseStatus === 'expired' || instance.licenseStatus === 'error' || (!instance.licenseKey && instance.licenseStatus !== 'unknown' && instance.licenseStatus !== 'warning'));
-  const hasLicenseWarning = (instance: OxyGenInstance) => instance.checkLicense && (instance.licenseStatus === 'warning' || (!instance.licenseKey && instance.licenseStatus === 'unknown'));
-  const hasLicenseIssue = (instance: OxyGenInstance) => hasLicenseFailure(instance) || hasLicenseWarning(instance);
+  const hasLicenseIssue = (instance: DashboardInstance | OxyGenInstance) => Boolean((instance as DashboardInstance).issueDetails?.some((issue) => issue.label.toLowerCase().startsWith('license ')));
+  const hasLicenseFailure = (instance: DashboardInstance | OxyGenInstance) => Boolean((instance as DashboardInstance).issueDetails?.some((issue) => issue.label.toLowerCase().startsWith('license ') && issue.severity === 'failure'));
+  const hasLicenseWarning = (instance: DashboardInstance | OxyGenInstance) => Boolean((instance as DashboardInstance).issueDetails?.some((issue) => issue.label.toLowerCase().startsWith('license ') && issue.severity === 'warning'));
   const hasProcessingFailure = (instance: OxyGenInstance) => instance.processingStatus === 'error' || instance.emmQueueStatus === 'error' || instance.smsStatus === 'error' || instance.hangfireStatus === 'error';
   const hasProcessingWarning = (instance: OxyGenInstance) => instance.processingStatus === 'warning' || instance.emmQueueStatus === 'warning' || instance.smsStatus === 'warning' || instance.hangfireStatus === 'warning';
   const hasProcessingIssue = (instance: OxyGenInstance) => hasProcessingFailure(instance) || hasProcessingWarning(instance);
@@ -1783,11 +2058,11 @@ export function App() {
   const isTlsConnectionStepFailure = (instance: Pick<OxyGenInstance, 'status' | 'lastError'>, step?: ConnectivityStepDetail) => isTlsConnectionError(instance) || Boolean(step && step.ok === false && step.expiresAt === null && tlsConnectionPattern.test(`${step.message || ''} ${step.errorCode || ''}`));
   const statusLabel = (instance: DashboardInstance) => instance.status === 'up' ? 'UP' : isTlsConnectionError(instance) ? 'TLS / CONNECTION ERROR' : instance.status === 'down' ? 'NO CONNECTION' : instance.status === 'auth-error' ? 'AUTH ERROR' : instance.status === 'ssl-error' ? 'SSL WARNING' : instance.status.toUpperCase();
   const availabilityLabel = (instance: OxyGenInstance) => isTlsConnectionError(instance) ? 'TLS / CONNECTION ERROR' : instance.status === 'down' ? 'NO CONNECTION' : formatHealthStatus(instance.status).toUpperCase();
-  const sslCardLabel = (instance: OxyGenInstance, step?: ConnectivityStepDetail) => instance.protocol !== 'https' ? 'Hidden' : isTlsConnectionStepFailure(instance, step) ? 'NOT EVALUATED' : instance.sslValid === null ? 'UNKNOWN' : instance.sslValid ? 'VALID' : 'INVALID';
-  const sslCardDetail = (instance: OxyGenInstance, step?: ConnectivityStepDetail) => instance.protocol !== 'https' ? 'Skipped for HTTP.' : isTlsConnectionStepFailure(instance, step) ? 'TLS connection failed before a certificate could be evaluated.' : step?.skipped ? step.message || 'Skipped.' : instance.sslExpiresAt ? `Expires ${formatDateTime(instance.sslExpiresAt)}` : step?.ok === false ? step.message || 'Certificate validation failed.' : 'No SSL detail collected.';
-  const licenseCardLabel = (instance: OxyGenInstance) => instance.checkLicense ? instance.licenseStatus.toUpperCase() : 'Hidden';
-  const licenseCardDetail = (instance: OxyGenInstance, step?: ConnectivityStepDetail) => !instance.checkLicense ? 'License check disabled.' : step?.skipped ? step.message || 'Skipped.' : step?.ok === false ? step.message || 'License probe failed.' : formatNullable(instance.licenseKey, 'No license key collected');
-  const licenseCardStatusClass = (instance: OxyGenInstance, step?: ConnectivityStepDetail) => step?.skipped ? 'unknown' : instance.licenseStatus === 'valid' ? 'up' : instance.licenseStatus === 'warning' ? 'ssl-error' : instance.licenseStatus === 'error' || instance.licenseStatus === 'expired' || step?.ok === false ? 'down' : 'unknown';
+  const sslCardLabel = (instance: OxyGenInstance, step?: ConnectivityStepDetail) => instance.protocol !== 'https' ? 'Hidden' : isTlsConnectionStepFailure(instance, step) ? 'NOT EVALUATED' : sslStatusLabel(instance).toUpperCase();
+  const sslCardDetail = (instance: OxyGenInstance, step?: ConnectivityStepDetail) => instance.protocol !== 'https' ? 'Skipped for HTTP.' : isTlsConnectionStepFailure(instance, step) ? 'TLS connection failed before a certificate could be evaluated.' : step?.skipped ? step.message || 'Skipped.' : instance.sslExpiresAt ? `${sslStatusLabel(instance)} · Expires ${formatDateTime(instance.sslExpiresAt)}` : step?.ok === false ? step.message || 'Certificate validation failed.' : 'No SSL detail collected.';
+  const licenseCardLabel = (instance: OxyGenInstance) => licenseStatusLabel(instance).toUpperCase();
+  const licenseCardDetail = (instance: OxyGenInstance, step?: ConnectivityStepDetail) => !instance.checkLicense ? 'License check disabled.' : step?.skipped ? step.message || 'Skipped.' : step?.ok === false ? step.message || 'License probe failed.' : licenseExpirationDate(instance) ? `${licenseStatusLabel(instance)} · Expires ${formatDateTime(licenseExpirationDate(instance)!.toISOString())}` : formatNullable(instance.licenseKey, 'No license key collected');
+  const licenseCardStatusClass = (instance: OxyGenInstance, step?: ConnectivityStepDetail) => step?.skipped ? 'unknown' : licenseDisplayStatus(instance) === 'valid' ? 'up' : ['warning', 'expiring-soon', 'unavailable'].includes(licenseDisplayStatus(instance)) ? 'ssl-error' : ['missing', 'invalid', 'expired'].includes(licenseDisplayStatus(instance)) || step?.ok === false ? 'down' : 'unknown';
   const resolvedIpLabel = (details?: ConnectivityDetailsJson) => details?.dns?.ok ? (details.dns.address || 'Unknown') : details?.dns ? 'Resolution Failed' : 'Unknown';
   const watchedSettings = [
     { section: 'Global Settings', group: 'BUS_Auto_Purge', groupTitle: 'BUS: Auto Purge', variable: 'BUS_Auto_Purge_Enabled', fallbackLabel: 'Enabled' },
@@ -1949,7 +2224,7 @@ export function App() {
   const formatDuration = (value: number | null | undefined) => value === null || value === undefined ? '—' : `${value} ms`;
   const formatHealthStatus = (status: string) => status === 'auth-error' ? 'Auth error' : status === 'ssl-error' ? 'SSL warning' : status.replace(/-/g, ' ');
   const connectivityDetails = (entry: InstanceCheckHistoryEntry | null | undefined): ConnectivityDetailsJson => (entry?.detailsJson && typeof entry.detailsJson === 'object' ? entry.detailsJson as ConnectivityDetailsJson : {});
-  const daysUntil = (value: string | null) => value ? Math.ceil((new Date(value).getTime() - Date.now()) / 86400000) : null;
+  const daysUntil = daysUntilDate;
 
   async function openInstanceHealthModal(kind: InstanceHealthModalKind, targetInstance = selectedInstance) {
     if (!targetInstance || !token) return;
@@ -2094,8 +2369,8 @@ export function App() {
     const body = <>
       {isHealthDetailsLoading && <p className="panel-copy">Loading health details…</p>}
       {!isHealthDetailsLoading && healthModal === 'availability' && <div className="health-detail-panel"><p className="panel-copy small-copy">Recent persisted availability checks from oldest to newest.</p>{details?.availability.length ? <div className="availability-chart" aria-label="Availability over time">{[...details.availability].reverse().map((entry, index) => <span key={`${entry.startedAt}-${index}`} className={`availability-bar status-${entry.status}`} title={`${formatDateTime(entry.finishedAt || entry.startedAt)} — ${formatHealthStatus(entry.status)}${entry.durationMs !== null ? ` (${entry.durationMs} ms)` : ''}`} />)}</div> : <p className="panel-copy">No availability history has been collected yet.</p>}<dl className="detail-list"><dt>Current status</dt><dd>{formatHealthStatus(instance.status)}</dd><dt>Last checked</dt><dd>{formatDateTime(instance.lastCheckedAt)}</dd><dt>Last success</dt><dd>{formatDateTime(instance.lastSuccessAt)}</dd><dt>Last failure</dt><dd>{formatDateTime(instance.lastFailureAt)}</dd><dt>Last error</dt><dd>{formatNullable(instance.lastError)}</dd></dl></div>}
-      {!isHealthDetailsLoading && healthModal === 'ssl' && <div className="health-detail-panel"><p className="panel-copy small-copy">{isTlsConnectionStepFailure(instance, stepDetails.ssl) ? 'TLS / Connection Error: CMS could open the socket, but the remote host closed the TLS handshake before a certificate could be evaluated. This is a blocking connection failure, not an ignorable SSL warning.' : 'SSL warnings are certificate-validation problems after TLS can be established. They may be bypassable depending on policy, but should still be reviewed.'}</p><dl className="detail-list"><dt>Protocol</dt><dd>{instance.protocol.toUpperCase()}</dd><dt>Certificate status</dt><dd>{instance.protocol !== 'https' ? 'Skipped for HTTP' : isTlsConnectionStepFailure(instance, stepDetails.ssl) ? 'Not evaluated - TLS connection failed' : instance.sslValid === null ? 'Unknown' : instance.sslValid ? 'Valid' : 'Invalid'}</dd><dt>Expires</dt><dd>{isTlsConnectionStepFailure(instance, stepDetails.ssl) ? 'Unknown - no certificate received' : formatDateTime(instance.sslExpiresAt)}</dd><dt>Days until expiration</dt><dd>{isTlsConnectionStepFailure(instance, stepDetails.ssl) ? 'Unknown - no certificate received' : sslDays === null ? 'Unknown' : sslDays}</dd><dt>Last SSL/TLS probe</dt><dd>{formatDuration(stepDetails.ssl?.durationMs)}</dd><dt>SSL / TLS message</dt><dd>{stepDetails.ssl?.message || 'No SSL/TLS detail collected.'}</dd><dt>Error code</dt><dd>{formatNullable(stepDetails.ssl?.errorCode)}</dd></dl></div>}
-      {!isHealthDetailsLoading && healthModal === 'license' && <div className="health-detail-panel"><dl className="detail-list"><dt>Status</dt><dd>{instance.licenseStatus}</dd><dt>License key</dt><dd>{formatNullable(instance.licenseKey, 'No license key collected')}</dd><dt>Last license probe</dt><dd>{details?.licenseHistory[0] ? `${formatDateTime(details.licenseHistory[0].finishedAt || details.licenseHistory[0].startedAt)} (${formatDuration(details.licenseHistory[0].durationMs)})` : 'No license history collected.'}</dd></dl><ReadOnlyJsonEditor value={instance.licenseJson ?? { message: 'No license JSON collected yet.' }} /></div>}
+      {!isHealthDetailsLoading && healthModal === 'ssl' && <div className="health-detail-panel"><p className="panel-copy small-copy">{isTlsConnectionStepFailure(instance, stepDetails.ssl) ? 'TLS / Connection Error: CMS could open the socket, but the remote host closed the TLS handshake before a certificate could be evaluated. This is a blocking connection failure, not an ignorable SSL warning.' : 'SSL warnings are certificate-validation problems after TLS can be established. They may be bypassable depending on policy, but should still be reviewed.'}</p><dl className="detail-list"><dt>Protocol</dt><dd>{instance.protocol.toUpperCase()}</dd><dt>Certificate status</dt><dd>{instance.protocol !== 'https' ? 'Skipped for HTTP' : isTlsConnectionStepFailure(instance, stepDetails.ssl) ? 'Not evaluated - TLS connection failed' : sslStatusLabel(instance)}</dd><dt>Expires</dt><dd>{isTlsConnectionStepFailure(instance, stepDetails.ssl) ? 'Unknown - no certificate received' : formatDateTime(instance.sslExpiresAt)}</dd><dt>Days until expiration</dt><dd>{isTlsConnectionStepFailure(instance, stepDetails.ssl) ? 'Unknown - no certificate received' : sslDays === null ? 'Unknown' : sslDays}</dd><dt>Last SSL/TLS probe</dt><dd>{formatDuration(stepDetails.ssl?.durationMs)}</dd><dt>SSL / TLS message</dt><dd>{stepDetails.ssl?.message || 'No SSL/TLS detail collected.'}</dd><dt>Error code</dt><dd>{formatNullable(stepDetails.ssl?.errorCode)}</dd></dl></div>}
+      {!isHealthDetailsLoading && healthModal === 'license' && <div className="health-detail-panel"><dl className="detail-list"><dt>Status</dt><dd>{licenseStatusLabel(instance)}</dd><dt>Raw status</dt><dd>{instance.licenseStatus}</dd><dt>Expires</dt><dd>{licenseExpirationDate(instance) ? formatDateTime(licenseExpirationDate(instance)!.toISOString()) : 'Unknown'}</dd><dt>Days until expiration</dt><dd>{daysUntilLicenseExpiration(instance) === null ? 'Unknown' : daysUntilLicenseExpiration(instance)}</dd><dt>License key</dt><dd>{formatNullable(instance.licenseKey, 'No license key collected')}</dd><dt>Last license probe</dt><dd>{details?.licenseHistory[0] ? `${formatDateTime(details.licenseHistory[0].finishedAt || details.licenseHistory[0].startedAt)} (${formatDuration(details.licenseHistory[0].durationMs)})` : 'No license history collected.'}</dd></dl><ReadOnlyJsonEditor value={instance.licenseJson ?? { message: 'No license JSON collected yet.' }} /></div>}
       {!isHealthDetailsLoading && healthModal === 'response' && <div className="health-detail-panel"><p className="panel-copy small-copy">Timing from the last persisted check. Response is Resolve + Connect + SSL + Auth for collected, non-skipped phases.</p><ol className="response-step-list">{renderTimingRow('Resolve', stepDetails.dns)}{renderTimingRow('Connect', stepDetails.connect)}{instance.protocol === 'https' && renderTimingRow('SSL', stepDetails.ssl)}{renderTimingRow('Auth', stepDetails.authentication)}{instance.checkLicense && renderTimingRow('License', stepDetails.license)}{renderTimingRow('Settings', stepDetails.api)}{renderTimingRow('Triggers', triggersStep)}</ol><dl className="detail-list"><dt>Card response</dt><dd>{formatDuration(instance.responseTimeMs)}</dd><dt>Total check duration</dt><dd>{formatDuration(latestConnectivity?.durationMs)}</dd><dt>Last checked</dt><dd>{formatDateTime(instance.lastCheckedAt)}</dd></dl></div>}
       {!isHealthDetailsLoading && healthModal === 'endpoint' && <div className="health-detail-panel"><dl className="detail-list"><dt>{tenantLabel}</dt><dd>{tenantName(instance.tenantId)}</dd><dt>Host</dt><dd>{instance.host}</dd><dt>Resolved IP</dt><dd>{resolvedIpLabel(stepDetails)}</dd><dt>Port</dt><dd>{formatNullable(instance.port)}</dd><dt>Base URL</dt><dd>{instance.baseUrl}</dd><dt>API Base URL</dt><dd>{instance.apiBaseUrl}</dd><dt>Launch URL</dt><dd>{instance.launchUrl}</dd><dt>Username</dt><dd>{instance.username}</dd></dl></div>}
       {!isHealthDetailsLoading && healthModal === 'monitoring' && <div className="health-detail-panel"><dl className="detail-list"><dt>Enabled</dt><dd>{booleanPill(instance.isEnabled, 'green', 'red', { trueLabel: 'Enabled', falseLabel: 'Disabled' })}</dd><dt>Check License</dt><dd>{booleanPill(instance.checkLicense, 'green', 'grey', { trueLabel: 'Enabled', falseLabel: 'Disabled' })}</dd><dt>Archived</dt><dd>{booleanPill(instance.archived, 'red', 'green')}</dd><dt>Last success</dt><dd>{formatDateTime(instance.lastSuccessAt)}</dd><dt>Last failure</dt><dd>{formatDateTime(instance.lastFailureAt)}</dd><dt>Uptime 24h</dt><dd>{instance.uptimePercent24h === null ? 'Unknown' : `${instance.uptimePercent24h}%`}</dd><dt>Uptime 7d</dt><dd>{instance.uptimePercent7d === null ? 'Unknown' : `${instance.uptimePercent7d}%`}</dd><dt>Last error</dt><dd>{formatNullable(instance.lastError, 'None')}</dd></dl></div>}
@@ -2150,7 +2425,7 @@ export function App() {
           const tone = statusTone(instance);
           return <article className={`tenant-instance-card status-${instance.status} ${tone}`} key={instance.id}>
             <header><div><span className="instance-status-dot" /><h4><button className="tenant-instance-name-link" type="button" onClick={() => void openInstanceDashboard(instance)}>{instance.name}</button></h4><p>{instance.host}</p></div><button className="instance-status-pill" type="button" onClick={() => openDashboardInstanceHealth(instance, instanceStatusModalKind(instance))}>{statusLabel(instance)}</button></header>
-            <div className="tenant-instance-stats"><button type="button" onClick={() => openDashboardInstanceHealth(instance, 'availability')}><b className={valueTone(instance.uptimePercent24h !== null && instance.uptimePercent24h >= 99, instance.uptimePercent24h === null)}>{instance.uptimePercent24h === null ? '—' : `${instance.uptimePercent24h}%`}</b><small>Uptime</small></button><button type="button" onClick={() => openDashboardInstanceHealth(instance, 'response')}><b className={responseTone(instance)}>{responseLabel(instance)}</b><small>Response</small></button><button type="button" onClick={() => openDashboardInstanceHealth(instance, instance.checkLicense ? 'license' : 'monitoring')}><b className={hasLicenseFailure(instance) ? 'issue' : hasLicenseWarning(instance) ? 'warning' : valueTone(instance.licenseStatus === 'valid', instance.licenseStatus === 'unknown')}>{instance.checkLicense ? instance.licenseStatus : 'skipped'}</b><small>License</small></button></div>
+            <div className="tenant-instance-stats"><button type="button" onClick={() => openDashboardInstanceHealth(instance, 'availability')}><b className={valueTone(instance.uptimePercent24h !== null && instance.uptimePercent24h >= 99, instance.uptimePercent24h === null)}>{instance.uptimePercent24h === null ? '—' : `${instance.uptimePercent24h}%`}</b><small>Uptime</small></button><button type="button" onClick={() => openDashboardInstanceHealth(instance, 'response')}><b className={responseTone(instance)}>{responseLabel(instance)}</b><small>Response</small></button><button type="button" onClick={() => openDashboardInstanceHealth(instance, instance.checkLicense ? 'license' : 'monitoring')}><b className={hasLicenseFailure(instance) ? 'issue' : hasLicenseWarning(instance) ? 'warning' : valueTone(instance.licenseStatus === 'valid', instance.licenseStatus === 'unknown')}>{licenseStatusLabel(instance)}</b><small>License</small></button></div>
             <div className="tenant-instance-foot"><button className="tenant-instance-status-message" type="button" onClick={() => openDashboardInstanceLogs(instance)}>{instance.primaryIssue ? issueDisplayLabel(instance.primaryIssue) : instance.hasIssue ? issueDisplayLabel(instance.issues[0] || 'Issue detected') : 'No active issues'}</button><div className="tenant-instance-actions" aria-label={`Actions for ${instance.name}`}><InstanceActionMenu instance={instance} mobile /></div></div>
           </article>;
         })}</div>)}
@@ -2225,9 +2500,21 @@ export function App() {
     return 'ok';
   }
 
+  function queueJobInstanceLabel(job: QueueJobSummary) {
+    return job.data.instanceName ?? (job.data.instanceId ? `Unknown (${job.data.instanceId.slice(0, 8)}…)` : '—');
+  }
+
   function queueJobDetail(job: QueueJobSummary) {
-    const bits = [job.data.task, job.data.source, job.data.instanceId ? `Instance ${job.data.instanceId}` : null, job.data.requestedBy ? `By ${job.data.requestedBy}` : null].filter(Boolean);
+    const bits = [job.data.task, job.data.source, job.data.requestedBy ? `By ${job.data.requestedBy}` : null].filter(Boolean);
     return bits.length ? bits.join(' · ') : 'No public metadata';
+  }
+
+  function queueJobAttemptLabel(job: QueueJobSummary) {
+    if (job.state === 'active') return 'Running now';
+    if (job.state === 'scheduled') return job.data.task ?? 'Scheduled recurrence';
+    if (job.state === 'delayed' && job.attemptsMade === 0) return 'Scheduled; not run yet';
+    if (job.attemptsMade) return `${job.attemptsMade} attempt${job.attemptsMade === 1 ? '' : 's'}`;
+    return 'No attempts yet';
   }
 
   function renderQueueOrchestrationPanel() {
@@ -2240,25 +2527,49 @@ export function App() {
       <section className={`version-update-summary queue-summary ${tone}`}>
         <div><span>Mode</span><strong>{snapshot?.mode === 'bullmq' ? 'BullMQ' : snapshot ? 'Disabled' : 'Checking'}</strong><small>{snapshot?.enabled ? 'Durable queue mode enabled' : snapshot ? 'In-process poller active' : 'Loading runtime state'}</small></div>
         <div><span>Redis</span><strong>{snapshot?.redis.connected ? 'Connected' : snapshot?.redis.configured ? 'Configured' : 'Not configured'}</strong><small>{snapshot?.redis.host ? `${snapshot.redis.host}:${snapshot.redis.port}` : snapshot ? 'Set REDIS_HOST to enable' : 'Checking Redis'}</small></div>
-        <div><span>Active / Waiting</span><strong>{formatNumber(totals.active)} / {formatNumber(totals.waiting)}</strong><small>{formatNumber(totals.delayed)} delayed</small></div>
-        <div><span>Failures</span><strong>{formatNumber(totals.failed)}</strong><small>{formatNumber(totals.completed)} completed</small></div>
+        <div><span>Live Backlog</span><strong>{formatNumber(totals.active)} running / {formatNumber(totals.waiting)} ready</strong><small>{formatNumber(totals.delayed)} scheduled for future runs</small></div>
+        <div><span>Retained History</span><strong>{formatNumber(totals.completed)} completed</strong><small>{formatNumber(totals.failed)} failed retained</small></div>
       </section>
       {snapshot?.redis.error && <p className="panel-copy version-update-message warning">Redis/BullMQ status is unavailable: {snapshot.redis.error}</p>}
       {!snapshot?.enabled && <p className="panel-copy">BullMQ is installed but disabled until `BULLMQ_ENABLED=true` and Redis settings are configured. The existing background poller continues to run for MVP safety.</p>}
-      {snapshot && <section className="queue-compact-table" aria-label="Queue counts"><div className="queue-table-head"><span>Queue</span><span>State</span><span>Waiting</span><span>Active</span><span>Delayed</span><span>Failed</span><span>Completed</span></div>{snapshot.queues.map((queue) => <article className="queue-table-row" key={queue.name}><div><strong>{queue.name}</strong><small>{queue.description}</small></div><span className={`queue-state-label ${queue.active > 0 ? 'enabled' : queue.failed > 0 ? 'paused' : 'unknown'}`}>{queue.active > 0 ? 'active' : queue.failed > 0 ? 'attention' : 'idle'}</span><span>{formatNumber(queue.waiting)}</span><span>{formatNumber(queue.active)}</span><span>{formatNumber(queue.delayed)}</span><span>{formatNumber(queue.failed)}</span><span>{formatNumber(queue.completed)}</span></article>)}</section>}
-      {systemQueueJobs?.jobs.length ? <section className="queue-latest-jobs" aria-label="Latest queue jobs"><header><strong>Latest Jobs</strong><small>Sanitized CMS view</small></header>{systemQueueJobs.jobs.map((job) => <article className={`queue-job-row ${job.state}`} key={`${job.queue}-${job.id ?? job.name}`}><div><strong>{job.name}</strong><span>{job.queue}</span><small>{queueJobDetail(job)}</small></div><div><span className="queue-job-state">{job.state}</span><small>{job.attemptsMade ? `${job.attemptsMade} attempt${job.attemptsMade === 1 ? '' : 's'}` : 'Not retried'}</small><small>{formatDateTime(job.finishedOn ?? job.processedOn ?? job.timestamp)}</small></div></article>)}</section> : snapshot?.mode === 'bullmq' && <p className="panel-copy small-copy">No recent queue jobs returned from the sanitized CMS job view yet.</p>}
+      {snapshot && <section className="queue-compact-table" aria-label="Queue counts"><div className="queue-table-head"><span>Queue</span><span>State</span><span>Ready</span><span>Running</span><span>Scheduled</span><span>Failed Retained</span><span>Completed Retained</span></div>{snapshot.queues.map((queue) => <article className="queue-table-row" key={queue.name}><div><strong>{queue.name}</strong><small>{queue.description}</small></div><span className={`queue-state-label ${queue.active > 0 ? 'enabled' : queue.waiting > 0 ? 'enabled' : queue.delayed > 0 ? 'scheduled' : queue.failed > 0 ? 'paused' : 'unknown'}`}>{queue.active > 0 ? 'active' : queue.waiting > 0 ? 'ready' : queue.delayed > 0 ? 'scheduled' : queue.failed > 0 ? 'history' : 'idle'}</span><span>{formatNumber(queue.waiting)}</span><span>{formatNumber(queue.active)}</span><span>{formatNumber(queue.delayed)}</span><span>{formatNumber(queue.failed)}</span><span>{formatNumber(queue.completed)}</span></article>)}</section>}
+      {queueJobRows.length ? <section className="queue-latest-jobs queue-latest-managed-grid" aria-label="Latest queue jobs"><ManagedGrid gridKey="system-queue-jobs-sequence" token={token!} rows={queueJobRows} columns={queueJobColumnDefs} loading={isSystemVersionRefreshing && !systemQueueJobs} loadingLabel="Loading latest queue jobs…" actionCell={QueueJobActionCell} actionWidth={120} toolbar={<div className="queue-jobs-toolbar"><strong>Active / Scheduled Jobs</strong><span>{formatNumber(queueJobRows.length)} jobs, active first then sorted by next run</span></div>} /></section> : snapshot?.mode === 'bullmq' && <p className="panel-copy small-copy">No recent queue jobs returned from the sanitized CMS job view yet.</p>}
     </article>;
   }
 
   function renderSettingsGeneral() {
     const retentionDays = logRetention?.days ?? 90;
-    return <div className="settings-basic-stack">
-      {isSystemVersionRefreshing && !systemVersion && <LoadingOverlay label="Loading Settings status…" />}
+    const sslWarningDays = sslCertificateWarning?.daysBeforeExpiration ?? 30;
+    const licenseWarningDays = licenseExpirationWarning?.daysBeforeExpiration ?? 30;
+    return <div className="settings-basic-stack settings-group-stack">
+      {canManageSettings && <section className="settings-card-group" aria-labelledby="general-settings-group-title"><div className="settings-group-header"><h3 id="general-settings-group-title">General Settings</h3></div><div className="settings-group-grid two-up">
+        <article className="panel settings-panel compact-settings-card"><div className="panel-heading"><Settings /><div><h3>Labels</h3></div></div><p className="panel-copy">Customize display labels without changing the data model.</p><form className="settings-form" onSubmit={handleSaveLabels}><label>Tenant<input name="tenant" defaultValue={tenantLabel} placeholder="Tenant" required /></label><button type="submit">Save Labels</button></form></article>
+        <article className="panel settings-panel compact-settings-card"><div className="panel-heading"><Settings /><div><h3>Log Retention</h3></div></div><p className="panel-copy">Keep CMS activity and instance-check history for this many days.</p><form className="settings-form compact-settings-form" onSubmit={handleSaveLogRetention}><label className="days-inline-field"><input name="days" type="number" min={1} max={3650} defaultValue={retentionDays} required /><small>day(s)</small></label><button type="submit">Save Retention</button></form></article>
+      </div></section>}
+
+      {canManageSettings && <section className="settings-card-group" aria-labelledby="monitoring-settings-group-title"><div className="settings-group-header"><h3 id="monitoring-settings-group-title">Monitoring</h3></div><div className="settings-group-grid two-up">
+        <article className="panel settings-panel compact-settings-card"><div className="panel-heading"><Settings /><div><h3>SSL Warning</h3></div></div><p className="panel-copy">Show otherwise valid HTTPS certificates as Expiring Soon before they expire.</p><form className="settings-form compact-settings-form" onSubmit={handleSaveSslCertificateWarning}><label className="days-inline-field"><input name="daysBeforeExpiration" type="number" min={0} max={3650} defaultValue={sslWarningDays} required /><small>day(s)</small></label><button type="submit">Save SSL Warning</button></form></article>
+        <article className="panel settings-panel compact-settings-card"><div className="panel-heading"><Settings /><div><h3>License Warning</h3></div></div><p className="panel-copy">Show valid OxyGen licenses as Expiring Soon before they expire.</p><form className="settings-form compact-settings-form" onSubmit={handleSaveLicenseExpirationWarning}><label className="days-inline-field"><input name="daysBeforeExpiration" type="number" min={0} max={3650} defaultValue={licenseWarningDays} required /><small>day(s)</small></label><button type="submit">Save License Warning</button></form></article>
+      </div></section>}
+
+      {canManageSettings && queueSchedules.jobs.length > 0 && <section className="settings-card-group" aria-labelledby="queue-settings-group-title"><div className="settings-group-header"><h3 id="queue-settings-group-title">Queue</h3></div><div className="settings-group-grid queue-settings-grid">
+        {queueSchedules.jobs.map((job) => { const enabled = queueScheduleEnabledDraft[job.key] ?? job.enabled; return <article className={`panel settings-panel compact-settings-card queue-schedule-card${enabled ? '' : ' disabled'}`} key={job.key}><div className="panel-heading queue-schedule-heading"><Settings /><div><h3>{job.label}</h3></div><label className="switch-field queue-switch-field"><input name="enabled" type="checkbox" checked={enabled} onChange={(event) => void handleToggleQueueSchedule(job, event.target.checked)} /><em>{enabled ? 'Enabled' : 'Disabled'}</em><span className="switch-track" aria-hidden="true"><span /></span></label></div><p className="panel-copy queue-job-meta">{job.queue} · {job.name}</p><p className="panel-copy queue-job-description">{queueScheduleDescription(job)}</p><form className="settings-form queue-schedule-settings compact-settings-form" onSubmit={(event) => void handleSaveQueueSchedule(job, event)}><input name="enabled" type="hidden" value={enabled ? 'on' : 'off'} /><label className="days-inline-field queue-days-field"><span>Every</span><input name="everyDays" type="number" min={1} max={30} step={1} defaultValue={queueScheduleDays(job)} disabled={!enabled} /><small>day(s)</small></label><button type="submit" disabled={!enabled}>Save Schedule</button></form></article>; })}
+      </div></section>}
+      {!canManageSettings && <article className="panel settings-panel compact-settings-card"><p className="panel-copy">No application settings are available for your current permissions.</p></article>}
+    </div>;
+  }
+
+
+  function renderSettingsOperations() {
+    return <div className="settings-operations-stack">
+      {isSystemVersionRefreshing && !systemVersion && <LoadingOverlay label="Loading operations status…" />}
+      <section className="tenant-dashboard-hero compact settings-operations-hero">
+        <div><p className="eyebrow small">System operations</p><h3>Runtime, Queues, and Updates</h3><small className="dashboard-refresh-stamp">Application update readiness and background queue orchestration are grouped here so General stays focused on editable settings.</small></div>
+        <Button className="compact-button dashboard-refresh-button" type="button" onClick={() => void loadSystemVersion(token, 'manual')} disabled={isSystemVersionRefreshing}><RotateCw className={isSystemVersionRefreshing ? 'spin-icon' : ''} /> Refresh</Button>
+      </section>
       {canViewVersion && renderVersionUpdatePanel()}
       {canManagePoller && renderQueueOrchestrationPanel()}
-      {canManageSettings && <article className="panel settings-panel"><div className="panel-heading"><Settings /><div><p className="eyebrow small">Application settings</p><h3>Labels</h3></div></div><p className="panel-copy">Customize display labels used by the application without changing the underlying data model.</p><form className="settings-form" onSubmit={handleSaveLabels}><label>Tenant<input name="tenant" defaultValue={tenantLabel} placeholder="Tenant" required /></label><small>Tenant is the only supported customer scope term in CMS.</small><button type="submit">Save Labels</button></form></article>}
-      {canManageSettings && <article className="panel settings-panel"><div className="panel-heading"><Settings /><div><p className="eyebrow small">Application settings</p><h3>Log Retention</h3></div></div><p className="panel-copy">Configure how long CMS keeps database-backed activity history, including application logs and instance check history.</p><form className="settings-form compact-settings-form" onSubmit={handleSaveLogRetention}><label>Retention days<input name="days" type="number" min={1} max={3650} defaultValue={retentionDays} required /></label><button type="submit">Save Retention</button></form></article>}
-      {!canViewVersion && !canManageSettings && !canManagePoller && <article className="panel settings-panel"><p className="panel-copy">No general settings are available for your current permissions.</p></article>}
+      {!canViewVersion && !canManagePoller && <article className="panel settings-panel"><p className="panel-copy">No operational resources are available for your current permissions.</p></article>}
     </div>;
   }
 
@@ -2386,7 +2697,8 @@ export function App() {
       case 'users': return { eyebrow: 'Security', heading: 'Users' };
       case 'user-groups': return { eyebrow: 'Security', heading: 'User Groups' };
       case 'roles': return { eyebrow: 'Security', heading: 'Roles' };
-      case 'settings-general': return { eyebrow: 'Settings', heading: 'General' };
+      case 'settings-general': return { eyebrow: 'Settings', heading: 'General Settings' };
+      case 'settings-operations': return { eyebrow: 'Settings', heading: 'Operations' };
       case 'settings-logs': return { eyebrow: 'Settings', heading: 'Logs' };
       case 'settings-database': return { eyebrow: 'Settings', heading: 'Database' };
       case 'settings-issues': return { eyebrow: 'Settings', heading: 'Issue Types' };
@@ -2541,9 +2853,9 @@ export function App() {
 
       {profile && isMobileViewport && isMobileDrawerOpen && <button className="mobile-drawer-backdrop" type="button" aria-label="Close navigation" onClick={() => setIsMobileDrawerOpen(false)} />}
 
-      {profile && (<div className={`admin-layout ${isDrawerExpanded ? 'drawer-expanded' : 'drawer-collapsed'} ${isMobileDrawerOpen ? 'mobile-drawer-open' : ''}`}><aside className={`admin-sidebar ${isDrawerExpanded ? 'expanded' : 'collapsed'} ${isMobileDrawerOpen ? 'mobile-open' : ''}`}><button className="mobile-drawer-close" type="button" onClick={() => setIsMobileDrawerOpen(false)} aria-label="Close navigation"><X /></button><button className="sidebar-toggle" type="button" onClick={() => setIsDrawerExpanded((v) => !v)} aria-label={isDrawerExpanded ? 'Collapse navigation' : 'Expand navigation'}>{isDrawerExpanded ? <ChevronLeft /> : <ChevronRight />}</button><div className="sidebar-user"><UserCircle /><div><span className="su-name">{profile.user.displayName}</span><span className="su-role">{displayRoleName(profile.roles[0])}</span></div></div><nav className="sidebar-nav"><button className={`nav-link${activeSection === 'dashboard' ? ' active' : ''}`} onClick={() => nav('dashboard')}><LayoutDashboard /><span>Dashboard</span></button>{(canViewTenants || canViewInstances) && <div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => handleSidebarParentClick('organizations')}><Server /><span>Organizations</span>{openAccordions.has('organizations') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('organizations') && (<div className="nav-accordion-children">{canViewTenants && <button className={`nav-link child${activeSection === 'organizations' ? ' active' : ''}`} onClick={() => nav('organizations')}><span>{tenantLabelPlural}</span></button>}{canViewInstances && <button className={`nav-link child${activeSection === 'instances' ? ' active' : ''}`} onClick={() => { nav('instances'); loadInstances(); }}><span>Instances</span></button>}</div>)}</div>}{canManageSecurity && <div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => handleSidebarParentClick('security')}><ShieldCheck /><span>Security</span>{openAccordions.has('security') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('security') && (<div className="nav-accordion-children">{canManageUsers && <button className={`nav-link child${activeSection === 'users' ? ' active' : ''}`} onClick={() => nav('users')}><span>Users</span></button>}{canManageGroups && <button className={`nav-link child${activeSection === 'user-groups' ? ' active' : ''}`} onClick={() => nav('user-groups')}><span>User Groups</span></button>}{canManageRoles && <button className={`nav-link child${activeSection === 'roles' ? ' active' : ''}`} onClick={() => nav('roles')}><span>Roles</span></button>}</div>)}</div>}{canUseSettings && <div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => handleSidebarParentClick('settings')}><Settings /><span>Settings</span>{openAccordions.has('settings') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('settings') && (<div className="nav-accordion-children">{(canManageSettings || canViewVersion) && <button className={`nav-link child${activeSection === 'settings-general' ? ' active' : ''}`} onClick={() => nav('settings-general')}><span>General</span></button>}{canViewLogs && <button className={`nav-link child${activeSection === 'settings-logs' ? ' active' : ''}`} onClick={() => nav('settings-logs')}><span>Logs</span></button>}{canViewDatabase && <button className={`nav-link child${activeSection === 'settings-database' ? ' active' : ''}`} onClick={() => nav('settings-database')}><span>Database</span></button>}{canViewIssueTypes && <button className={`nav-link child${activeSection === 'settings-issues' ? ' active' : ''}`} onClick={() => nav('settings-issues')}><span>Issue Types</span></button>}{canManageSettings && <button className={`nav-link child${activeSection === 'settings-advanced' ? ' active' : ''}`} onClick={() => nav('settings-advanced', false, 'Advanced Settings')}><span>Advanced</span></button>}</div>)}</div>}</nav><button className="sidebar-logout" onClick={handleLogout}><LogOut /><span>Sign out</span></button></aside>
+      {profile && (<div className={`admin-layout ${isDrawerExpanded ? 'drawer-expanded' : 'drawer-collapsed'} ${isMobileDrawerOpen ? 'mobile-drawer-open' : ''}`}><aside className={`admin-sidebar ${isDrawerExpanded ? 'expanded' : 'collapsed'} ${isMobileDrawerOpen ? 'mobile-open' : ''}`}><button className="mobile-drawer-close" type="button" onClick={() => setIsMobileDrawerOpen(false)} aria-label="Close navigation"><X /></button><button className="sidebar-toggle" type="button" onClick={() => setIsDrawerExpanded((v) => !v)} aria-label={isDrawerExpanded ? 'Collapse navigation' : 'Expand navigation'}>{isDrawerExpanded ? <ChevronLeft /> : <ChevronRight />}</button><div className="sidebar-user"><UserCircle /><div><span className="su-name">{profile.user.displayName}</span><span className="su-role">{displayRoleName(profile.roles[0])}</span></div></div><nav className="sidebar-nav"><button className={`nav-link${activeSection === 'dashboard' ? ' active' : ''}`} onClick={() => nav('dashboard')}><LayoutDashboard /><span>Dashboard</span></button>{(canViewTenants || canViewInstances) && <div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => handleSidebarParentClick('organizations')}><Server /><span>Organizations</span>{openAccordions.has('organizations') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('organizations') && (<div className="nav-accordion-children">{canViewTenants && <button className={`nav-link child${activeSection === 'organizations' ? ' active' : ''}`} onClick={() => nav('organizations')}><span>{tenantLabelPlural}</span></button>}{canViewInstances && <button className={`nav-link child${activeSection === 'instances' ? ' active' : ''}`} onClick={() => { nav('instances'); loadInstances(); }}><span>Instances</span></button>}</div>)}</div>}{canManageSecurity && <div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => handleSidebarParentClick('security')}><ShieldCheck /><span>Security</span>{openAccordions.has('security') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('security') && (<div className="nav-accordion-children">{canManageUsers && <button className={`nav-link child${activeSection === 'users' ? ' active' : ''}`} onClick={() => nav('users')}><span>Users</span></button>}{canManageGroups && <button className={`nav-link child${activeSection === 'user-groups' ? ' active' : ''}`} onClick={() => nav('user-groups')}><span>User Groups</span></button>}{canManageRoles && <button className={`nav-link child${activeSection === 'roles' ? ' active' : ''}`} onClick={() => nav('roles')}><span>Roles</span></button>}</div>)}</div>}{canUseSettings && <div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => handleSidebarParentClick('settings')}><Settings /><span>Settings</span>{openAccordions.has('settings') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('settings') && (<div className="nav-accordion-children">{canManageSettings && <button className={`nav-link child${activeSection === 'settings-general' ? ' active' : ''}`} onClick={() => nav('settings-general')}><span>Application</span></button>}{(canViewVersion || canManagePoller) && <button className={`nav-link child${activeSection === 'settings-operations' ? ' active' : ''}`} onClick={() => nav('settings-operations')}><span>Operations</span></button>}{canViewLogs && <button className={`nav-link child${activeSection === 'settings-logs' ? ' active' : ''}`} onClick={() => nav('settings-logs')}><span>Logs</span></button>}{canViewDatabase && <button className={`nav-link child${activeSection === 'settings-database' ? ' active' : ''}`} onClick={() => nav('settings-database')}><span>Database</span></button>}{canViewIssueTypes && <button className={`nav-link child${activeSection === 'settings-issues' ? ' active' : ''}`} onClick={() => nav('settings-issues')}><span>Issue Types</span></button>}{canManageSettings && <button className={`nav-link child${activeSection === 'settings-advanced' ? ' active' : ''}`} onClick={() => nav('settings-advanced', false, 'Advanced Settings')}><span>Advanced</span></button>}</div>)}</div>}</nav><button className="sidebar-logout" onClick={handleLogout}><LogOut /><span>Sign out</span></button></aside>
         <section className={`admin-content ${gridSection ? 'grid-section' : ''} ${settingsSection ? 'settings-section' : ''}`}>{activeSection !== 'dashboard' && <div className="page-header"><p className="eyebrow small">{sectionMeta.eyebrow}</p><h2>{sectionMeta.heading}</h2></div>}
-          {activeSection !== 'settings-general' && renderUpdateNotice()}
+          {activeSection !== 'settings-general' && activeSection !== 'settings-operations' && renderUpdateNotice()}
           {activeSection === 'dashboard' && renderDashboard()}
           {activeSection === 'organizations' && canViewTenants && <ManagedGrid gridKey="tenants" token={token!} rows={tenantRows} loading={isAdminDataRefreshing} loadingLabel="Loading Tenants…" columns={tenantColumnDefs} actionCell={TenantActionCell} mobileActions={(row) => <TenantActionMenu tenant={row.raw} mobile />} toolbar={canManageTenants ? <Button className="btn-create" onClick={openCreateTenantModal} type="button" themeColor="primary"><Plus /> Create “{tenantLabel}”</Button> : null} />}
           {activeSection === 'instances' && canViewInstances && <ManagedGrid gridKey="instances" token={token!} rows={visibleInstanceRows} loading={isAdminDataRefreshing || isDashboardRefreshing} loadingLabel="Loading Instances…" columns={labeledInstanceColumnDefs} actionCell={InstanceActionCell} actionWidth={58} mobileActions={mobileInstanceActions} toolbar={canImportExportInstances || canManageInstances ? renderInstanceToolbar() : null} />}
@@ -2552,7 +2864,7 @@ export function App() {
           {activeSection === 'user-groups' && canManageGroups && <ManagedGrid gridKey="user-groups" token={token!} rows={groupRows} loading={isAdminDataRefreshing} loadingLabel="Loading User Groups…" columns={labeledGroupColumnDefs} actionCell={GroupActionCell} mobileActions={(row) => <MobileStandardActions onEdit={() => openEditGroupModal(row.raw)} onDelete={() => deleteItem('group', row.raw.id, `group ${row.raw.name}`)} />} toolbar={<Button className="btn-create" onClick={openCreateGroupModal} type="button" themeColor="primary"><Plus /> Create &quot;Group&quot;</Button>} />}
           {activeSection === 'users' && canManageUsers && <ManagedGrid gridKey="users" token={token!} rows={userRows} loading={isAdminDataRefreshing} loadingLabel="Loading Users…" columns={labeledUserColumnDefs} actionCell={UserActionCell} mobileActions={(row) => <MobileStandardActions onEdit={() => openEditUserModal(row.raw)} onDelete={() => deleteItem('user', row.raw.user.id, `user ${row.raw.user.email}`)} />} toolbar={<Button className="btn-create" onClick={openCreateUserModal} type="button" themeColor="primary"><Plus /> Create &quot;User&quot;</Button>} />}
           {activeSection === 'roles' && canManageRoles && <ManagedGrid gridKey="roles" token={token!} rows={roleRows} loading={isAdminDataRefreshing} loadingLabel="Loading Roles…" columns={labeledRoleColumnDefs} actionCell={RoleActionCell} mobileActions={(row) => row.raw.isSystem ? <MobileStandardActions protectedOnly onEdit={() => setMessage(`${row.raw.name} is a protected global role and cannot be modified/deleted.`)} /> : <MobileStandardActions onEdit={() => openEditRoleModal(row.raw)} onDelete={() => deleteItem('role', row.raw.id, `role ${row.raw.name}`)} />} toolbar={<Button className="btn-create" onClick={openCreateRoleModal} type="button" themeColor="primary"><Plus /> Create &quot;Role&quot;</Button>} />}
-          {activeSection === 'settings-general' && renderSettingsGeneral()}{activeSection === 'settings-logs' && canViewLogs && renderSettingsLogs()}{activeSection === 'settings-database' && canViewDatabase && renderDatabasePerformance()}{activeSection === 'settings-issues' && canViewIssueTypes && renderIssueCatalog()}{activeSection === 'settings-advanced' && canManageSettings && <article className="panel"><p className="panel-copy">Advanced settings: Not Implemented.</p></article>}
+          {activeSection === 'settings-general' && renderSettingsGeneral()}{activeSection === 'settings-operations' && renderSettingsOperations()}{activeSection === 'settings-logs' && canViewLogs && renderSettingsLogs()}{activeSection === 'settings-database' && canViewDatabase && renderDatabasePerformance()}{activeSection === 'settings-issues' && canViewIssueTypes && renderIssueCatalog()}{activeSection === 'settings-advanced' && canManageSettings && <article className="panel"><p className="panel-copy">Advanced settings: Not Implemented.</p></article>}
         </section></div>)}
 
       {profile && !modal && !healthModal && <nav className="mobile-bottom-bar" aria-label="Mobile actions">
@@ -2566,7 +2878,7 @@ export function App() {
           {canViewInstances && <button type="button" className={activeSection === 'instances' ? 'active' : ''} onClick={() => { nav('instances'); loadInstances(); }}><Server /><span>Instances</span></button>}
           {canManageInstances && <button type="button" className="primary" onClick={openCreateInstanceModal}><Plus /><span>Enroll</span></button>}
           {canManageSecurity && <button type="button" className={activeSection === 'users' || activeSection === 'user-groups' || activeSection === 'roles' ? 'active' : ''} onClick={() => nav(canManageUsers ? 'users' : canManageGroups ? 'user-groups' : 'roles')}><ShieldCheck /><span>Security</span></button>}
-          {canUseSettings && <button type="button" className={activeSection.startsWith('settings-') ? 'active' : ''} onClick={() => nav(canManageSettings || canViewVersion ? 'settings-general' : canViewLogs ? 'settings-logs' : canViewDatabase ? 'settings-database' : 'settings-issues')}><Settings /><span>Settings</span></button>}
+          {canUseSettings && <button type="button" className={activeSection.startsWith('settings-') ? 'active' : ''} onClick={() => nav(canManageSettings ? 'settings-general' : canViewVersion || canManagePoller ? 'settings-operations' : canViewLogs ? 'settings-logs' : canViewDatabase ? 'settings-database' : 'settings-issues')}><Settings /><span>Settings</span></button>}
         </>}
       </nav>}
 

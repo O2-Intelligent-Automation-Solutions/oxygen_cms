@@ -397,6 +397,13 @@ describe('instance enrollment API', () => {
     const visible = await app.inject({ method: 'POST', url: '/api/instances', headers: { authorization: `Bearer ${adminToken}` }, payload: { name: 'Detail Visible', description: 'Detail dashboard target', tenantId: tenant.id, protocol: 'https', host: 'detail.example.com', port: 443, username: 'admin', password: 'RemotePassword!42', pollingIntervalSeconds: 300 } });
     const hidden = await app.inject({ method: 'POST', url: '/api/instances', headers: { authorization: `Bearer ${adminToken}` }, payload: { name: 'Detail Hidden', description: null, tenantId: null, protocol: 'https', host: 'hidden-detail.example.com', username: 'admin', password: 'RemotePassword!42' } });
     await authRepository.updateGroup(groupA.id, { name: groupA.name, description: groupA.description, tenantId: groupA.tenantId, instanceAccessMode: 'specific', instanceIds: [visible.json().instance.id] });
+    const originalGetInstance = instanceRepository.getInstance.bind(instanceRepository);
+    instanceRepository.getInstance = vi.fn(async (instanceId) => {
+      const found = await originalGetInstance(instanceId);
+      return found && instanceId === visible.json().instance.id
+        ? { ...found, licenseStatus: 'valid' as const, licenseKey: 'DETAIL-LICENSE', licenseJson: { IsValid: true, IsExpired: false, ExpiryDate: '2026-06-30T20:00:00.000Z' } }
+        : found;
+    });
 
     const adminDetail = await app.inject({ method: 'GET', url: `/api/instances/${visible.json().instance.id}`, headers: { authorization: `Bearer ${adminToken}` } });
     expect(adminDetail.statusCode).toBe(200);
@@ -408,7 +415,8 @@ describe('instance enrollment API', () => {
       baseUrl: 'https://detail.example.com:443',
       launchUrl: 'https://detail.example.com:443/OPTWS/OxyGen.aspx',
       status: 'unknown',
-      licenseStatus: 'unknown',
+      licenseStatus: 'valid',
+      licenseJson: { IsValid: true, IsExpired: false, ExpiryDate: '2026-06-30T20:00:00.000Z' },
       workflowSummaryJson: null
     });
     expect(adminDetail.json().instance.password).toBeUndefined();

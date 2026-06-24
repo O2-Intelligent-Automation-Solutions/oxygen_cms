@@ -1,11 +1,13 @@
-import type { Job, Worker } from 'bullmq';
+import type { Job, Queue, Worker } from 'bullmq';
 import type { AppLogRepository } from '../appLogs/types.js';
 import type { AppSettingsRepository } from '../appSettings/types.js';
 import type { AppConfig } from '../config/loadConfig.js';
 import type { InstanceRepository } from '../instances/types.js';
 import { processDatabaseMaintenanceJob } from './databaseMaintenanceProcessor.js';
 import { createInMemoryInstanceCheckRunGuard, processInstanceCheckJob, type InstanceCheckRunGuard } from './instanceCheckProcessor.js';
+import { processSystemMaintenanceJob } from './systemMaintenanceProcessor.js';
 import { QUEUE_NAMES, createQueueConnectionOptions, type QueueName } from './queueStatus.js';
+import type { UpdateChecker } from '../system/updateInfo.js';
 
 export type QueueWorkerState = 'disabled' | 'running';
 
@@ -23,6 +25,8 @@ export type QueueJobProcessorOptions = {
   instanceRepository: InstanceRepository;
   appLogRepository?: AppLogRepository;
   appSettingsRepository?: AppSettingsRepository;
+  updateChecker?: UpdateChecker;
+  queues?: Array<Queue<unknown, unknown, string>>;
   instanceCheckRunGuard?: InstanceCheckRunGuard;
 };
 
@@ -47,6 +51,14 @@ export function createQueueJobProcessor(options: QueueJobProcessorOptions) {
       });
     }
 
+    if (queueName === 'system-maintenance') {
+      return processSystemMaintenanceJob({
+        data,
+        updateChecker: options.updateChecker,
+        queues: options.queues
+      });
+    }
+
     throw new Error(`No processor registered for ${queueName}; job execution for this queue is not implemented yet.`);
   };
 }
@@ -62,9 +74,10 @@ export async function createQueueWorkerRuntime(config: AppConfig, logger: Logger
     };
   }
 
-  const { Worker: BullWorker } = await import('bullmq');
+  const { Worker: BullWorker, Queue: BullQueue } = await import('bullmq');
   if (!options) throw new Error('BullMQ worker dependencies are required when BULLMQ_ENABLED=true.');
-  const processQueueJob = createQueueJobProcessor({ ...options, instanceCheckRunGuard: options.instanceCheckRunGuard ?? createInMemoryInstanceCheckRunGuard() });
+  const maintenanceQueues = QUEUE_NAMES.map((queueName) => new BullQueue(queueName, { connection }) as Queue<unknown, unknown, string>);
+  const processQueueJob = createQueueJobProcessor({ ...options, queues: options.queues ?? maintenanceQueues, instanceCheckRunGuard: options.instanceCheckRunGuard ?? createInMemoryInstanceCheckRunGuard() });
   const workers = QUEUE_NAMES.map((queueName) => new (BullWorker as WorkerConstructor)(
     queueName,
     async (job: Job) => processQueueJob(queueName, job.data),
@@ -81,7 +94,7 @@ export async function createQueueWorkerRuntime(config: AppConfig, logger: Logger
     state: 'running',
     queueNames: [...QUEUE_NAMES],
     async close() {
-      await Promise.all(workers.map((worker) => worker.close()));
+      await Promise.all([...workers.map((worker) => worker.close()), ...maintenanceQueues.map((queue) => queue.close())]);
     }
   };
 }

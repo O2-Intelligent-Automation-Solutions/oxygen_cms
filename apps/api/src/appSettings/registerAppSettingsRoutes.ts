@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { AuthRepository } from '../auth/types.js';
 import { requireAuth, requirePermission } from '../auth/registerAuthRoutes.js';
-import { appLabelsSchema, logRetentionSchema } from './schemas.js';
+import { appLabelsSchema, logRetentionSchema, sslCertificateWarningSchema, licenseExpirationWarningSchema, queueSchedulesSchema } from './schemas.js';
 import type { AppSettingsRepository } from './types.js';
 
 export async function registerAppSettingsRoutes(app: FastifyInstance, authRepository: AuthRepository, repository: AppSettingsRepository) {
@@ -22,5 +22,29 @@ export async function registerAppSettingsRoutes(app: FastifyInstance, authReposi
     const parsed = logRetentionSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: 'Invalid log retention settings.' });
     return { retention: await repository.saveLogRetention(parsed.data) };
+  });
+
+  app.get('/api/app-settings/ssl-certificate-warning', { preHandler: requireSignedIn }, async () => ({ sslCertificateWarning: await repository.getSslCertificateWarning() }));
+
+  app.put('/api/app-settings/ssl-certificate-warning', { preHandler: requireSettingsManage }, async (request, reply) => {
+    const parsed = sslCertificateWarningSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'Invalid SSL certificate warning settings.' });
+    return { sslCertificateWarning: await repository.saveSslCertificateWarning(parsed.data) };
+  });
+
+  app.get('/api/app-settings/license-expiration-warning', { preHandler: requireSignedIn }, async () => ({ licenseExpirationWarning: await repository.getLicenseExpirationWarning() }));
+
+  app.put('/api/app-settings/license-expiration-warning', { preHandler: requireSettingsManage }, async (request, reply) => {
+    const parsed = licenseExpirationWarningSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'Invalid license expiration warning settings.' });
+    return { licenseExpirationWarning: await repository.saveLicenseExpirationWarning(parsed.data) };
+  });
+
+  app.get('/api/app-settings/queue-schedules', { preHandler: requireSignedIn }, async () => ({ queueSchedules: await repository.getQueueSchedules() }));
+
+  app.put('/api/app-settings/queue-schedules', { preHandler: requireSettingsManage }, async (request, reply) => {
+    const parsed = queueSchedulesSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'Invalid queue schedule settings.' });
+    return { queueSchedules: await repository.saveQueueSchedules(parsed.data) };
   });
 }

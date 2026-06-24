@@ -4,7 +4,7 @@ import type { AppSettingsRepository } from '../appSettings/types.js';
 const forbiddenPayloadKeys = ['password', 'secret', 'token', 'apiKey', 'connectionString', 'encryptedPassword', 'credential'] as const;
 
 export type DatabaseMaintenanceJobData = {
-  task: 'purge-logs';
+  task: 'purge-logs' | 'prune-check-history';
   requestedBy?: string;
 };
 
@@ -28,10 +28,10 @@ function parseDatabaseMaintenanceJob(data: unknown): DatabaseMaintenanceJobData 
   }
   const payload = data as Record<string, unknown>;
   assertSafePayload(payload);
-  if (payload.task !== 'purge-logs') {
+  if (payload.task !== 'purge-logs' && payload.task !== 'prune-check-history') {
     throw new Error(`Unsupported database-maintenance task: ${String(payload.task ?? 'unknown')}.`);
   }
-  return { task: 'purge-logs', requestedBy: typeof payload.requestedBy === 'string' ? payload.requestedBy : undefined };
+  return { task: payload.task, requestedBy: typeof payload.requestedBy === 'string' ? payload.requestedBy : undefined };
 }
 
 export async function processDatabaseMaintenanceJob({ data, appLogRepository, appSettingsRepository }: DatabaseMaintenanceProcessorOptions & { data: unknown }) {

@@ -48,6 +48,30 @@ describe('queue worker runtime', () => {
     expect(instanceRepository.testConnectivity).not.toHaveBeenCalled();
   });
 
+  it('skips orphaned scheduled instance-check jobs without marking the job failed', async () => {
+    const { instanceRepository } = fakeRepositories();
+    instanceRepository.getInstance = vi.fn(async () => null);
+    const processor = createQueueJobProcessor({ instanceRepository });
+
+    await expect(processor('instance-checks', { instanceId: 'deleted-instance-id', source: 'scheduled' })).resolves.toEqual({
+      instanceId: 'deleted-instance-id',
+      status: 'skipped',
+      ok: true,
+      skipped: true,
+      message: 'Skipped scheduled instance check because the instance no longer exists.'
+    });
+    expect(instanceRepository.testConnectivity).not.toHaveBeenCalled();
+  });
+
+  it('keeps manual missing-instance checks as errors', async () => {
+    const { instanceRepository } = fakeRepositories();
+    instanceRepository.getInstance = vi.fn(async () => null);
+    const processor = createQueueJobProcessor({ instanceRepository });
+
+    await expect(processor('instance-checks', { instanceId: 'deleted-instance-id', source: 'manual' })).rejects.toThrow('Instance not found.');
+    expect(instanceRepository.testConnectivity).not.toHaveBeenCalled();
+  });
+
   it('dispatches database-maintenance purge-logs jobs through configured retention maintenance', async () => {
     const { instanceRepository, appLogRepository, appSettingsRepository } = fakeRepositories();
     const processor = createQueueJobProcessor({ instanceRepository, appLogRepository, appSettingsRepository });

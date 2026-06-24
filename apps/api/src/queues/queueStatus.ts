@@ -1,4 +1,5 @@
 import type { AppConfig } from '../config/loadConfig.js';
+import type { QueueScheduleJobKey, QueueScheduleSettings, QueueScheduleJobSettings } from '../appSettings/types.js';
 
 export const QUEUE_NAMES = ['instance-checks', 'database-maintenance', 'system-maintenance'] as const;
 
@@ -36,7 +37,7 @@ export type QueueStatusSnapshot = {
   queues: QueueStatusItem[];
 };
 
-export type QueueJobState = 'waiting' | 'active' | 'delayed' | 'failed' | 'completed' | 'unknown';
+export type QueueJobState = 'scheduled' | 'waiting' | 'active' | 'delayed' | 'failed' | 'completed' | 'unknown';
 
 export type QueueJobSummary = {
   id: string | null;
@@ -44,6 +45,8 @@ export type QueueJobSummary = {
   name: string;
   state: QueueJobState;
   attemptsMade: number;
+  queueSequence: number;
+  nextProcessAt: string | null;
   timestamp: string | null;
   processedOn: string | null;
   finishedOn: string | null;
@@ -52,6 +55,9 @@ export type QueueJobSummary = {
     task?: string;
     source?: string;
     instanceId?: string;
+    instanceName?: string;
+    tenantId?: string | null;
+    tenantName?: string | null;
     requestedBy?: string;
   };
 };
@@ -66,6 +72,8 @@ export type QueueJobsSnapshot = {
 export type QueueStatusProvider = {
   readStatus(): Promise<QueueStatusSnapshot>;
   readJobs?(limit?: number): Promise<QueueJobsSnapshot>;
+  reconcileQueueSchedules?(settings: QueueScheduleSettings): Promise<void>;
+  runScheduledJobNow?(key: QueueScheduleJobKey | string, requestedBy?: string): Promise<{ queued: true; key: QueueScheduleJobKey | string; jobId: string | null }>;
   close?(): Promise<void>;
 };
 
@@ -94,6 +102,18 @@ const DESCRIPTIONS: Record<QueueName, string> = {
 };
 
 const JOB_TYPES = ['active', 'waiting', 'delayed', 'failed', 'completed'] as const;
+
+type BullMqJobSchedulerRecord = {
+  key?: string;
+  id?: string;
+  name?: string;
+  next?: number;
+  every?: number;
+  iterationCount?: number;
+  template?: {
+    data?: unknown;
+  };
+};
 
 function emptyQueue(name: QueueName): QueueStatusItem {
   return { name, description: DESCRIPTIONS[name], waiting: 0, active: 0, delayed: 0, failed: 0, completed: 0 };
@@ -128,6 +148,82 @@ function timeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T
     promise,
     new Promise<T>((_, reject) => setTimeout(() => reject(new Error(message)), ms))
   ]);
+}
+
+function queueStateRank(state: QueueJobState): number {
+  if (state === 'active') return 0;
+  if (state === 'scheduled') return 1;
+  if (state === 'waiting') return 2;
+  if (state === 'delayed') return 3;
+  if (state === 'failed') return 4;
+  if (state === 'completed') return 5;
+  return 6;
+}
+
+function nextProcessMillis(job: { state: QueueJobState; timestamp: number | undefined; processedOn?: number; finishedOn?: number; delay?: number }): number | null {
+  if (job.state === 'active') return job.processedOn ?? job.timestamp ?? Date.now();
+  if (job.state === 'waiting') return job.timestamp ?? null;
+  if (job.state === 'delayed') return typeof job.timestamp === 'number' ? job.timestamp + (typeof job.delay === 'number' ? job.delay : 0) : null;
+  return job.finishedOn ?? job.processedOn ?? job.timestamp ?? null;
+}
+
+function compareQueueJobs(left: QueueJobSummary, right: QueueJobSummary): number {
+  const rank = queueStateRank(left.state) - queueStateRank(right.state);
+  if (rank !== 0) return rank;
+  const leftNext = left.nextProcessAt ? Date.parse(left.nextProcessAt) : Number.POSITIVE_INFINITY;
+  const rightNext = right.nextProcessAt ? Date.parse(right.nextProcessAt) : Number.POSITIVE_INFINITY;
+  if (leftNext !== rightNext) return leftNext - rightNext;
+  return (left.timestamp ?? '').localeCompare(right.timestamp ?? '');
+}
+
+function applyQueueSequence(jobs: QueueJobSummary[]): QueueJobSummary[] {
+  return [...jobs].sort(compareQueueJobs).map((job, index) => ({ ...job, queueSequence: index + 1 }));
+}
+
+function schedulerIdForSchedule(job: Pick<QueueScheduleJobSettings, 'key'>) {
+  return `scheduled:${job.key}`;
+}
+
+function queueForScheduleKey(key: QueueScheduleJobKey | string): QueueName {
+  if (key.startsWith('instance-check:')) return 'instance-checks';
+  return key.split(':')[0] as QueueName;
+}
+
+function nameForScheduleKey(key: QueueScheduleJobKey | string) {
+  if (key.startsWith('instance-check:')) return 'manual-instance-check';
+  return key.split(':')[1] ?? key;
+}
+
+function payloadForScheduleJob(job: QueueScheduleJobSettings, source: 'scheduled' | 'manual', requestedBy?: string) {
+  return {
+    task: job.name,
+    source,
+    requestedBy
+  };
+}
+
+function schedulerToQueueJob(queue: QueueName, scheduler: BullMqJobSchedulerRecord): QueueJobSummary {
+  const data = safeJobData(scheduler.template?.data);
+  const everyMs = typeof scheduler.every === 'number' && Number.isFinite(scheduler.every) ? scheduler.every : null;
+  const iterationCount = typeof scheduler.iterationCount === 'number' && Number.isFinite(scheduler.iterationCount) ? scheduler.iterationCount : null;
+  return {
+    id: scheduler.key ?? scheduler.id ?? null,
+    queue,
+    name: scheduler.name ?? 'scheduled-instance-check',
+    state: 'scheduled',
+    attemptsMade: 0,
+    queueSequence: 0,
+    nextProcessAt: isoFromMillis(scheduler.next),
+    timestamp: null,
+    processedOn: null,
+    finishedOn: null,
+    failedReason: null,
+    data: {
+      ...data,
+      task: everyMs ? `Every ${Math.round(everyMs / 1000)} seconds` : data.task,
+      requestedBy: iterationCount !== null ? `Run count ${iterationCount}` : data.requestedBy
+    }
+  };
 }
 
 export function createDisabledQueueStatusProvider(): QueueStatusProvider {
@@ -173,6 +269,23 @@ export async function createQueueRuntime(config: AppConfig): Promise<QueueRuntim
 
   const { Queue } = await import('bullmq');
   const queues = QUEUE_NAMES.map((name) => new Queue(name, { connection }));
+  const queueByName = new Map(queues.map((queue) => [queue.name as QueueName, queue]));
+
+  async function removeScheduler(queueName: QueueName, schedulerId: string) {
+    const queue = queueByName.get(queueName);
+    if (!queue) return;
+    if (typeof queue.removeJobScheduler === 'function') await queue.removeJobScheduler(schedulerId);
+  }
+
+  async function upsertScheduler(job: QueueScheduleJobSettings) {
+    const queue = queueByName.get(job.queue);
+    if (!queue) return;
+    await queue.upsertJobScheduler(schedulerIdForSchedule(job), { every: job.everySeconds * 1000, immediately: false }, {
+      name: job.name,
+      data: payloadForScheduleJob(job, 'scheduled'),
+      opts: { attempts: 1, removeOnComplete: 100, removeOnFail: 50 }
+    });
+  }
 
   const provider: QueueRuntime = {
     async readStatus(): Promise<QueueStatusSnapshot> {
@@ -205,30 +318,72 @@ export async function createQueueRuntime(config: AppConfig): Promise<QueueRuntim
         };
       }
     },
-    async readJobs(limit = 25): Promise<QueueJobsSnapshot> {
-      const safeLimit = Math.min(Math.max(Math.trunc(limit) || 25, 1), 50);
+    async readJobs(limit = 500): Promise<QueueJobsSnapshot> {
+      const safeLimit = Math.min(Math.max(Math.trunc(limit) || 500, 1), 1000);
       try {
+        const scheduledJobsByQueue = await Promise.all(queues.map(async (queue) => {
+          if (typeof queue.getJobSchedulers !== 'function') return [] as QueueJobSummary[];
+          const schedulers = await timeout(queue.getJobSchedulers(0, safeLimit - 1, true), 1500, 'BullMQ scheduler list timed out') as BullMqJobSchedulerRecord[];
+          return schedulers.map((scheduler) => schedulerToQueueJob(queue.name as QueueName, scheduler));
+        }));
+        const activeJobsByQueue = await Promise.all(queues.map(async (queue) => {
+          const jobs = await timeout(queue.getJobs(['active'], 0, safeLimit - 1, true), 1500, 'BullMQ active job list timed out');
+          const summaries = await Promise.all(jobs.map(async (job): Promise<QueueJobSummary> => {
+            const state = normalizeJobState(await job.getState());
+            return {
+              id: job.id ? String(job.id) : null,
+              queue: queue.name as QueueName,
+              name: job.name,
+              state,
+              attemptsMade: job.attemptsMade,
+              queueSequence: 0,
+              nextProcessAt: null,
+              timestamp: isoFromMillis(job.timestamp),
+              processedOn: isoFromMillis(job.processedOn),
+              finishedOn: isoFromMillis(job.finishedOn),
+              failedReason: truncate(job.failedReason),
+              data: safeJobData(job.data)
+            };
+          }));
+          return summaries;
+        }));
+        const scheduledJobs = scheduledJobsByQueue.flat();
+        const activeJobs = activeJobsByQueue.flat();
+        if (scheduledJobs.length > 0 || activeJobs.length > 0) {
+          return {
+            enabled: true,
+            mode: 'bullmq',
+            generatedAt: new Date().toISOString(),
+            jobs: applyQueueSequence([...activeJobs, ...scheduledJobs]).slice(0, safeLimit)
+          };
+        }
+
         const jobsByQueue = await Promise.all(queues.map(async (queue) => {
           const jobs = await timeout(queue.getJobs([...JOB_TYPES], 0, safeLimit - 1, true), 1500, 'BullMQ job list timed out');
-          const summaries = await Promise.all(jobs.map(async (job): Promise<QueueJobSummary> => ({
-            id: job.id ? String(job.id) : null,
-            queue: queue.name as QueueName,
-            name: job.name,
-            state: normalizeJobState(await job.getState()),
-            attemptsMade: job.attemptsMade,
-            timestamp: isoFromMillis(job.timestamp),
-            processedOn: isoFromMillis(job.processedOn),
-            finishedOn: isoFromMillis(job.finishedOn),
-            failedReason: truncate(job.failedReason),
-            data: safeJobData(job.data)
-          })));
+          const summaries = await Promise.all(jobs.map(async (job): Promise<QueueJobSummary> => {
+            const state = normalizeJobState(await job.getState());
+            return {
+              id: job.id ? String(job.id) : null,
+              queue: queue.name as QueueName,
+              name: job.name,
+              state,
+              attemptsMade: job.attemptsMade,
+              queueSequence: 0,
+              nextProcessAt: isoFromMillis(nextProcessMillis({ state, timestamp: job.timestamp, processedOn: job.processedOn, finishedOn: job.finishedOn, delay: job.delay }) ?? undefined),
+              timestamp: isoFromMillis(job.timestamp),
+              processedOn: isoFromMillis(job.processedOn),
+              finishedOn: isoFromMillis(job.finishedOn),
+              failedReason: truncate(job.failedReason),
+              data: safeJobData(job.data)
+            };
+          }));
           return summaries;
         }));
         return {
           enabled: true,
           mode: 'bullmq',
           generatedAt: new Date().toISOString(),
-          jobs: jobsByQueue.flat().sort((left, right) => (right.timestamp ?? '').localeCompare(left.timestamp ?? '')).slice(0, safeLimit)
+          jobs: applyQueueSequence(jobsByQueue.flat()).slice(0, safeLimit)
         };
       } catch {
         return {
@@ -238,6 +393,23 @@ export async function createQueueRuntime(config: AppConfig): Promise<QueueRuntim
           jobs: []
         };
       }
+    },
+    async reconcileQueueSchedules(settings: QueueScheduleSettings) {
+      await Promise.all(settings.jobs.map(async (job) => {
+        const schedulerId = schedulerIdForSchedule(job);
+        if (job.enabled) await upsertScheduler(job);
+        else await removeScheduler(job.queue, schedulerId);
+      }));
+    },
+    async runScheduledJobNow(key: QueueScheduleJobKey, requestedBy?: string) {
+      const queueName = queueForScheduleKey(key);
+      const queue = queueByName.get(queueName);
+      if (!queue) throw new Error(`Queue ${queueName} is not available.`);
+      const jobName = nameForScheduleKey(key);
+      const jobId = `manual:${key}:${Date.now()}`;
+      const data = key.startsWith('instance-check:') ? { instanceId: key.slice('instance-check:'.length), source: 'manual' } : { task: jobName, source: 'manual', requestedBy };
+      const job = await queue.add(jobName, data, { jobId, priority: 1, attempts: 1, removeOnComplete: 100, removeOnFail: 50, lifo: false });
+      return { queued: true as const, key, jobId: job.id ? String(job.id) : null };
     },
     async close() {
       await Promise.allSettled(queues.map((queue) => queue.close()));

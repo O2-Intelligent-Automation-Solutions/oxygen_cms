@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { createInMemoryAuthRepository } from '../src/auth/inMemoryAuthRepository.js';
 import type { DatabasePerformanceReader, DatabasePerformanceSnapshot } from '../src/system/databasePerformance.js';
-import type { IssueCatalogReader, IssueCatalogSnapshot } from '../src/system/issueCatalog.js';
+import type { OxyGenInstance } from '../src/instances/types.js';
+import { issueCatalogTestInternals, type IssueCatalogReader, type IssueCatalogSnapshot } from '../src/system/issueCatalog.js';
 
 function fakeDatabaseSnapshot(): DatabasePerformanceSnapshot {
   return {
@@ -11,7 +12,7 @@ function fakeDatabaseSnapshot(): DatabasePerformanceSnapshot {
     database: 'O2IAS_CMS',
     generatedAt: '2026-06-13T12:00:00.000Z',
     error: null,
-    schema: { currentVersion: '0.17', targetVersion: '0.17', current: true, upgradeAvailable: false },
+    schema: { currentVersion: '0.17', targetVersion: '0.19', current: true, upgradeAvailable: false },
     queryDigestStatus: { available: true, state: 'empty', reason: null },
     summary: { tableCount: 0, estimatedRows: 0, dataSizeBytes: 0, indexSizeBytes: 0, freeBytes: 0, totalSizeBytes: 0 },
     server: { version: null, uptimeSeconds: null, maxConnections: null, threadsConnected: null, maxUsedConnections: null, slowQueries: null, longQueryTimeSeconds: null, questions: null, abortedConnects: null, bufferPoolReadHitPercent: null },
@@ -85,4 +86,102 @@ describe('issue catalog system API', () => {
 
     await app.close();
   });
+
+  it('matches license-expiring-soon as a real warning issue type', () => {
+    const instance: OxyGenInstance = {
+      id: 'license-soon',
+      name: 'License Soon',
+      description: null,
+      tenantId: null,
+      protocol: 'https',
+      host: 'license-soon.example.com',
+      port: 443,
+      hostname: 'license-soon.example.com',
+      baseUrl: 'https://license-soon.example.com:443',
+      launchUrl: 'https://license-soon.example.com:443/optws/oxygen.aspx',
+      apiBaseUrl: 'https://license-soon.example.com:443/OPTWS',
+      username: 'admin',
+      pollingIntervalSeconds: 300,
+      isEnabled: true,
+      checkLicense: true,
+      archived: false,
+      metadata: null,
+      notes: null,
+      status: 'up',
+      sslValid: true,
+      sslExpiresAt: null,
+      lastCheckedAt: '2026-06-13T11:58:54.000Z',
+      lastSuccessAt: '2026-06-13T11:58:54.000Z',
+      lastFailureAt: null,
+      uptimePercent24h: 100,
+      uptimePercent7d: 100,
+      responseTimeMs: 100,
+      processingStatus: 'ok',
+      emmQueueStatus: 'ok',
+      smsStatus: 'ok',
+      hangfireStatus: 'ok',
+      licenseKey: 'LICENSE-SOON',
+      licenseStatus: 'valid',
+      licenseJson: { IsValid: true, IsExpired: false, ExpiryDate: new Date(Date.now() + 20 * 86400000).toISOString() },
+      settingsJson: null,
+      workflowSummaryJson: null,
+      lastError: null,
+      createdAt: '2026-06-13T11:58:54.000Z',
+      updatedAt: '2026-06-13T11:58:54.000Z'
+    };
+    const type = { matchKind: 'license-expiring-soon' } as Parameters<typeof issueCatalogTestInternals.affectedBy>[0];
+    const latestLicense = { status: 'ok', errorCode: null, errorMessage: null, httpStatusCode: 200, detailsJson: { keyPresent: true, payload: { IsValid: true, IsExpired: false, ExpiryDate: new Date(Date.now() + 20 * 86400000).toISOString(), LicenseKey: 'LICENSE-SOON' } } };
+
+    expect(issueCatalogTestInternals.affectedBy(type, instance, null, latestLicense, { daysBeforeExpiration: 30 }, { daysBeforeExpiration: 45 })).toContain('License is valid but within');
+    expect(issueCatalogTestInternals.affectedBy(type, instance, null, latestLicense, { daysBeforeExpiration: 30 }, { daysBeforeExpiration: 10 })).toBeNull();
+  });
+
+  it('matches ssl-expiring-soon as a real warning issue type', () => {
+    const instance: OxyGenInstance = {
+      id: 'ssl-soon',
+      name: 'SSL Soon',
+      description: null,
+      tenantId: null,
+      protocol: 'https',
+      host: 'ssl-soon.example.com',
+      port: 443,
+      hostname: 'ssl-soon.example.com',
+      baseUrl: 'https://ssl-soon.example.com:443',
+      launchUrl: 'https://ssl-soon.example.com:443/optws/oxygen.aspx',
+      apiBaseUrl: 'https://ssl-soon.example.com:443/OPTWS',
+      username: 'admin',
+      pollingIntervalSeconds: 300,
+      isEnabled: true,
+      checkLicense: true,
+      archived: false,
+      metadata: null,
+      notes: null,
+      status: 'up',
+      sslValid: true,
+      sslExpiresAt: new Date(Date.now() + 20 * 86400000).toISOString(),
+      lastCheckedAt: '2026-06-13T11:58:54.000Z',
+      lastSuccessAt: '2026-06-13T11:58:54.000Z',
+      lastFailureAt: null,
+      uptimePercent24h: 100,
+      uptimePercent7d: 100,
+      responseTimeMs: 100,
+      processingStatus: 'ok',
+      emmQueueStatus: 'ok',
+      smsStatus: 'ok',
+      hangfireStatus: 'ok',
+      licenseKey: null,
+      licenseStatus: 'unknown',
+      licenseJson: null,
+      settingsJson: null,
+      workflowSummaryJson: null,
+      lastError: null,
+      createdAt: '2026-06-13T11:58:54.000Z',
+      updatedAt: '2026-06-13T11:58:54.000Z'
+    };
+    const type = { matchKind: 'ssl-expiring-soon' } as Parameters<typeof issueCatalogTestInternals.affectedBy>[0];
+
+    expect(issueCatalogTestInternals.affectedBy(type, instance, null, null, { daysBeforeExpiration: 45 }, { daysBeforeExpiration: 30 })).toContain('SSL certificate is valid but within');
+    expect(issueCatalogTestInternals.affectedBy(type, instance, null, null, { daysBeforeExpiration: 10 }, { daysBeforeExpiration: 30 })).toBeNull();
+  });
+
 });

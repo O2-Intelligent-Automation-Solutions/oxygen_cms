@@ -43,6 +43,68 @@ describe('application settings API', () => {
     await app.close();
   });
 
+
+
+  it('returns and updates SSL certificate warning settings', async () => {
+    const { app, token } = await loginAdmin();
+
+    const defaults = await app.inject({ method: 'GET', url: '/api/app-settings/ssl-certificate-warning', headers: { authorization: `Bearer ${token}` } });
+    expect(defaults.statusCode).toBe(200);
+    expect(defaults.json()).toEqual({ sslCertificateWarning: { daysBeforeExpiration: 30 } });
+
+    const updated = await app.inject({ method: 'PUT', url: '/api/app-settings/ssl-certificate-warning', headers: { authorization: `Bearer ${token}` }, payload: { daysBeforeExpiration: 45 } });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json()).toEqual({ sslCertificateWarning: { daysBeforeExpiration: 45 } });
+
+    const invalid = await app.inject({ method: 'PUT', url: '/api/app-settings/ssl-certificate-warning', headers: { authorization: `Bearer ${token}` }, payload: { daysBeforeExpiration: -1 } });
+    expect(invalid.statusCode).toBe(400);
+
+    await app.close();
+  });
+
+  it('returns and updates license expiration warning settings', async () => {
+    const { app, token } = await loginAdmin();
+
+    const defaults = await app.inject({ method: 'GET', url: '/api/app-settings/license-expiration-warning', headers: { authorization: `Bearer ${token}` } });
+    expect(defaults.statusCode).toBe(200);
+    expect(defaults.json()).toEqual({ licenseExpirationWarning: { daysBeforeExpiration: 30 } });
+
+    const updated = await app.inject({ method: 'PUT', url: '/api/app-settings/license-expiration-warning', headers: { authorization: `Bearer ${token}` }, payload: { daysBeforeExpiration: 60 } });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json()).toEqual({ licenseExpirationWarning: { daysBeforeExpiration: 60 } });
+
+    const invalid = await app.inject({ method: 'PUT', url: '/api/app-settings/license-expiration-warning', headers: { authorization: `Bearer ${token}` }, payload: { daysBeforeExpiration: -1 } });
+    expect(invalid.statusCode).toBe(400);
+
+    await app.close();
+  });
+
+  it('returns and updates configurable queue job schedules', async () => {
+    const { app, token } = await loginAdmin();
+
+    const defaults = await app.inject({ method: 'GET', url: '/api/app-settings/queue-schedules', headers: { authorization: `Bearer ${token}` } });
+    expect(defaults.statusCode).toBe(200);
+    expect(defaults.json().queueSchedules.jobs).toEqual(expect.arrayContaining([
+      { key: 'database-maintenance:purge-logs', queue: 'database-maintenance', name: 'purge-logs', label: 'Purge Logs', enabled: true, everySeconds: 86400 },
+      { key: 'system-maintenance:check-application-updates', queue: 'system-maintenance', name: 'check-application-updates', label: 'Check Application Updates', enabled: true, everySeconds: 86400 }
+    ]));
+
+    const updated = await app.inject({ method: 'PUT', url: '/api/app-settings/queue-schedules', headers: { authorization: `Bearer ${token}` }, payload: { jobs: [
+      { key: 'database-maintenance:purge-logs', enabled: false, everySeconds: 172800 },
+      { key: 'system-maintenance:check-application-updates', enabled: true, everySeconds: 86400 }
+    ] } });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json().queueSchedules.jobs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: 'database-maintenance:purge-logs', enabled: false, everySeconds: 172800 }),
+      expect.objectContaining({ key: 'system-maintenance:check-application-updates', enabled: true, everySeconds: 86400 })
+    ]));
+
+    const invalid = await app.inject({ method: 'PUT', url: '/api/app-settings/queue-schedules', headers: { authorization: `Bearer ${token}` }, payload: { jobs: [{ key: 'database-maintenance:purge-logs', enabled: true, everySeconds: 10 }] } });
+    expect(invalid.statusCode).toBe(400);
+
+    await app.close();
+  });
+
   it('requires authentication and validates label values', async () => {
     const app = await buildApp({ logger: false, authRepository: createInMemoryAuthRepository(), appSettingsRepository: createInMemoryAppSettingsRepository() });
 

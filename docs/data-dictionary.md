@@ -8,7 +8,7 @@ This documentation has been migrated to the GitHub Wiki:
 
 ### Schema version
 
-Current CMS schema version: `0.17`.
+Current CMS schema version: `0.19`.
 
 ### `role_permissions`
 
@@ -105,7 +105,7 @@ Initial seeded issue type rows cover DNS failures, TCP refused/timeout/reset con
 
 `GET /api/system/issue-types` returns a SystemAdmin-only read-only snapshot with `categories`, `severities`, `issueTypes`, and per-issue `affectedInstances`. The affected-instance list is computed from current enabled/non-archived instance status, license status, processing component statuses, SSL flags, and last-error evidence. Settings → Issue Types shows the mapping in a managed grid; the row dialog lists affected instances and links through to each instance dashboard.
 
-Gating rule: Resolve/Connect/TLS/auth blockers are Connectivity Errors and suppress downstream License/Settings issue assignment for that check. SSL issues are warnings only when HTTPS reaches certificate evaluation. License issues require `check_license=true` and sufficient reachability/authentication to execute the License probe.
+Gating rule: Resolve/Connect/TLS/auth blockers are Connectivity Errors and suppress downstream License/Settings issue assignment for that check. SSL issues are warnings when HTTPS reaches certificate evaluation, including expired certificates, invalid/untrusted certificates, and otherwise valid certificates inside the global Expiring Soon threshold. License issues require `check_license=true` and sufficient reachability/authentication to execute the License probe; expired licenses and otherwise valid licenses inside the global Expiring Soon threshold are real License issue warnings/errors for future ticket/notification routing.
 
 ### `application_settings` keys
 
@@ -113,6 +113,9 @@ Gating rule: Resolve/Connect/TLS/auth blockers are Connectivity Errors and suppr
 | --- | --- | --- |
 | `labels` | `{ tenant: string }` | Display label customization. |
 | `logRetention` | `{ days: number }` | Activity retention setting managed from Settings → General. Default is 90 days. It prunes `application_logs.created_at` and `oxygen_instance_check_history.started_at`; Settings → Database can trigger the same retention cleanup immediately via `POST /api/logs/retention/run`. |
+| `sslCertificateWarning` | `{ daysBeforeExpiration: number }` | Global SSL threshold managed from Settings → General. Default is 30 days. Expired certificates display as `Expired` first; otherwise valid HTTPS certificates with expiration within this threshold display as `Expiring Soon` and register as `SSL_EXPIRING_SOON`. |
+| `licenseExpirationWarning` | `{ daysBeforeExpiration: number }` | Global License threshold managed from Settings → General. Default is 30 days. Expired licenses display as `Expired` first; otherwise valid OxyGen licenses with `license_json.ExpiryDate` inside this threshold display as `Expiring Soon` and register as `LICENSE_EXPIRING_SOON`. |
+| `queueSchedules` | `{ jobs: [{ key, enabled, everySeconds }] }` | Recurring maintenance scheduler settings managed from Settings → General → Queue. Keys are `database-maintenance:purge-logs`, `database-maintenance:prune-check-history`, `system-maintenance:check-application-updates`, and `system-maintenance:prune-queue-history`. The UI displays whole-day cadence with `Every [n] day(s)` and the API stores seconds with a one-day minimum. Disabled schedules grey/disable cadence + Save while leaving the switch usable. |
 
 
 ### `GET /api/system/queues`
@@ -124,9 +127,15 @@ Phase 1.5 queue orchestration status is exposed as a read-only SystemAdmin endpo
 | `enabled` / `mode` | Indicates whether BullMQ mode is enabled or the MVP in-process poller remains the active execution path. |
 | `redis` | Safe connectivity/configuration summary: configured/connected booleans, host/port, and non-secret error text. |
 | `bullBoard` | Safe Bull Board mount metadata: whether the optional board is enabled and its configured path. The board remains protected by CMS auth/RBAC; Settings uses native queue status/latest-jobs as the primary UI because browser navigation cannot carry bearer auth headers to Bull Board. |
-| `queues[]` | Named queue counts for `instance-checks`, `database-maintenance`, and `system-maintenance`: waiting, active, delayed, failed, and completed. |
+| `queues[]` | Named queue counts for `instance-checks`, `database-maintenance`, and `system-maintenance`: waiting/ready, active/running, delayed/scheduled, retained failed-job history, and completed. The failed count is retained BullMQ history; active backlog is represented by waiting/active/delayed. |
 
 Bull Board can be mounted at the configured admin path when enabled, but it is protected by CMS authentication and the same SystemAdmin queue-management permission.
+
+### `GET /api/system/queue-jobs` and queue actions
+
+`GET /api/system/queue-jobs` returns sanitized queue job summaries for native CMS visibility. Rows include queue/name/state, safe metadata (`task`, `source`, `instanceId`, `requestedBy`), timestamps, retained failure summary, scheduler cadence/next-run metadata where available, and enriched Tenant/Instance context for instance-check jobs. Operations exposes Run Now plus Pause/Resume actions for recurring maintenance and instance scheduler rows. Run Now enqueues a one-off job and does not change the recurring enabled/paused state.
+
+`POST /api/system/queue-jobs/{key}/pause` and `/resume` persist recurring maintenance enabled state through `application_settings.queueSchedules`; instance keys use `instance-check:{instanceId}` and map to the instance enabled flag. `POST /api/system/queue-jobs/{key}/run-now` queues an immediate one-off job for maintenance or instance schedulers.
 
 ### `GET /api/system/version`
 

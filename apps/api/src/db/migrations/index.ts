@@ -539,6 +539,30 @@ ON DUPLICATE KEY UPDATE
   sort_order = VALUES(sort_order),
   enabled = VALUES(enabled);`;
 
+const sslExpiringSoonIssueTypeSql = `INSERT INTO discovered_issue_types (id, code, label, description, category_id, severity_id, match_kind, match_value, sort_order) VALUES
+  ('ssl-expiring-soon', 'SSL_EXPIRING_SOON', 'SSL certificate expiring soon', 'Remote HTTPS certificate is valid but within the global expiration warning threshold.', 'ssl', 'warning', 'ssl-expiring-soon', NULL, 125)
+ON DUPLICATE KEY UPDATE
+  label = VALUES(label),
+  description = VALUES(description),
+  category_id = VALUES(category_id),
+  severity_id = VALUES(severity_id),
+  match_kind = VALUES(match_kind),
+  match_value = VALUES(match_value),
+  sort_order = VALUES(sort_order),
+  enabled = VALUES(enabled);`;
+
+const licenseExpiringSoonIssueTypeSql = `INSERT INTO discovered_issue_types (id, code, label, description, category_id, severity_id, match_kind, match_value, sort_order) VALUES
+  ('license-expiring-soon', 'LICENSE_EXPIRING_SOON', 'License expiring soon', 'Instance license is valid but within the global expiration warning threshold.', 'license', 'warning', 'license-expiring-soon', NULL, 235)
+ON DUPLICATE KEY UPDATE
+  label = VALUES(label),
+  description = VALUES(description),
+  category_id = VALUES(category_id),
+  severity_id = VALUES(severity_id),
+  match_kind = VALUES(match_kind),
+  match_value = VALUES(match_value),
+  sort_order = VALUES(sort_order),
+  enabled = VALUES(enabled);`;
+
 export const schemaMigrations: SchemaMigration[] = [
   {
     version: '0.01',
@@ -641,5 +665,17 @@ export const schemaMigrations: SchemaMigration[] = [
     name: 'performance indexes for activity dashboards',
     checksum: '2610b56bd2335f469dfacaef0c1e85a1ea81f0df1cd7075eaecae0c3de0ad013',
     upSql: performanceIndexesSql
+  },
+  {
+    version: '0.18',
+    name: 'license expiring soon issue type',
+    checksum: 'f7d973dc9841ab00524e62bc210ea01a0daaa2e974e1d6f81871c1377042839e',
+    upSql: licenseExpiringSoonIssueTypeSql
+  },
+  {
+    version: '0.19',
+    name: 'ssl expiring soon issue type',
+    checksum: 'bed21d29aee398b6bbce1afdca389ad03f6a15fdddd7e90edf74ad2766396c0f',
+    upSql: sslExpiringSoonIssueTypeSql
   }
 ];

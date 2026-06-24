@@ -1,13 +1,16 @@
 import type { Pool, RowDataPacket } from 'mysql2/promise';
 import { createPool } from 'mysql2/promise';
 import type { DatabaseSettings, SetupSettingsStore } from '../setup/fileSetupSettingsStore.js';
-import { DEFAULT_APP_LABELS, DEFAULT_LOG_RETENTION_SETTINGS, type AppLabels, type AppSettingsRepository, type LogRetentionSettings } from './types.js';
+import { DEFAULT_APP_LABELS, DEFAULT_LOG_RETENTION_SETTINGS, DEFAULT_SSL_CERTIFICATE_WARNING_SETTINGS, DEFAULT_LICENSE_EXPIRATION_WARNING_SETTINGS, DEFAULT_QUEUE_SCHEDULE_SETTINGS, type AppLabels, type AppSettingsRepository, type LogRetentionSettings, type SslCertificateWarningSettings, type LicenseExpirationWarningSettings, type QueueScheduleSettings } from './types.js';
 
 const SETTINGS_KEY_LABELS = 'labels';
 const SETTINGS_KEY_LOG_RETENTION = 'logRetention';
+const SETTINGS_KEY_SSL_CERTIFICATE_WARNING = 'sslCertificateWarning';
+const SETTINGS_KEY_LICENSE_EXPIRATION_WARNING = 'licenseExpirationWarning';
+const SETTINGS_KEY_QUEUE_SCHEDULES = 'queueSchedules';
 
 type SettingRow = RowDataPacket & {
-  value_json: string | AppLabels | LogRetentionSettings;
+  value_json: string | AppLabels | LogRetentionSettings | SslCertificateWarningSettings | LicenseExpirationWarningSettings | QueueScheduleSettings;
 };
 
 function normalizeLabels(value: unknown): AppLabels {
@@ -24,7 +27,40 @@ function normalizeLogRetention(value: unknown): LogRetentionSettings {
   return { ...DEFAULT_LOG_RETENTION_SETTINGS };
 }
 
-function parseSettingValue(value: string | AppLabels | LogRetentionSettings): unknown {
+function normalizeSslCertificateWarning(value: unknown): SslCertificateWarningSettings {
+  if (value && typeof value === 'object' && 'daysBeforeExpiration' in value && Number.isFinite(Number((value as { daysBeforeExpiration: unknown }).daysBeforeExpiration))) {
+    return { daysBeforeExpiration: Math.min(Math.max(Math.trunc(Number((value as { daysBeforeExpiration: unknown }).daysBeforeExpiration)), 0), 3650) };
+  }
+  return { ...DEFAULT_SSL_CERTIFICATE_WARNING_SETTINGS };
+}
+
+
+function normalizeLicenseExpirationWarning(value: unknown): LicenseExpirationWarningSettings {
+  if (value && typeof value === 'object' && 'daysBeforeExpiration' in value && Number.isFinite(Number((value as { daysBeforeExpiration: unknown }).daysBeforeExpiration))) {
+    return { daysBeforeExpiration: Math.min(Math.max(Math.trunc(Number((value as { daysBeforeExpiration: unknown }).daysBeforeExpiration)), 0), 3650) };
+  }
+  return { ...DEFAULT_LICENSE_EXPIRATION_WARNING_SETTINGS };
+}
+
+
+function normalizeQueueSchedules(value: unknown): QueueScheduleSettings {
+  const submittedJobs = value && typeof value === 'object' && !Array.isArray(value) && 'jobs' in value && Array.isArray((value as { jobs: unknown }).jobs)
+    ? (value as { jobs: unknown[] }).jobs
+    : [];
+  return {
+    jobs: DEFAULT_QUEUE_SCHEDULE_SETTINGS.jobs.map((defaultJob) => {
+      const submitted = submittedJobs.find((job) => job && typeof job === 'object' && 'key' in job && (job as { key: unknown }).key === defaultJob.key) as { enabled?: unknown; everySeconds?: unknown } | undefined;
+      const everySeconds = Number(submitted?.everySeconds ?? defaultJob.everySeconds);
+      return {
+        ...defaultJob,
+        enabled: typeof submitted?.enabled === 'boolean' ? submitted.enabled : defaultJob.enabled,
+        everySeconds: Number.isFinite(everySeconds) ? Math.min(Math.max(Math.trunc(everySeconds), 86_400), 2_592_000) : defaultJob.everySeconds
+      };
+    })
+  };
+}
+
+function parseSettingValue(value: SettingRow['value_json']): unknown {
   if (typeof value !== 'string') return value;
   try {
     return JSON.parse(value) as unknown;
@@ -62,6 +98,51 @@ export function createMysqlAppSettingsRepository(pool: Pool): AppSettingsReposit
          VALUES (?, CAST(? AS JSON))
          ON DUPLICATE KEY UPDATE value_json = VALUES(value_json)`,
         [SETTINGS_KEY_LOG_RETENTION, JSON.stringify(normalized)]
+      );
+      return normalized;
+    },
+    async getSslCertificateWarning() {
+      const [rows] = await pool.query<SettingRow[]>('SELECT value_json FROM application_settings WHERE setting_key = ? LIMIT 1', [SETTINGS_KEY_SSL_CERTIFICATE_WARNING]);
+      if (!rows[0]) return { ...DEFAULT_SSL_CERTIFICATE_WARNING_SETTINGS };
+      return normalizeSslCertificateWarning(parseSettingValue(rows[0].value_json));
+    },
+    async saveSslCertificateWarning(settings) {
+      const normalized = normalizeSslCertificateWarning(settings);
+      await pool.query(
+        `INSERT INTO application_settings (setting_key, value_json)
+         VALUES (?, CAST(? AS JSON))
+         ON DUPLICATE KEY UPDATE value_json = VALUES(value_json)`,
+        [SETTINGS_KEY_SSL_CERTIFICATE_WARNING, JSON.stringify(normalized)]
+      );
+      return normalized;
+    },
+    async getLicenseExpirationWarning() {
+      const [rows] = await pool.query<SettingRow[]>('SELECT value_json FROM application_settings WHERE setting_key = ? LIMIT 1', [SETTINGS_KEY_LICENSE_EXPIRATION_WARNING]);
+      if (!rows[0]) return { ...DEFAULT_LICENSE_EXPIRATION_WARNING_SETTINGS };
+      return normalizeLicenseExpirationWarning(parseSettingValue(rows[0].value_json));
+    },
+    async saveLicenseExpirationWarning(settings) {
+      const normalized = normalizeLicenseExpirationWarning(settings);
+      await pool.query(
+        `INSERT INTO application_settings (setting_key, value_json)
+         VALUES (?, CAST(? AS JSON))
+         ON DUPLICATE KEY UPDATE value_json = VALUES(value_json)`,
+        [SETTINGS_KEY_LICENSE_EXPIRATION_WARNING, JSON.stringify(normalized)]
+      );
+      return normalized;
+    },
+    async getQueueSchedules() {
+      const [rows] = await pool.query<SettingRow[]>('SELECT value_json FROM application_settings WHERE setting_key = ? LIMIT 1', [SETTINGS_KEY_QUEUE_SCHEDULES]);
+      if (!rows[0]) return normalizeQueueSchedules(null);
+      return normalizeQueueSchedules(parseSettingValue(rows[0].value_json));
+    },
+    async saveQueueSchedules(settings) {
+      const normalized = normalizeQueueSchedules(settings);
+      await pool.query(
+        `INSERT INTO application_settings (setting_key, value_json)
+         VALUES (?, CAST(? AS JSON))
+         ON DUPLICATE KEY UPDATE value_json = VALUES(value_json)`,
+        [SETTINGS_KEY_QUEUE_SCHEDULES, JSON.stringify(normalized)]
       );
       return normalized;
     }
@@ -103,6 +184,24 @@ export function createSetupAwareAppSettingsRepository(setupSettingsStore: SetupS
     },
     async saveLogRetention(retention) {
       return (await currentRepository()).saveLogRetention(retention);
+    },
+    async getSslCertificateWarning() {
+      return (await currentRepository()).getSslCertificateWarning();
+    },
+    async saveSslCertificateWarning(settings) {
+      return (await currentRepository()).saveSslCertificateWarning(settings);
+    },
+    async getLicenseExpirationWarning() {
+      return (await currentRepository()).getLicenseExpirationWarning();
+    },
+    async saveLicenseExpirationWarning(settings) {
+      return (await currentRepository()).saveLicenseExpirationWarning(settings);
+    },
+    async getQueueSchedules() {
+      return (await currentRepository()).getQueueSchedules();
+    },
+    async saveQueueSchedules(settings) {
+      return (await currentRepository()).saveQueueSchedules(settings);
     }
   };
 }

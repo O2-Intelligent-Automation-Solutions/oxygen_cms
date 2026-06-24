@@ -160,26 +160,29 @@ const forbiddenLicense = {
   detailsJson: { status: 'error', keyPresent: false, payload: null }
 };
 
+const defaultSslWarningSettings = { daysBeforeExpiration: 30 };
+const defaultLicenseWarningSettings = { daysBeforeExpiration: 30 };
+
 describe('issue catalog matching', () => {
   it('uses latest connectivity SSL details for specific SSL codes instead of generic ssl-invalid', () => {
-    expect(issueCatalogTestInternals.affectedBy(expiredRule as never, baseInstance, latestConnectivity)).toBe('OxyGen authentication failed with HTTP 502.');
-    expect(issueCatalogTestInternals.affectedBy(genericSslRule as never, baseInstance, latestConnectivity)).toBeNull();
+    expect(issueCatalogTestInternals.affectedBy(expiredRule as never, baseInstance, latestConnectivity, null, defaultSslWarningSettings, defaultLicenseWarningSettings)).toBe('OxyGen authentication failed with HTTP 502.');
+    expect(issueCatalogTestInternals.affectedBy(genericSslRule as never, baseInstance, latestConnectivity, null, defaultSslWarningSettings, defaultLicenseWarningSettings)).toBeNull();
   });
 
   it('requires an evaluated license payload before assigning license issue types', () => {
     const holmes = { ...baseInstance, id: 'holmes', name: 'Holmes', status: 'up' as const, licenseStatus: 'error' as const, lastError: 'Connectivity test completed with license issue: Request timed out.' };
 
-    expect(issueCatalogTestInternals.affectedBy(licenseInvalidRule as never, holmes, null, timedOutLicense)).toBeNull();
-    expect(issueCatalogTestInternals.affectedBy(licenseInvalidRule as never, holmes, null, forbiddenLicense)).toBeNull();
+    expect(issueCatalogTestInternals.affectedBy(licenseInvalidRule as never, holmes, null, timedOutLicense, defaultSslWarningSettings, defaultLicenseWarningSettings)).toBeNull();
+    expect(issueCatalogTestInternals.affectedBy(licenseInvalidRule as never, holmes, null, forbiddenLicense, defaultSslWarningSettings, defaultLicenseWarningSettings)).toBeNull();
   });
 
   it('keeps evaluated expired and blank license payloads in specific license buckets', () => {
     const bold = { ...baseInstance, id: 'bold', name: 'BOLD Branded Demo Instance', status: 'up' as const, licenseStatus: 'expired' as const, licenseKey: 'REDACTED', lastError: 'Connectivity test completed with license issue: License expired.' };
     const vanfire = { ...baseInstance, id: 'vanfire', name: 'VanFire', status: 'up' as const, licenseStatus: 'error' as const, licenseKey: null, lastError: 'Connectivity test completed with license issue: License invalid or blank.' };
 
-    expect(issueCatalogTestInternals.affectedBy(licenseExpiredRule as never, bold, null, evaluatedExpiredLicense)).toBe('Connectivity test completed with license issue: License expired.');
-    expect(issueCatalogTestInternals.affectedBy(licenseMissingRule as never, vanfire, null, evaluatedMissingLicense)).toBe('Connectivity test completed with license issue: License invalid or blank.');
-    expect(issueCatalogTestInternals.affectedBy(licenseInvalidRule as never, vanfire, null, evaluatedMissingLicense)).toBeNull();
+    expect(issueCatalogTestInternals.affectedBy(licenseExpiredRule as never, bold, null, evaluatedExpiredLicense, defaultSslWarningSettings, defaultLicenseWarningSettings)).toBe('Connectivity test completed with license issue: License expired.');
+    expect(issueCatalogTestInternals.affectedBy(licenseMissingRule as never, vanfire, null, evaluatedMissingLicense, defaultSslWarningSettings, defaultLicenseWarningSettings)).toBe('Connectivity test completed with license issue: License invalid or blank.');
+    expect(issueCatalogTestInternals.affectedBy(licenseInvalidRule as never, vanfire, null, evaluatedMissingLicense, defaultSslWarningSettings, defaultLicenseWarningSettings)).toBeNull();
   });
 
   it('deduplicates affected instances that share tenant, name, host, and port', () => {
@@ -190,9 +193,35 @@ describe('issue catalog matching', () => {
       ['bold-2', evaluatedExpiredLicense]
     ]);
 
-    const affected = issueCatalogTestInternals.affectedInstances(licenseExpiredRule as never, [first, second], new Map(), new Map(), latestLicenseByInstance);
+    const affected = issueCatalogTestInternals.affectedInstances(licenseExpiredRule as never, [first, second], new Map(), new Map(), latestLicenseByInstance, defaultSslWarningSettings, defaultLicenseWarningSettings);
 
     expect(affected).toHaveLength(1);
     expect(affected[0].id).toBe('bold-1');
   });
+
+  it('uses the SSL warning threshold, not the license threshold, for ssl-expiring-soon affected instances', () => {
+    const sslSoonRule = { ...genericSslRule, id: 'ssl-expiring-soon', code: 'SSL_EXPIRING_SOON', matchKind: 'ssl-expiring-soon', matchValue: null };
+    const amherstLike = {
+      ...baseInstance,
+      id: 'amherst-like',
+      name: 'Amherst-like',
+      status: 'up' as const,
+      sslValid: true,
+      sslExpiresAt: new Date(Date.now() + 22 * 86400000).toISOString(),
+      lastError: null
+    };
+
+    const affected = issueCatalogTestInternals.affectedInstances(
+      sslSoonRule as never,
+      [amherstLike],
+      new Map(),
+      new Map(),
+      new Map(),
+      { daysBeforeExpiration: 20 },
+      { daysBeforeExpiration: 30 }
+    );
+
+    expect(affected).toHaveLength(0);
+  });
+
 });

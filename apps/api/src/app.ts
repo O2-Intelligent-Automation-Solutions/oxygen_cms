@@ -276,7 +276,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   const appSettingsRepository = providedAppSettingsRepository ?? createSetupAwareAppSettingsRepository(setupSettingsStore, defaultAppSettingsRepository);
   const appLogRepository = providedAppLogRepository ?? createSetupAwareAppLogRepository(setupSettingsStore, defaultAppLogRepository);
   const databasePerformanceReader = providedDatabasePerformanceReader ?? createDatabasePerformanceReader(setupSettingsStore);
-  const issueCatalogReader = providedIssueCatalogReader ?? createIssueCatalogReader(setupSettingsStore, instanceRepository);
+  const issueCatalogReader = providedIssueCatalogReader ?? createIssueCatalogReader(setupSettingsStore, instanceRepository, appSettingsRepository);
   const updateChecker = providedUpdateChecker ?? createUpdateChecker();
   const config = loadConfig();
   const updateStatusProvider = providedUpdateStatusProvider ?? createUpdateRunnerStatusProvider(config.updateRunner);
@@ -342,14 +342,19 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await registerAuthRoutes(app, authRepository);
   await registerInstanceRoutes(app, authRepository, instanceRepository, appLogRepository, reconcileInstanceCheckQueueSchedules);
   await reconcileInstanceCheckQueueSchedules?.();
+  try {
+    await queueStatusProvider.reconcileQueueSchedules?.(await appSettingsRepository.getQueueSchedules());
+  } catch (error) {
+    app.log.warn({ error }, 'Failed to reconcile configured queue maintenance schedules');
+  }
 
   const instancePoller = providedInstancePoller ?? createInstancePoller({ repository: instanceRepository, tickIntervalMs: backgroundPollingTickMs, logger: app.log, appLogRepository });
 
-  await registerDashboardRoutes(app, authRepository, instanceRepository, instancePoller);
+  await registerDashboardRoutes(app, authRepository, instanceRepository, instancePoller, appSettingsRepository);
   await registerGridPreferenceRoutes(app, authRepository, gridPreferenceRepository);
   await registerAppSettingsRoutes(app, authRepository, appSettingsRepository);
   await registerAppLogRoutes(app, authRepository, appLogRepository, appSettingsRepository, databaseMaintenanceQueue);
-  await registerSystemRoutes(app, authRepository, instancePoller, databasePerformanceReader, issueCatalogReader, updateChecker, updateStatusProvider, queueStatusProvider);
+  await registerSystemRoutes(app, authRepository, instancePoller, instanceRepository, appSettingsRepository, databasePerformanceReader, issueCatalogReader, updateChecker, updateStatusProvider, queueStatusProvider, reconcileInstanceCheckQueueSchedules);
 
   if (queueRuntime.bullBoard) {
     const requireSignedIn = requireAuth(authRepository);

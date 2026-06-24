@@ -6,7 +6,7 @@ info:
   description: |
     API contract for OxyGen Central Management Server Phase 1.
 
-    Current CMS schema version: 0.17.
+    Current CMS schema version: 0.19.
 
     Phase 1 APIs cover first-run setup, local authentication/RBAC, tenant/user/group/role administration,
     manual OxyGen instance enrollment, dashboard background poller status/controls, application logs, grid preferences, application settings,
@@ -182,7 +182,7 @@ paths:
                 properties:
                   ok: { type: boolean, const: true }
                   database: { type: string }
-                  targetSchemaVersion: { type: string, example: '0.17' }
+                  targetSchemaVersion: { type: string, example: '0.19' }
                   appliedVersions:
                     type: array
                     items: { type: string }
@@ -699,7 +699,7 @@ paths:
     get:
       tags: [System]
       summary: Get sanitized BullMQ job summaries
-      description: SystemAdmin only. Returns a first native CMS queue visibility slice with latest jobs from named queues. Raw BullMQ payloads are reduced to safe public metadata only.
+      description: SystemAdmin only. Returns native CMS queue visibility with active, ready, scheduled, retained failed, and completed job summaries from named queues. Raw BullMQ payloads are reduced to safe public metadata only; recurring maintenance schedules can be run now without changing enabled/paused state.
       parameters:
         - in: query
           name: limit
@@ -718,6 +718,83 @@ paths:
                   queueJobs: { $ref: '#/components/schemas/QueueJobsSnapshot' }
         '401': { $ref: '#/components/responses/Error' }
         '403': { $ref: '#/components/responses/Error' }
+  /api/system/queue-jobs/{key}/pause:
+    post:
+      tags: [System]
+      summary: Pause a recurring queue schedule
+      description: SystemAdmin only. Persists the selected recurring maintenance scheduler as disabled without deleting historical BullMQ job data. Instance scheduler keys use the `instance-check:{instanceId}` form and map to the instance enabled flag.
+      parameters:
+        - in: path
+          name: key
+          required: true
+          schema: { type: string }
+          description: URL-encoded queue schedule key, for example `database-maintenance:purge-logs`.
+      responses:
+        '200':
+          description: Updated queue schedule settings.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [queueSchedules]
+                properties:
+                  queueSchedules: { $ref: '#/components/schemas/QueueScheduleSettings' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /api/system/queue-jobs/{key}/resume:
+    post:
+      tags: [System]
+      summary: Resume a recurring queue schedule
+      description: SystemAdmin only. Persists the selected recurring maintenance scheduler as enabled and reconciles BullMQ scheduler state. Instance scheduler keys use the `instance-check:{instanceId}` form and map to the instance enabled flag.
+      parameters:
+        - in: path
+          name: key
+          required: true
+          schema: { type: string }
+          description: URL-encoded queue schedule key, for example `system-maintenance:check-application-updates`.
+      responses:
+        '200':
+          description: Updated queue schedule settings.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [queueSchedules]
+                properties:
+                  queueSchedules: { $ref: '#/components/schemas/QueueScheduleSettings' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /api/system/queue-jobs/{key}/run-now:
+    post:
+      tags: [System]
+      summary: Queue a one-off run for a scheduled job
+      description: SystemAdmin only. Adds an immediate one-off job for the selected maintenance or instance scheduler without changing the recurring enabled/paused state.
+      parameters:
+        - in: path
+          name: key
+          required: true
+          schema: { type: string }
+          description: URL-encoded queue schedule key, for example `database-maintenance:purge-logs` or `instance-check:{instanceId}`.
+      responses:
+        '202':
+          description: One-off job queued.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [queued, key, jobId]
+                properties:
+                  queued: { type: boolean, enum: [true] }
+                  key: { type: string }
+                  jobId: { type: [string, 'null'] }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
   /api/system/version:
     get:
       tags: [System]
@@ -1144,6 +1221,116 @@ paths:
                   retention: { $ref: '#/components/schemas/LogRetentionSettings' }
         '400': { $ref: '#/components/responses/Error' }
         '401': { $ref: '#/components/responses/Error' }
+  /api/app-settings/ssl-certificate-warning:
+    get:
+      tags: [Application Settings]
+      summary: Get SSL certificate warning threshold
+      description: Returns the global threshold used to label otherwise valid HTTPS certificates as Expiring Soon before they expire. Expired certificates always take precedence and display as Expired.
+      responses:
+        '200':
+          description: SSL certificate warning setting.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sslCertificateWarning]
+                properties:
+                  sslCertificateWarning: { $ref: '#/components/schemas/SslCertificateWarningSettings' }
+        '401': { $ref: '#/components/responses/Error' }
+    put:
+      tags: [Application Settings]
+      summary: Save SSL certificate warning threshold
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SslCertificateWarningSettings' }
+      responses:
+        '200':
+          description: Saved SSL certificate warning setting.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sslCertificateWarning]
+                properties:
+                  sslCertificateWarning: { $ref: '#/components/schemas/SslCertificateWarningSettings' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+  /api/app-settings/license-expiration-warning:
+    get:
+      tags: [Application Settings]
+      summary: Get license expiration warning threshold
+      description: Returns the global threshold used to label otherwise valid OxyGen licenses as Expiring Soon before they expire. Expired licenses always take precedence and display as Expired.
+      responses:
+        '200':
+          description: License expiration warning setting.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [licenseExpirationWarning]
+                properties:
+                  licenseExpirationWarning: { $ref: '#/components/schemas/LicenseExpirationWarningSettings' }
+        '401': { $ref: '#/components/responses/Error' }
+    put:
+      tags: [Application Settings]
+      summary: Save license expiration warning threshold
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LicenseExpirationWarningSettings' }
+      responses:
+        '200':
+          description: Saved license expiration warning setting.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [licenseExpirationWarning]
+                properties:
+                  licenseExpirationWarning: { $ref: '#/components/schemas/LicenseExpirationWarningSettings' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+  /api/app-settings/queue-schedules:
+    get:
+      tags: [Application Settings]
+      summary: Get recurring maintenance queue schedules
+      description: Returns Settings → General queue maintenance schedule settings. UI displays whole-day cadence; API persists seconds with a one-day minimum.
+      responses:
+        '200':
+          description: Queue schedule settings.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [queueSchedules]
+                properties:
+                  queueSchedules: { $ref: '#/components/schemas/QueueScheduleSettings' }
+        '401': { $ref: '#/components/responses/Error' }
+    put:
+      tags: [Application Settings]
+      summary: Save recurring maintenance queue schedules
+      description: SystemAdmin only. Saves enabled state and cadence for maintenance schedules, reconciles BullMQ schedulers at API startup or explicit route handling, and requires `everySeconds` to be at least one day.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/QueueScheduleSettingsUpdate' }
+      responses:
+        '200':
+          description: Saved queue schedule settings.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [queueSchedules]
+                properties:
+                  queueSchedules: { $ref: '#/components/schemas/QueueScheduleSettings' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
 components:
   securitySchemes:
     bearerAuth:
@@ -1505,8 +1692,8 @@ components:
             instancesWithIssues: { type: integer, minimum: 0 }
             upInstances: { type: integer, minimum: 0 }
             downInstances: { type: integer, minimum: 0 }
-            sslIssues: { type: integer, minimum: 0, description: Visible HTTPS instances with certificate-validation warnings that still allow a TLS connection. TLS handshake closures, resets, and timeouts are connectivity failures, not SSL warnings. }
-            licenseIssues: { type: integer, minimum: 0, description: Visible instances with missing, warning, expired, or error license state. }
+            sslIssues: { type: integer, minimum: 0, description: Visible HTTPS instances with certificate-validation warnings, expired certificates, or otherwise valid certificates within the global Expiring Soon threshold. TLS handshake closures, resets, and timeouts are connectivity failures, not SSL warnings. }
+            licenseIssues: { type: integer, minimum: 0, description: Visible instances with missing, warning, expired, error, or otherwise valid-but-expiring-soon license state. }
             disabledInstances: { type: integer, minimum: 0 }
             connectivityIssues: { type: integer, minimum: 0, description: Visible instances whose availability status is down, auth-error, TLS/connection failed, or another non-up/non-unknown connectivity state excluding certificate-only SSL warnings. }
             processingIssues: { type: integer, minimum: 0, description: Visible instances with processing, EMM queue, SMS, or Hangfire component status outside ok/unknown. }
@@ -1679,7 +1866,10 @@ components:
         waiting: { type: integer, minimum: 0 }
         active: { type: integer, minimum: 0 }
         delayed: { type: integer, minimum: 0 }
-        failed: { type: integer, minimum: 0 }
+        failed:
+          type: integer
+          minimum: 0
+          description: Retained failed job count reported by BullMQ; this is historical failed-job retention, not active work in progress.
         completed: { type: integer, minimum: 0 }
     QueueJobsSnapshot:
       type: object
@@ -1971,6 +2161,55 @@ components:
       required: [days]
       properties:
         days: { type: integer, minimum: 1, maximum: 3650, default: 90 }
+    SslCertificateWarningSettings:
+      type: object
+      required: [daysBeforeExpiration]
+      properties:
+        daysBeforeExpiration: { type: integer, minimum: 0, maximum: 3650, default: 30, description: Number of days before expiration when an otherwise valid HTTPS certificate should display as Expiring Soon. Expired certificates always display as Expired first. }
+    LicenseExpirationWarningSettings:
+      type: object
+      required: [daysBeforeExpiration]
+      properties:
+        daysBeforeExpiration: { type: integer, minimum: 0, maximum: 3650, default: 30, description: Number of days before expiration when an otherwise valid OxyGen license should display as Expiring Soon. Expired licenses always display as Expired first. }
+    QueueScheduleJobKey:
+      type: string
+      enum:
+        - database-maintenance:purge-logs
+        - database-maintenance:prune-check-history
+        - system-maintenance:check-application-updates
+        - system-maintenance:prune-queue-history
+    QueueScheduleJobSettings:
+      type: object
+      required: [key, queue, name, label, enabled, everySeconds]
+      properties:
+        key: { $ref: '#/components/schemas/QueueScheduleJobKey' }
+        queue: { type: string, enum: [database-maintenance, system-maintenance] }
+        name: { type: string }
+        label: { type: string }
+        enabled: { type: boolean }
+        everySeconds: { type: integer, minimum: 86400, maximum: 2592000, description: Recurring cadence in seconds. Settings UI displays whole days and enforces a minimum of one day. }
+    QueueScheduleJobUpdate:
+      type: object
+      required: [key, enabled, everySeconds]
+      properties:
+        key: { $ref: '#/components/schemas/QueueScheduleJobKey' }
+        enabled: { type: boolean }
+        everySeconds: { type: integer, minimum: 86400, maximum: 2592000, description: Recurring cadence in seconds; one-day minimum. }
+    QueueScheduleSettings:
+      type: object
+      required: [jobs]
+      properties:
+        jobs:
+          type: array
+          items: { $ref: '#/components/schemas/QueueScheduleJobSettings' }
+    QueueScheduleSettingsUpdate:
+      type: object
+      required: [jobs]
+      properties:
+        jobs:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/QueueScheduleJobUpdate' }
     GridPreferenceInput:
       type: object
       required: [columns, sort, group, filter, filtersVisible]

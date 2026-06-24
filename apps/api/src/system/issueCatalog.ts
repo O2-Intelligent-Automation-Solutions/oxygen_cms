@@ -1,5 +1,8 @@
 import knex, { type Knex } from 'knex';
 import type { OxyGenInstance } from '../instances/types.js';
+import type { AppSettingsRepository, LicenseExpirationWarningSettings, SslCertificateWarningSettings } from '../appSettings/types.js';
+import { licenseExpirationDisplayStatus } from '../instances/licenseExpirationStatus.js';
+import { sslCertificateDisplayStatus } from '../instances/sslCertificateStatus.js';
 import type { InstanceRepository } from '../instances/types.js';
 import type { DatabaseSettings, SetupSettingsStore } from '../setup/fileSetupSettingsStore.js';
 
@@ -184,6 +187,39 @@ function licenseKeyPresent(latestLicense?: LatestCheckDetail | null) {
   return nestedBoolean(details, ['keyPresent']) === true;
 }
 
+
+function latestLicensePayload(latestLicense?: LatestCheckDetail | null) {
+  const payload = parseDetailsJson(latestLicense?.detailsJson).payload;
+  return payload && typeof payload === 'object' && !Array.isArray(payload) ? payload as Record<string, unknown> : null;
+}
+
+function latestLicenseStatus(latestLicense?: LatestCheckDetail | null) {
+  const status = parseDetailsJson(latestLicense?.detailsJson).status;
+  return typeof status === 'string' ? status as OxyGenInstance['licenseStatus'] : null;
+}
+
+function latestLicenseKeyValue(latestLicense?: LatestCheckDetail | null) {
+  const payload = latestLicensePayload(latestLicense);
+  if (!payload) return null;
+  for (const key of ['LicenseKey', 'licenseKey', 'Key', 'key']) {
+    const value = payload[key];
+    if (typeof value === 'string' && value.trim()) return value;
+  }
+  return null;
+}
+
+function licenseInstanceForEvaluation(instance: OxyGenInstance, latestLicense?: LatestCheckDetail | null): OxyGenInstance {
+  const payload = latestLicensePayload(latestLicense);
+  if (!payload) return instance;
+  const status = latestLicenseStatus(latestLicense);
+  return {
+    ...instance,
+    licenseJson: payload,
+    licenseStatus: status ?? instance.licenseStatus,
+    licenseKey: licenseKeyPresent(latestLicense) ? (latestLicenseKeyValue(latestLicense) ?? instance.licenseKey) : null
+  };
+}
+
 function licenseEligible(instance: OxyGenInstance, latestLicense?: LatestCheckDetail | null) {
   return instance.checkLicense && instance.status === 'up' && licenseProbeWasEvaluated(latestLicense);
 }
@@ -209,7 +245,14 @@ function evidenceFor(instance: OxyGenInstance, fallback: string) {
   return instance.lastError || fallback;
 }
 
-function affectedBy(type: RawIssueType, instance: OxyGenInstance, latestConnectivity?: LatestCheckDetail | null, latestLicense?: LatestCheckDetail | null): string | null {
+function affectedBy(
+  type: RawIssueType,
+  instance: OxyGenInstance,
+  latestConnectivity: LatestCheckDetail | null | undefined,
+  latestLicense: LatestCheckDetail | null | undefined,
+  sslWarningSettings: SslCertificateWarningSettings,
+  licenseWarningSettings: LicenseExpirationWarningSettings
+): string | null {
   switch (type.matchKind) {
     case 'instance-status':
       return instance.status === type.matchValue ? evidenceFor(instance, `Availability status is ${instance.status}.`) : null;
@@ -219,8 +262,16 @@ function affectedBy(type: RawIssueType, instance: OxyGenInstance, latestConnecti
       return isTlsConnectionError(instance) ? evidenceFor(instance, 'TLS connection failed before certificate validation completed.') : null;
     case 'ssl-invalid':
       return sslIssue(instance, latestConnectivity) ? evidenceFor(instance, 'SSL certificate validation failed.') : null;
-    case 'license-status':
-      return licenseEligible(instance, latestLicense) && licenseKeyPresent(latestLicense) && instance.licenseStatus === type.matchValue ? evidenceFor(instance, `License status is ${instance.licenseStatus}.`) : null;
+    case 'ssl-expiring-soon':
+      return sslCertificateDisplayStatus(instance, sslWarningSettings) === 'expiring-soon' ? evidenceFor(instance, 'SSL certificate is valid but within the global expiration warning threshold.') : null;
+    case 'license-status': {
+      const evaluatedInstance = licenseInstanceForEvaluation(instance, latestLicense);
+      return licenseEligible(instance, latestLicense) && licenseKeyPresent(latestLicense) && evaluatedInstance.licenseStatus === type.matchValue ? evidenceFor(instance, `License status is ${evaluatedInstance.licenseStatus}.`) : null;
+    }
+    case 'license-expiring-soon': {
+      const evaluatedInstance = licenseInstanceForEvaluation(instance, latestLicense);
+      return licenseEligible(instance, latestLicense) && licenseKeyPresent(latestLicense) && licenseExpirationDisplayStatus(evaluatedInstance, licenseWarningSettings) === 'expiring-soon' ? evidenceFor(instance, 'License is valid but within the global expiration warning threshold.') : null;
+    }
     case 'license-missing':
       return licenseEligible(instance, latestLicense) && !licenseKeyPresent(latestLicense) && instance.licenseStatus !== 'valid' && instance.licenseStatus !== 'expired' ? evidenceFor(instance, 'License key is missing or blank in evaluated license payload.') : null;
     case 'processing-status':
@@ -237,12 +288,14 @@ function affectedInstances(
   instances: OxyGenInstance[],
   tenants: Map<string, string>,
   latestConnectivityByInstance = new Map<string, LatestCheckDetail>(),
-  latestLicenseByInstance = new Map<string, LatestCheckDetail>()
+  latestLicenseByInstance = new Map<string, LatestCheckDetail>(),
+  sslWarningSettings: SslCertificateWarningSettings = { daysBeforeExpiration: 30 },
+  licenseWarningSettings: LicenseExpirationWarningSettings = { daysBeforeExpiration: 30 }
 ): IssueCatalogAffectedInstance[] {
   const seen = new Set<string>();
   return instances
     .filter((instance) => instance.isEnabled && !instance.archived)
-    .map((instance) => ({ instance, evidence: affectedBy(type, instance, latestConnectivityByInstance.get(instance.id), latestLicenseByInstance.get(instance.id)) }))
+    .map((instance) => ({ instance, evidence: affectedBy(type, instance, latestConnectivityByInstance.get(instance.id), latestLicenseByInstance.get(instance.id), sslWarningSettings, licenseWarningSettings) }))
     .filter((entry): entry is { instance: OxyGenInstance; evidence: string } => Boolean(entry.evidence))
     .filter(({ instance }) => {
       const key = [instance.tenantId ?? '', instance.name.toLowerCase(), instance.hostname.toLowerCase(), String(instance.port ?? '')].join('|');
@@ -263,7 +316,7 @@ function affectedInstances(
     .sort((left, right) => left.name.localeCompare(right.name));
 }
 
-export function createIssueCatalogReader(setupSettingsStore: SetupSettingsStore, instanceRepository: InstanceRepository): IssueCatalogReader {
+export function createIssueCatalogReader(setupSettingsStore: SetupSettingsStore, instanceRepository: InstanceRepository, appSettingsRepository?: AppSettingsRepository): IssueCatalogReader {
   return {
     async readSnapshot() {
       const generatedAt = new Date().toISOString();
@@ -337,10 +390,12 @@ export function createIssueCatalogReader(setupSettingsStore: SetupSettingsStore,
           instanceRepository.listInstances({ includeAll: true, includeArchived: true })
         ]);
         const tenants = new Map(tenantRows.map((tenant) => [tenant.id, tenant.name]));
+        const sslWarningSettings = appSettingsRepository ? await appSettingsRepository.getSslCertificateWarning() : { daysBeforeExpiration: 30 };
+        const licenseWarningSettings = appSettingsRepository ? await appSettingsRepository.getLicenseExpirationWarning() : { daysBeforeExpiration: 30 };
         const latestConnectivityByInstance = new Map(rowsFromRaw<RawLatestCheckDetail>(latestConnectivityRows).map((row) => [row.instanceId, { status: row.status, errorCode: row.errorCode, errorMessage: row.errorMessage, httpStatusCode: row.httpStatusCode === null ? null : Number(row.httpStatusCode), detailsJson: row.detailsJson }]));
         const latestLicenseByInstance = new Map(rowsFromRaw<RawLatestCheckDetail>(latestLicenseRows).map((row) => [row.instanceId, { status: row.status, errorCode: row.errorCode, errorMessage: row.errorMessage, httpStatusCode: row.httpStatusCode === null ? null : Number(row.httpStatusCode), detailsJson: row.detailsJson }]));
         const issueTypes = rowsFromRaw<RawIssueType>(issueTypeRows).map((row) => {
-          const affected = affectedInstances(row, instances, tenants, latestConnectivityByInstance, latestLicenseByInstance);
+          const affected = affectedInstances(row, instances, tenants, latestConnectivityByInstance, latestLicenseByInstance, sslWarningSettings, licenseWarningSettings);
           return {
             id: row.id,
             code: row.code,

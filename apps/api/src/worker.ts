@@ -8,6 +8,7 @@ import { loadConfig } from './config/loadConfig.js';
 import { createInMemoryInstanceRepository } from './instances/inMemoryInstanceRepository.js';
 import { createSetupAwareInstanceRepository } from './instances/mysqlInstanceRepository.js';
 import { createQueueWorkerRuntime } from './queues/workerRuntime.js';
+import { createUpdateChecker } from './system/updateInfo.js';
 import { createFileSetupSettingsStore } from './setup/fileSetupSettingsStore.js';
 
 const settingsPath = basename(process.cwd()) === 'api'
@@ -19,7 +20,8 @@ const appLogRepository = createSetupAwareAppLogRepository(setupSettingsStore, cr
 const appSettingsRepository = createSetupAwareAppSettingsRepository(setupSettingsStore, createInMemoryAppSettingsRepository());
 
 const config = loadConfig();
-const runtime = await createQueueWorkerRuntime(config, console, { instanceRepository, appLogRepository, appSettingsRepository });
+const updateChecker = createUpdateChecker();
+const runtime = await createQueueWorkerRuntime(config, console, { instanceRepository, appLogRepository, appSettingsRepository, updateChecker });
 
 if (runtime.state === 'disabled') {
   process.exit(0);

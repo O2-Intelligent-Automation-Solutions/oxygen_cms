@@ -11,8 +11,9 @@ export type InstanceCheckJobData = {
 
 export type InstanceCheckJobSummary = {
   instanceId: string;
-  status: ConnectivityResult['status'];
+  status: ConnectivityResult['status'] | 'skipped';
   ok: boolean;
+  skipped?: boolean;
   message: string;
 };
 
@@ -99,8 +100,30 @@ export async function processInstanceCheckJob(options: ProcessInstanceCheckJobOp
 
   return guard.runExclusive(options.data.instanceId, async () => {
     const instance = await options.repository.getInstance(options.data.instanceId);
-    if (!instance) throw new Error('Instance not found.');
-    if (instance.archived || !instance.isEnabled) throw new Error('Instance is disabled or archived.');
+    if (!instance) {
+      if (options.data.source === 'scheduled') {
+        return {
+          instanceId: options.data.instanceId,
+          status: 'skipped',
+          ok: true,
+          skipped: true,
+          message: 'Skipped scheduled instance check because the instance no longer exists.'
+        };
+      }
+      throw new Error('Instance not found.');
+    }
+    if (instance.archived || !instance.isEnabled) {
+      if (options.data.source === 'scheduled') {
+        return {
+          instanceId: instance.id,
+          status: 'skipped',
+          ok: true,
+          skipped: true,
+          message: 'Skipped scheduled instance check because the instance is disabled or archived.'
+        };
+      }
+      throw new Error('Instance is disabled or archived.');
+    }
 
     const result = await options.repository.testConnectivity(instance.id);
     await options.appLogRepository?.append({

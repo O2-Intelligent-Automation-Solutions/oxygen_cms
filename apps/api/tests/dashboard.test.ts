@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
+import { createInMemoryAppSettingsRepository } from '../src/appSettings/inMemoryAppSettingsRepository.js';
 import { createInMemoryAuthRepository } from '../src/auth/inMemoryAuthRepository.js';
 import type { InstanceRepository, OxyGenInstance } from '../src/instances/types.js';
 
 const now = '2026-01-01T00:00:00.000Z';
+const futureCert = '2030-01-01T00:00:00.000Z';
 
 function instance(overrides: Partial<OxyGenInstance> & Pick<OxyGenInstance, 'id' | 'name' | 'tenantId'>): OxyGenInstance {
   const { id, name, tenantId, ...rest } = overrides;
@@ -28,7 +30,7 @@ function instance(overrides: Partial<OxyGenInstance> & Pick<OxyGenInstance, 'id'
     notes: null,
     status: 'up',
     sslValid: true,
-    sslExpiresAt: now,
+    sslExpiresAt: futureCert,
     lastCheckedAt: now,
     lastSuccessAt: now,
     lastFailureAt: null,
@@ -60,7 +62,19 @@ function createFakeInstanceRepository(instances: OxyGenInstance[]): InstanceRepo
     async getHealthDetails(instanceId) {
       const found = instances.find((entry) => entry.id === instanceId);
       if (!found) throw new Error('Instance not found.');
-      return { instance: found, availability: [], latestConnectivity: null, licenseHistory: [] };
+      const hasPayload = found.licenseJson && typeof found.licenseJson === 'object' && !Array.isArray(found.licenseJson);
+      const licenseHistory = hasPayload ? [{
+        checkType: 'license',
+        status: found.licenseStatus === 'valid' ? 'ok' : 'error',
+        startedAt: found.lastCheckedAt ?? now,
+        finishedAt: found.lastCheckedAt ?? now,
+        durationMs: 12,
+        httpStatusCode: 200,
+        errorCode: found.licenseStatus === 'valid' ? null : 'LICENSE_STATUS_ERROR',
+        errorMessage: found.licenseStatus === 'valid' ? null : 'License issue.',
+        detailsJson: { status: found.licenseStatus, keyPresent: Boolean(found.licenseKey), payload: found.licenseJson }
+      }] : [];
+      return { instance: found, availability: [], latestConnectivity: null, licenseHistory };
     },
     async testConnectivity() { throw new Error('not used'); },
     async listInstances(scope) {
@@ -91,7 +105,7 @@ describe('dashboard API', () => {
         instance({ id: 'acme-tls', name: 'Acme TLS Reset', tenantId: tenant.id, status: 'down', lastError: 'TLS connection failed: Client network socket disconnected before secure TLS connection was established', licenseKey: null, licenseStatus: 'unknown', sslValid: false }),
         instance({ id: 'acme-ssl', name: 'Acme SSL Warning', tenantId: tenant.id, status: 'ssl-error', sslValid: false }),
         instance({ id: 'acme-authssl', name: 'Acme SSL Auth Failure', tenantId: tenant.id, status: 'auth-error', sslValid: false, lastError: 'OxyGen authentication failed with HTTP 401.', licenseKey: null, licenseStatus: 'unknown' }),
-        instance({ id: 'acme-license', name: 'Acme Missing License', tenantId: tenant.id, licenseKey: null, licenseStatus: 'unknown' }),
+        instance({ id: 'acme-license', name: 'Acme Missing License', tenantId: tenant.id, licenseKey: null, licenseStatus: 'error', licenseJson: { IsValid: false, IsExpired: false, LicenseKey: null } }),
         instance({ id: 'acme-processing', name: 'Acme Processing', tenantId: tenant.id, processingStatus: 'error' }),
         instance({ id: 'acme-disabled', name: 'Acme Disabled', tenantId: tenant.id, isEnabled: false, status: 'down', lastError: 'Disabled host offline' }),
         instance({ id: 'other-down', name: 'Other Down', tenantId: otherTenant.id, status: 'down' })
@@ -115,7 +129,82 @@ describe('dashboard API', () => {
     expect(body.dashboard.instances.find((entry: { id: string; issues: string[]; severity: string; primaryIssue: string }) => entry.id === 'acme-authssl')).toMatchObject({ severity: 'failure', primaryIssue: 'Authentication failure' });
     expect(body.dashboard.instances.find((entry: { id: string; issues: string[] }) => entry.id === 'acme-down').issues).not.toContain('License API unavailable');
     expect(body.dashboard.instances.find((entry: { id: string; issues: string[] }) => entry.id === 'acme-authssl').issues).not.toContain('License API unavailable');
-    expect(body.dashboard.instances.find((entry: { id: string; issues: string[]; severity: string; primaryIssue: string }) => entry.id === 'acme-license')).toMatchObject({ severity: 'warning', primaryIssue: 'License API unavailable' });
+    expect(body.dashboard.instances.find((entry: { id: string; issues: string[]; severity: string; primaryIssue: string }) => entry.id === 'acme-license')).toMatchObject({ severity: 'failure', primaryIssue: 'License missing' });
     await app.close();
   });
+
+  it('classifies expired and expiring-soon HTTPS certificates from the global warning setting', async () => {
+    const authRepository = createInMemoryAuthRepository();
+    const appSettingsRepository = createInMemoryAppSettingsRepository();
+    await appSettingsRepository.saveSslCertificateWarning({ daysBeforeExpiration: 45 });
+    await authRepository.createUser({ email: 'admin@example.com', displayName: 'Admin User', password: 'Password!23456', roleNames: ['SystemAdmin'], groupIds: [] });
+    const token = await authRepository.createSession((await authRepository.authenticate('admin@example.com', 'Password!23456'))!.user.id);
+    const app = await buildApp({
+      authRepository,
+      appSettingsRepository,
+      instanceRepository: createFakeInstanceRepository([
+        instance({ id: 'expired-cert', name: 'Expired Cert', tenantId: null, sslValid: false, sslExpiresAt: '2025-12-01T00:00:00.000Z', status: 'ssl-error', lastError: 'CERT_HAS_EXPIRED' }),
+        instance({ id: 'soon-cert', name: 'Soon Cert', tenantId: null, sslValid: true, sslExpiresAt: new Date(Date.now() + 20 * 86400000).toISOString() }),
+        instance({ id: 'valid-cert', name: 'Valid Cert', tenantId: null, sslValid: true, sslExpiresAt: new Date(Date.now() + 120 * 86400000).toISOString() })
+      ])
+    });
+
+    const response = await app.inject({ method: 'GET', url: '/api/dashboard', headers: { Authorization: `Bearer ${token}` } });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.dashboard.counts.sslIssues).toBe(2);
+    expect(body.dashboard.instances.find((entry: { id: string; primaryIssue: string }) => entry.id === 'expired-cert')).toMatchObject({ primaryIssue: 'SSL certificate expired' });
+    expect(body.dashboard.instances.find((entry: { id: string; primaryIssue: string }) => entry.id === 'soon-cert')).toMatchObject({ primaryIssue: 'SSL certificate expiring soon' });
+    expect(body.dashboard.instances.find((entry: { id: string; hasIssue: boolean }) => entry.id === 'valid-cert')).toMatchObject({ hasIssue: false });
+    await app.close();
+  });
+
+  it('classifies valid licenses inside the global threshold as warning issues', async () => {
+    const authRepository = createInMemoryAuthRepository();
+    const appSettingsRepository = createInMemoryAppSettingsRepository();
+    await appSettingsRepository.saveLicenseExpirationWarning({ daysBeforeExpiration: 45 });
+    await authRepository.createUser({ email: 'license-admin@example.com', displayName: 'License Admin', password: 'Password!23456', roleNames: ['SystemAdmin'], groupIds: [] });
+    const token = await authRepository.createSession((await authRepository.authenticate('license-admin@example.com', 'Password!23456'))!.user.id);
+    const app = await buildApp({
+      authRepository,
+      appSettingsRepository,
+      instanceRepository: createFakeInstanceRepository([
+        instance({ id: 'license-soon', name: 'License Expiring Soon', tenantId: null, licenseStatus: 'valid', licenseKey: 'SOON', licenseJson: { IsValid: true, IsExpired: false, ExpiryDate: new Date(Date.now() + 20 * 86400000).toISOString() } }),
+        instance({ id: 'license-valid', name: 'License Valid', tenantId: null, licenseStatus: 'valid', licenseKey: 'VALID', licenseJson: { IsValid: true, IsExpired: false, ExpiryDate: new Date(Date.now() + 120 * 86400000).toISOString() } })
+      ])
+    });
+
+    const response = await app.inject({ method: 'GET', url: '/api/dashboard', headers: { Authorization: `Bearer ${token}` } });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.dashboard.counts.licenseIssues).toBe(1);
+    expect(body.dashboard.instances.find((entry: { id: string; primaryIssue: string; severity: string }) => entry.id === 'license-soon')).toMatchObject({ primaryIssue: 'License expiring soon', severity: 'warning' });
+    expect(body.dashboard.instances.find((entry: { id: string; hasIssue: boolean }) => entry.id === 'license-valid')).toMatchObject({ hasIssue: false });
+    await app.close();
+  });
+
+  it('does not count License API transport failures as license issues', async () => {
+    const authRepository = createInMemoryAuthRepository();
+    await authRepository.createUser({ email: 'transport-admin@example.com', displayName: 'Transport Admin', password: 'Password!23456', roleNames: ['SystemAdmin'], groupIds: [] });
+    const token = await authRepository.createSession((await authRepository.authenticate('transport-admin@example.com', 'Password!23456'))!.user.id);
+    const app = await buildApp({
+      authRepository,
+      instanceRepository: createFakeInstanceRepository([
+        instance({ id: 'license-api-500', name: 'License API 500', tenantId: null, licenseStatus: 'error', licenseKey: null, licenseJson: { Message: 'An error has occurred.', StackTrace: 'remote exception' }, lastError: 'Connectivity test completed with license issue: License API probe failed with HTTP 500.' }),
+        instance({ id: 'license-missing', name: 'License Missing', tenantId: null, licenseStatus: 'error', licenseKey: null, licenseJson: { IsValid: false, IsExpired: false, LicenseKey: null }, lastError: 'Connectivity test completed with license issue: License missing.' })
+      ])
+    });
+
+    const response = await app.inject({ method: 'GET', url: '/api/dashboard', headers: { Authorization: `Bearer ${token}` } });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.dashboard.counts.licenseIssues).toBe(1);
+    expect(body.dashboard.instances.find((entry: { id: string; hasIssue: boolean; issues: string[] }) => entry.id === 'license-api-500')).toMatchObject({ hasIssue: false, issues: [] });
+    expect(body.dashboard.instances.find((entry: { id: string; hasIssue: boolean; primaryIssue: string }) => entry.id === 'license-missing')).toMatchObject({ hasIssue: true, primaryIssue: 'License missing' });
+    await app.close();
+  });
+
 });

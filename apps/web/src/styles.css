@@ -262,6 +262,19 @@ input:focus, select:focus, textarea:focus {
   box-shadow: 0 0 0 3px rgba(32, 214, 210, 0.13);
 }
 
+input[type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+  padding-right: 14px;
+}
+
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  margin: 0;
+  opacity: 0;
+  -webkit-appearance: none;
+}
+
 input:not([type="checkbox"]):not([type="radio"]),
 select,
 textarea,
@@ -2251,8 +2264,8 @@ textarea::-webkit-input-placeholder,
   justify-items: start !important;
 }
 
-label.checkbox-label:not(.column-checkbox-label),
-label:not(.column-checkbox-label):has(> input[type="checkbox"]) {
+label.checkbox-label:not(.column-checkbox-label):not(.switch-field),
+label:not(.column-checkbox-label):not(.switch-field):has(> input[type="checkbox"]) {
   display: inline-grid !important;
   grid-template-columns: 18px minmax(0, max-content) !important;
   align-items: center !important;
@@ -2267,8 +2280,8 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) {
   line-height: 1.25 !important;
 }
 
-label.checkbox-label:not(.column-checkbox-label) input[type="checkbox"],
-label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="checkbox"] {
+label.checkbox-label:not(.column-checkbox-label):not(.switch-field) input[type="checkbox"],
+label:not(.column-checkbox-label):not(.switch-field):has(> input[type="checkbox"]) > input[type="checkbox"] {
   grid-column: 1 !important;
   width: 16px !important;
   height: 16px !important;
@@ -2643,6 +2656,12 @@ label:not(.column-checkbox-label):has(> input[type="checkbox"]) > input[type="ch
   border: 1px solid rgba(245, 197, 66, 0.35);
   background: rgba(245, 197, 66, 0.1);
   color: #f7d877;
+}
+
+.queue-state-label.scheduled {
+  border: 1px solid rgba(96, 165, 250, 0.34);
+  background: rgba(96, 165, 250, 0.1);
+  color: #a8d4ff;
 }
 
 .queue-state-label.unknown {
@@ -5402,18 +5421,68 @@ button.tenant-metric-card:focus-visible {
   overflow-wrap: anywhere;
 }
 
-.settings-basic-stack {
+.settings-basic-stack,
+.settings-operations-stack {
   width: 100%;
   max-width: none;
   display: grid;
-  grid-template-columns: repeat(2, minmax(320px, 1fr));
-  align-items: stretch;
+  grid-template-columns: 1fr;
+  align-items: start;
+  gap: 14px;
+}
+
+.settings-group-stack {
+  gap: 18px;
+}
+
+.settings-card-group {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-group-header {
+  display: flex;
+  align-items: center;
   gap: 12px;
+  padding-left: 2px;
+}
+
+.settings-group-header h3 {
+  margin: 0;
+  color: var(--brand-primary);
+  font-family: var(--font-display);
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.settings-group-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  align-items: stretch;
+  gap: 10px;
+}
+
+.settings-group-grid.two-up {
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+}
+
+.queue-settings-grid {
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+.settings-operations-stack {
+  grid-template-columns: 1fr;
 }
 
 .settings-basic-stack .settings-panel {
   min-width: 0;
-  padding: 14px;
+  padding: 10px 12px;
+}
+
+.settings-basic-stack .compact-settings-card {
+  min-height: 208px;
 }
 
 .settings-basic-stack .settings-panel:not(.version-update-panel) {
@@ -5422,23 +5491,225 @@ button.tenant-metric-card:focus-visible {
 }
 
 .settings-basic-stack .settings-panel:not(.version-update-panel) .settings-form {
-  flex: 1;
+  margin-top: auto;
   display: flex;
   flex-direction: column;
 }
 
 .settings-basic-stack .settings-panel:not(.version-update-panel) .settings-form button[type='submit'] {
-  margin-top: auto;
+  margin-top: 8px;
 }
 
 .settings-basic-stack .settings-panel .panel-heading {
-  margin-bottom: 8px;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.settings-basic-stack .settings-panel .panel-heading svg {
+  width: 22px;
+  height: 22px;
+}
+
+.settings-basic-stack .settings-panel .panel-heading h3 {
+  font-size: 1rem;
 }
 
 .settings-basic-stack .settings-panel .panel-copy,
 .settings-basic-stack .settings-panel small {
+  margin: 0 0 6px;
+  font-size: 0.74rem;
+  line-height: 1.28;
+}
+
+.settings-basic-stack .settings-form {
+  gap: 7px;
+}
+
+.settings-basic-stack .settings-form label {
+  gap: 5px;
+}
+
+.settings-basic-stack .settings-form input {
+  min-height: 38px;
+  padding: 8px 11px;
+}
+
+.settings-basic-stack .settings-form button[type='submit'] {
+  min-height: 40px;
+  padding: 9px 14px;
+}
+
+.queue-schedule-card .panel-copy {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-schedule-card .queue-job-description {
+  min-height: 34px;
+  white-space: normal;
+  overflow: visible;
+}
+
+.queue-schedule-card .queue-job-meta {
+  margin-bottom: 3px;
+}
+
+.queue-schedule-card.disabled .panel-copy,
+.queue-schedule-card.disabled .days-inline-field,
+.queue-schedule-card.disabled .days-inline-field input,
+.queue-schedule-card.disabled .days-inline-field small,
+.queue-schedule-card.disabled button[type='submit'] {
+  opacity: 0.45;
+  filter: grayscale(0.55);
+}
+
+.queue-schedule-card.disabled .days-inline-field input,
+.queue-schedule-card.disabled button[type='submit'] {
+  cursor: not-allowed;
+}
+
+.queue-schedule-heading {
+  grid-template-columns: 22px minmax(0, 1fr) max-content !important;
+  align-items: center !important;
+}
+
+.queue-schedule-heading .queue-switch-field {
+  align-self: center;
+  justify-self: end;
+}
+
+.queue-schedule-settings {
+  gap: 8px;
+}
+
+.queue-schedule-grid.compact {
+  display: contents;
+}
+
+.queue-schedule-row {
+  display: contents;
+}
+
+.queue-schedule-title {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.queue-schedule-title strong {
+  color: var(--brand-text);
+  font-size: 0.82rem;
+  line-height: 1.1;
+}
+
+.queue-schedule-title small {
+  color: var(--brand-muted);
+  font-size: 0.66rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.days-inline-field {
+  display: grid !important;
+  grid-template-columns: minmax(86px, 1fr) max-content;
+  align-items: center;
+  gap: 8px !important;
+  width: 100%;
+  color: var(--brand-muted);
   font-size: 0.78rem;
-  line-height: 1.35;
+}
+
+.days-inline-field input {
+  width: 100%;
+  min-height: 38px !important;
+  padding: 8px 11px !important;
+  font-size: 0.86rem;
+}
+
+.days-inline-field small {
+  margin: 0 !important;
+  color: var(--brand-muted);
+  font-size: 0.72rem !important;
+  white-space: nowrap;
+}
+
+.queue-days-field {
+  grid-template-columns: max-content minmax(86px, 1fr) max-content;
+}
+
+.queue-days-field span {
+  color: var(--brand-muted);
+  white-space: nowrap;
+}
+
+.switch-field {
+  display: inline-flex !important;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  justify-self: start;
+  gap: 8px;
+  min-width: 112px;
+  margin: 0;
+  color: var(--brand-muted);
+  font-size: 0.72rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.switch-field input[type="checkbox"] {
+  position: absolute !important;
+  opacity: 0 !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: 0 !important;
+  pointer-events: none;
+}
+
+.switch-track {
+  width: 38px;
+  height: 20px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(15, 23, 42, 0.88);
+  position: relative;
+  transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.switch-track span {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: #94a3b8;
+  transition: transform 0.18s ease, background 0.18s ease;
+}
+
+.switch-field input:checked + em + .switch-track {
+  border-color: rgba(94, 234, 212, 0.58);
+  background: linear-gradient(135deg, rgba(32, 214, 210, 0.38), rgba(72, 172, 225, 0.38));
+  box-shadow: 0 0 16px rgba(32, 214, 210, 0.14);
+}
+
+.switch-field input:checked + em + .switch-track span {
+  transform: translateX(18px);
+  background: #7df4e8;
+}
+
+.switch-field input:focus-visible + em + .switch-track {
+  outline: 2px solid rgba(94, 234, 212, 0.65);
+  outline-offset: 2px;
+}
+
+.switch-field em {
+  font-style: normal;
 }
 
 .tenant-dashboard-empty.compact {
@@ -5447,14 +5718,24 @@ button.tenant-metric-card:focus-visible {
 }
 
 .compact-settings-form {
-  display: grid;
-  grid-template-columns: minmax(180px, 1fr);
-  align-content: start;
-  gap: 12px;
+  display: flex;
+  flex-direction: column;
+  align-content: stretch;
+  gap: 8px;
 }
 
 .compact-settings-form button {
   width: 100%;
+  margin-top: auto;
+}
+
+.settings-operations-hero {
+  margin-bottom: 0;
+}
+
+.settings-operations-stack .version-update-panel,
+.settings-operations-stack .queue-orchestration-panel {
+  grid-column: 1 / -1;
 }
 
 .version-update-panel {
@@ -5621,61 +5902,39 @@ button.tenant-metric-card:focus-visible {
   margin-top: 0.85rem;
 }
 
-.queue-latest-jobs > header,
-.queue-job-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.85rem;
+.queue-latest-managed-grid .kendo-data-panel {
+  min-height: 360px;
+  margin: 0;
+}
+
+.queue-latest-managed-grid .dp-head {
   align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
 }
 
-.queue-latest-jobs > header {
-  color: var(--text-primary);
-  font-size: 0.85rem;
-}
-
-.queue-latest-jobs > header small,
-.queue-job-row small,
-.queue-job-row span {
-  color: var(--text-muted);
-}
-
-.queue-job-row {
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  border-radius: 12px;
-  background: rgba(3, 10, 18, 0.56);
-  padding: 0.65rem 0.75rem;
-}
-
-.queue-job-row > div {
-  display: grid;
-  gap: 0.18rem;
+.queue-latest-managed-grid .queue-jobs-toolbar {
   min-width: 0;
+  margin-right: auto;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  color: var(--brand-text);
 }
 
-.queue-job-row strong,
-.queue-job-row small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.queue-latest-managed-grid .queue-jobs-toolbar strong {
+  font-size: 0.88rem;
 }
 
-.queue-job-row.failed {
-  border-color: rgba(239, 68, 68, 0.45);
+.queue-latest-managed-grid .queue-jobs-toolbar span {
+  color: var(--brand-muted);
+  font-size: 0.74rem;
 }
 
-.queue-job-row.active {
-  border-color: rgba(0, 180, 216, 0.45);
-}
-
-.queue-job-state {
-  justify-self: end;
-  border: 1px solid rgba(148, 163, 184, 0.24);
-  border-radius: 999px;
-  padding: 0.14rem 0.48rem;
-  text-transform: uppercase;
-  font-size: 0.62rem;
-  letter-spacing: 0.06em;
+.queue-latest-managed-grid .btn-grid-tool.k-button {
+  min-height: 30px;
+  padding: 5px 10px;
+  border-radius: 8px;
 }
 
 .update-readiness-step {

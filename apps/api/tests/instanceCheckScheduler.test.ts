@@ -85,9 +85,11 @@ describe('instance check scheduler', () => {
     expect(queue.removeJobScheduler).toHaveBeenCalledWith(instanceCheckSchedulerId('deleted-instance'));
   });
 
-  it('clamps very short intervals and supports deterministic jitter', async () => {
-    const enabled = instance({ pollingIntervalSeconds: 5 });
-    const repository = { listInstances: vi.fn(async () => [enabled]) } as unknown as InstanceRepository;
+  it('clamps very short intervals and assigns deterministic load-balanced repeat offsets', async () => {
+    const alpha = instance({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', name: 'Alpha', pollingIntervalSeconds: 5 });
+    const beta = instance({ id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', name: 'Beta', pollingIntervalSeconds: 5 });
+    const gamma = instance({ id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', name: 'Gamma', pollingIntervalSeconds: 5 });
+    const repository = { listInstances: vi.fn(async () => [gamma, alpha, beta]) } as unknown as InstanceRepository;
     const queue: InstanceCheckQueueScheduler = {
       upsertJobScheduler: vi.fn(async () => undefined),
       removeJobScheduler: vi.fn(async () => true),
@@ -95,12 +97,15 @@ describe('instance check scheduler', () => {
       add: vi.fn(async () => undefined)
     };
 
-    await reconcileInstanceCheckSchedules({ repository, queue, minimumIntervalSeconds: 60, jitterSeed: 'test' });
+    await reconcileInstanceCheckSchedules({ repository, queue, minimumIntervalSeconds: 60 });
 
-    const [, repeatOptions, jobTemplate] = vi.mocked(queue.upsertJobScheduler).mock.calls[0];
-    expect(repeatOptions.every).toBe(60_000);
-    expect(jobTemplate.opts?.delay).toBeGreaterThanOrEqual(0);
-    expect(jobTemplate.opts?.delay).toBeLessThan(60_000);
+    const calls = vi.mocked(queue.upsertJobScheduler).mock.calls;
+    expect(calls).toHaveLength(3);
+    expect(calls.map(([, repeatOptions]) => repeatOptions.every)).toEqual([60_000, 60_000, 60_000]);
+    expect(calls.map(([, repeatOptions]) => repeatOptions.offset).sort((left, right) => (left ?? 0) - (right ?? 0))).toEqual([0, 20_000, 40_000]);
+    for (const [, , jobTemplate] of calls) {
+      expect('delay' in jobTemplate.opts).toBe(false);
+    }
   });
 
   it('enqueues manual checks with high priority and credential-free payloads', async () => {

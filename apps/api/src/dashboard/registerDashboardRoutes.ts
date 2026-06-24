@@ -1,8 +1,11 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { requireAuth } from '../auth/registerAuthRoutes.js';
 import type { AuthProfile, AuthRepository, TenantId } from '../auth/types.js';
+import type { AppSettingsRepository, LicenseExpirationWarningSettings } from '../appSettings/types.js';
 import type { InstancePoller } from '../instances/instancePoller.js';
-import type { InstanceRepository, OxyGenInstance } from '../instances/types.js';
+import { licenseExpirationDisplayStatus, licenseExpirationIssueLabel, licensePayloadWasEvaluated } from '../instances/licenseExpirationStatus.js';
+import { isTlsConnectionError, sslCertificateHasIssue, sslCertificateIssueLabel, type SslCertificateWarningSettings } from '../instances/sslCertificateStatus.js';
+import type { InstanceCheckHistoryEntry, InstanceRepository, OxyGenInstance } from '../instances/types.js';
 
 type AuthenticatedRequest = FastifyRequest & { authProfile: AuthProfile };
 
@@ -38,34 +41,96 @@ function componentWarning(status: string) {
   return status === 'warning';
 }
 
+
+function recordValue(record: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    if (key in record) return record[key];
+  }
+  return null;
+}
+
+function parseDetailsJson(value: unknown): Record<string, unknown> {
+  if (!value) return {};
+  if (typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
+  if (typeof value !== 'string') return {};
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
+function nestedBoolean(record: Record<string, unknown>, path: string[]) {
+  let current: unknown = record;
+  for (const part of path) {
+    if (!current || typeof current !== 'object' || Array.isArray(current)) return null;
+    current = (current as Record<string, unknown>)[part];
+  }
+  return typeof current === 'boolean' ? current : null;
+}
+
+function latestLicenseWasEvaluated(latestLicense?: InstanceCheckHistoryEntry | null) {
+  if (!latestLicense || latestLicense.status === 'skipped') return false;
+  const statusCode = Number(latestLicense.httpStatusCode ?? 0);
+  const details = parseDetailsJson(latestLicense.detailsJson);
+  return statusCode >= 200 && statusCode < 400 && Boolean(details.payload && typeof details.payload === 'object' && !Array.isArray(details.payload));
+}
+
+function latestLicenseKeyPresent(latestLicense?: InstanceCheckHistoryEntry | null) {
+  return nestedBoolean(parseDetailsJson(latestLicense?.detailsJson), ['keyPresent']) === true;
+}
+
+function latestLicensePayload(latestLicense?: InstanceCheckHistoryEntry | null) {
+  const payload = parseDetailsJson(latestLicense?.detailsJson).payload;
+  return payload && typeof payload === 'object' && !Array.isArray(payload) ? payload as Record<string, unknown> : null;
+}
+
+function licenseInstanceForEvaluation(instance: OxyGenInstance, latestLicense?: InstanceCheckHistoryEntry | null): OxyGenInstance {
+  const payload = latestLicensePayload(latestLicense);
+  if (!payload) return instance;
+  const keyFromPayload = recordValue(payload, ['LicenseKey', 'licenseKey', 'Key', 'key']);
+  return {
+    ...instance,
+    licenseJson: payload,
+    licenseKey: latestLicenseKeyPresent(latestLicense) ? (typeof keyFromPayload === 'string' && keyFromPayload ? keyFromPayload : instance.licenseKey) : null
+  };
+}
+
 function connectivityIssue(instance: OxyGenInstance) {
   return instance.status !== 'up' && instance.status !== 'unknown' && instance.status !== 'ssl-error';
 }
 
-function isTlsConnectionError(instance: OxyGenInstance) {
-  return instance.status === 'down' && /\bTLS connection failed\b|secure TLS connection|TLS handshake/i.test(instance.lastError ?? '');
+function sslIssue(instance: OxyGenInstance, settings: SslCertificateWarningSettings) {
+  return sslCertificateHasIssue(instance, settings);
 }
 
-function sslIssue(instance: OxyGenInstance) {
-  return instance.protocol === 'https' && !isTlsConnectionError(instance) && (instance.sslValid === false || instance.status === 'ssl-error');
+function licenseEvaluationEligible(instance: OxyGenInstance, latestLicense?: InstanceCheckHistoryEntry | null) {
+  return instance.checkLicense && instance.status === 'up' && (latestLicenseWasEvaluated(latestLicense) || licensePayloadWasEvaluated(instance));
 }
 
-function licenseEvaluationEligible(instance: OxyGenInstance) {
-  return instance.checkLicense && instance.status === 'up';
+function licenseDisplay(instance: OxyGenInstance, settings: LicenseExpirationWarningSettings, latestLicense?: InstanceCheckHistoryEntry | null) {
+  return licenseExpirationDisplayStatus(licenseInstanceForEvaluation(instance, latestLicense), settings);
 }
 
-function licenseFailure(instance: OxyGenInstance) {
-  if (!licenseEvaluationEligible(instance)) return false;
-  return instance.licenseStatus === 'expired' || instance.licenseStatus === 'error' || (!instance.licenseKey && instance.licenseStatus !== 'unknown' && instance.licenseStatus !== 'warning');
+function licenseFailure(instance: OxyGenInstance, settings: LicenseExpirationWarningSettings, latestLicense?: InstanceCheckHistoryEntry | null) {
+  if (!licenseEvaluationEligible(instance, latestLicense)) return false;
+  const status = licenseDisplay(instance, settings, latestLicense);
+  return status === 'expired' || status === 'missing' || status === 'invalid';
 }
 
-function licenseWarning(instance: OxyGenInstance) {
-  if (!licenseEvaluationEligible(instance)) return false;
-  return instance.licenseStatus === 'warning' || (!instance.licenseKey && instance.licenseStatus === 'unknown');
+function licenseWarning(instance: OxyGenInstance, settings: LicenseExpirationWarningSettings, latestLicense?: InstanceCheckHistoryEntry | null) {
+  if (!licenseEvaluationEligible(instance, latestLicense)) return false;
+  const status = licenseDisplay(instance, settings, latestLicense);
+  return status === 'warning' || status === 'expiring-soon';
 }
 
-function licenseIssue(instance: OxyGenInstance) {
-  return licenseFailure(instance) || licenseWarning(instance);
+function licenseIssue(instance: OxyGenInstance, settings: LicenseExpirationWarningSettings, latestLicense?: InstanceCheckHistoryEntry | null) {
+  return licenseFailure(instance, settings, latestLicense) || licenseWarning(instance, settings, latestLicense);
+}
+
+function licenseIssueLabel(instance: OxyGenInstance, settings: LicenseExpirationWarningSettings, latestLicense?: InstanceCheckHistoryEntry | null) {
+  return licenseExpirationIssueLabel(licenseInstanceForEvaluation(instance, latestLicense), settings);
 }
 
 function processingFailure(instance: OxyGenInstance) {
@@ -78,14 +143,6 @@ function processingWarning(instance: OxyGenInstance) {
 
 function processingIssue(instance: OxyGenInstance) {
   return processingFailure(instance) || processingWarning(instance);
-}
-
-function licenseIssueLabel(instance: OxyGenInstance) {
-  if (!instance.licenseKey) return instance.licenseStatus === 'unknown' ? 'License API unavailable' : 'License blank';
-  if (instance.licenseStatus === 'expired') return 'License expired';
-  if (instance.licenseStatus === 'error') return 'License invalid';
-  if (instance.licenseStatus === 'warning') return 'License warning';
-  return `License ${instance.licenseStatus}`;
 }
 
 function connectivityIssueLabel(instance: OxyGenInstance) {
@@ -103,13 +160,13 @@ function normalizeIssueLabel(label: string) {
   return trimmed.replace(/\s+https?:\/\/\S+/gi, '').replace(/\s+[a-z0-9.-]+\.[a-z]{2,}(?::\d+)?\b/gi, '').replace(/\s+/g, ' ').trim();
 }
 
-function instanceIssueDetails(instance: OxyGenInstance): DashboardIssue[] {
+function instanceIssueDetails(instance: OxyGenInstance, sslWarningSettings: SslCertificateWarningSettings, licenseWarningSettings: LicenseExpirationWarningSettings, latestLicense?: InstanceCheckHistoryEntry | null): DashboardIssue[] {
   const issues: DashboardIssue[] = [];
   if (connectivityIssue(instance)) issues.push({ label: connectivityIssueLabel(instance), severity: 'failure' });
-  if (licenseFailure(instance)) issues.push({ label: licenseIssueLabel(instance), severity: 'failure' });
+  if (licenseFailure(instance, licenseWarningSettings, latestLicense)) issues.push({ label: licenseIssueLabel(instance, licenseWarningSettings, latestLicense), severity: 'failure' });
   if (processingFailure(instance)) issues.push({ label: 'Processing failure', severity: 'failure' });
-  if (sslIssue(instance)) issues.push({ label: 'SSL warning', severity: 'warning' });
-  if (licenseWarning(instance)) issues.push({ label: licenseIssueLabel(instance), severity: 'warning' });
+  if (sslIssue(instance, sslWarningSettings)) issues.push({ label: sslCertificateIssueLabel(instance, sslWarningSettings), severity: 'warning' });
+  if (licenseWarning(instance, licenseWarningSettings, latestLicense)) issues.push({ label: licenseIssueLabel(instance, licenseWarningSettings, latestLicense), severity: 'warning' });
   if (processingWarning(instance)) issues.push({ label: 'Processing warning', severity: 'warning' });
   if (componentWarning(instance.emmQueueStatus)) issues.push({ label: 'EMM disabled/warning', severity: 'warning' });
   if (componentWarning(instance.smsStatus)) issues.push({ label: 'SMS disabled/warning', severity: 'warning' });
@@ -132,7 +189,7 @@ function instanceSeverity(instance: OxyGenInstance, issues: DashboardIssue[]): D
   return 'ok';
 }
 
-export async function registerDashboardRoutes(app: FastifyInstance, authRepository: AuthRepository, instanceRepository: InstanceRepository, poller?: InstancePoller | null) {
+export async function registerDashboardRoutes(app: FastifyInstance, authRepository: AuthRepository, instanceRepository: InstanceRepository, poller?: InstancePoller | null, appSettingsRepository?: AppSettingsRepository) {
   app.get('/api/dashboard', { preHandler: requireAuth(authRepository) }, async (request) => {
     const profile = (request as AuthenticatedRequest).authProfile;
     const scope: DashboardScope = profile.user.tenantId ? 'tenant' : 'global';
@@ -144,6 +201,7 @@ export async function registerDashboardRoutes(app: FastifyInstance, authReposito
       authRepository.listRoles(),
       instanceRepository.listInstances(instanceScope(profile))
     ]);
+    const [sslWarningSettings, licenseWarningSettings] = appSettingsRepository ? await Promise.all([appSettingsRepository.getSslCertificateWarning(), appSettingsRepository.getLicenseExpirationWarning()]) : [{ daysBeforeExpiration: 30 }, { daysBeforeExpiration: 30 }];
 
     const scopedByTenant = <T extends { tenantId: TenantId }>(items: T[]) => scope === 'tenant'
       ? items.filter((item) => item.tenantId === tenantId)
@@ -156,8 +214,18 @@ export async function registerDashboardRoutes(app: FastifyInstance, authReposito
       ? roles.filter((role) => role.tenantId === tenantId || role.tenantId === null)
       : roles;
     const tenant = tenantId ? tenants.find((entry) => entry.id === tenantId) ?? null : null;
+    const latestLicenseByInstance = new Map<string, InstanceCheckHistoryEntry | null>();
+    await Promise.all(dashboardInstances.filter((instance) => instance.checkLicense && instance.status === 'up').map(async (instance) => {
+      try {
+        const details = await instanceRepository.getHealthDetails(instance.id);
+        latestLicenseByInstance.set(instance.id, details.licenseHistory[0] ?? null);
+      } catch {
+        latestLicenseByInstance.set(instance.id, null);
+      }
+    }));
     const instances = dashboardInstances.map((instance) => {
-      const issueDetails = instanceIssueDetails(instance);
+      const latestLicense = latestLicenseByInstance.get(instance.id) ?? null;
+      const issueDetails = instanceIssueDetails(instance, sslWarningSettings, licenseWarningSettings, latestLicense);
       const severity = instanceSeverity(instance, issueDetails);
       const issues = issueDetails.map((issue) => issue.label);
       return {
@@ -188,8 +256,8 @@ export async function registerDashboardRoutes(app: FastifyInstance, authReposito
           instancesWithIssues: instances.filter((instance) => instance.hasIssue).length,
           upInstances: instances.filter((instance) => instance.status === 'up').length,
           downInstances: instances.filter((instance) => instance.status === 'down').length,
-          sslIssues: instances.filter(sslIssue).length,
-          licenseIssues: instances.filter(licenseIssue).length,
+          sslIssues: instances.filter((instance) => sslIssue(instance, sslWarningSettings)).length,
+          licenseIssues: instances.filter((instance) => instance.issueDetails.some((issue) => issue.label.toLowerCase().startsWith('license '))).length,
           disabledInstances: scopedInstances.filter((instance) => !instance.isEnabled).length,
           connectivityIssues: instances.filter(connectivityIssue).length,
           processingIssues: instances.filter(processingIssue).length,

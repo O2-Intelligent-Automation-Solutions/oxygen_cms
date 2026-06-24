@@ -185,9 +185,11 @@ export async function registerInstanceRoutes(app: FastifyInstance, authRepositor
   app.get('/api/instances/:instanceId', { preHandler: viewPreHandler }, async (request, reply) => {
     const { instanceId } = request.params as { instanceId: string };
     const profile = (request as AuthenticatedRequest).authProfile;
-    const instances = await instanceRepository.listInstances(instanceScope(profile, true));
-    const instance = filterScopedInstances(profile, instances).find((entry) => entry.id === instanceId);
-    if (!instance) return reply.code(404).send({ error: 'Instance not found.' });
+    const scopedInstances = await instanceRepository.listInstances(instanceScope(profile, true));
+    const scopedInstance = filterScopedInstances(profile, scopedInstances).find((entry) => entry.id === instanceId);
+    if (!scopedInstance) return reply.code(404).send({ error: 'Instance not found.' });
+    const instance = await instanceRepository.getInstance(instanceId);
+    if (!instance || !canAccessTenant(profile, instance.tenantId)) return reply.code(404).send({ error: 'Instance not found.' });
     return { instance };
   });
 
