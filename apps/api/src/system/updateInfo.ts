@@ -1,7 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import rootPackage from '../../../../package.json' with { type: 'json' };
 
 export type CurrentVersionInfo = {
   version: string;
@@ -89,6 +88,24 @@ function findRepoRoot(start = process.cwd()) {
 }
 
 const repoRoot = findRepoRoot();
+const rootPackageVersion = readRootPackageVersion();
+
+function readRootPackageVersion() {
+  const candidates = [
+    resolve(repoRoot, 'package.json'),
+    resolve(process.cwd(), 'package.json'),
+    resolve(process.cwd(), '../../package.json')
+  ];
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(readFileSync(candidate, 'utf8')) as { version?: unknown };
+      if (typeof parsed.version === 'string' && parsed.version.trim()) return parsed.version.trim();
+    } catch {
+      // Continue to next candidate.
+    }
+  }
+  return '0.0.0';
+}
 
 function gitValue(args: string[]) {
   if (!existsSync(resolve(repoRoot, '.git'))) return null;
@@ -103,7 +120,7 @@ function stampedVersion() {
   const envVersion = envValue('OXYGEN_CMS_VERSION');
   if (envVersion) return envVersion;
   const sha = gitValue(['rev-parse', '--short=12', 'HEAD']);
-  return sha ? `${rootPackage.version}+${sha}` : rootPackage.version;
+  return sha ? `${rootPackageVersion}+${sha}` : rootPackageVersion;
 }
 
 function stampedCommit() {
