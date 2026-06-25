@@ -120,9 +120,10 @@ Safety gates for the queued job implementation:
 3. Resolve each run to a timestamped subdirectory under the configured backup root.
 4. Write `mysql.sql.gz` plus a non-secret `manifest.json`, matching the host-side backup model.
 5. Use MySQL logical dumps with transaction-safe options where possible; do not expose database passwords in job data, logs, or manifests.
-6. Treat app-data packaging and retention cleanup as follow-up runner slices; the first runner records an explicit warning when app-data inclusion is configured but not yet packaged.
+6. Enforce retention cleanup only after a successful backup; cleanup deletes only timestamp-shaped artifact directories under the configured backup root and never deletes the current run.
+7. Treat app-data packaging as a follow-up runner slice; the current runner records an explicit warning when app-data inclusion is configured but not yet packaged.
 
-The first queued runner slice is intentionally database-dump-only and worker-only. `scripts/deploy.sh backup` remains the primary operator-facing backup command until Run Now controls, app-data packaging, and retention cleanup are reviewed.
+The first queued runner slice is intentionally database-dump-only and worker-only. `scripts/deploy.sh backup` remains the primary operator-facing backup command until Run Now controls and app-data packaging are reviewed.
 
 ## Queued restore job design
 

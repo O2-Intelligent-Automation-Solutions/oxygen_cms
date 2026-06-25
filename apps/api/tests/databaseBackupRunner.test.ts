@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -25,6 +25,17 @@ async function tempBackupDir() {
   const dir = await mkdtemp(join(tmpdir(), 'oxygen-cms-backups-'));
   tempDirs.push(dir);
   return dir;
+}
+
+async function createExistingBackup(directory: string, name: string, ageDays = 0) {
+  const path = join(directory, name);
+  await mkdir(path, { recursive: true });
+  await writeFile(join(path, 'mysql.sql.gz'), 'old backup', 'utf8');
+  if (ageDays > 0) {
+    const timestamp = new Date(Date.now() - ageDays * 24 * 60 * 60 * 1000);
+    await utimes(path, timestamp, timestamp);
+  }
+  return path;
 }
 
 function settingsProvider(current = true) {
@@ -67,13 +78,57 @@ describe('database backup runner', () => {
 
     const manifestText = await readFile(result.manifestPath, 'utf8');
     expect(manifestText).not.toContain('super-secret');
-    const manifest = JSON.parse(manifestText) as { database: string; artifacts: { databaseDump: string; appData: null }; retention: { days: number; maxArtifacts: number }; warnings: string[] };
+    const manifest = JSON.parse(manifestText) as { database: string; artifacts: { databaseDump: string; appData: null }; retention: { days: number; maxArtifacts: number }; cleanup: { removed: string[]; skipped: string[] }; warnings: string[] };
     expect(manifest).toMatchObject({
       database: 'O2IAS_CMS',
       artifacts: { databaseDump: 'mysql.sql.gz', appData: null },
-      retention: { days: 7, maxArtifacts: 3 }
+      retention: { days: 7, maxArtifacts: 3 },
+      cleanup: { removed: [], skipped: [] }
     });
     expect(manifest.warnings).toEqual(expect.arrayContaining(['mysqldump warning', expect.stringContaining('App-data artifact packaging')]));
+  });
+
+  it('cleans up old backup artifacts only after a successful backup', async () => {
+    const directory = await tempBackupDir();
+    await createExistingBackup(directory, '20240101T000000Z', 60);
+    await createExistingBackup(directory, '20240102T000000Z', 59);
+    await createExistingBackup(directory, '20240103T000000Z', 58);
+    await createExistingBackup(directory, 'not-a-backup-directory', 90);
+    const executor = vi.fn(async (_settings: DatabaseSettings, targetPath: string) => {
+      await writeFile(targetPath, 'new dump', 'utf8');
+      return {};
+    });
+    const runner = createDatabaseBackupRunner(loadConfig({
+      CMS_BACKUP_JOBS_ENABLED: 'true',
+      CMS_BACKUP_DIR: directory,
+      CMS_BACKUP_RETENTION_DAYS: '30',
+      CMS_BACKUP_MAX_ARTIFACTS: '2',
+      CMS_BACKUP_INCLUDE_APP_DATA: 'false'
+    }), settingsProvider(), executor);
+
+    const result = await runner.backupDatabase();
+    expect(result.cleanup.removed).toEqual(expect.arrayContaining(['20240101T000000Z', '20240102T000000Z']));
+    expect(result.cleanup.removed).not.toContain(result.artifactDirectory);
+    const remaining = await readdir(directory);
+    expect(remaining).toContain('not-a-backup-directory');
+    expect(remaining).not.toContain('20240101T000000Z');
+    expect(remaining).not.toContain('20240102T000000Z');
+    await expect(stat(result.artifactDirectory)).resolves.toBeTruthy();
+  });
+
+  it('does not clean up older artifacts when the dump fails', async () => {
+    const directory = await tempBackupDir();
+    await createExistingBackup(directory, '20240101T000000Z', 60);
+    const runner = createDatabaseBackupRunner(loadConfig({
+      CMS_BACKUP_JOBS_ENABLED: 'true',
+      CMS_BACKUP_DIR: directory,
+      CMS_BACKUP_RETENTION_DAYS: '30',
+      CMS_BACKUP_MAX_ARTIFACTS: '1'
+    }), settingsProvider(), vi.fn(async () => { throw new Error('dump failed'); }));
+
+    await expect(runner.backupDatabase()).rejects.toThrow('dump failed');
+    const remaining = await readdir(directory);
+    expect(remaining).toContain('20240101T000000Z');
   });
 
   it('requires current configured database settings', async () => {

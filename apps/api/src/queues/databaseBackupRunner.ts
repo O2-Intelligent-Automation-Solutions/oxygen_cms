@@ -1,5 +1,5 @@
 import { createWriteStream } from 'node:fs';
-import { mkdir, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { resolve, join, relative } from 'node:path';
 import { spawn } from 'node:child_process';
 import { createGzip } from 'node:zlib';
@@ -16,6 +16,10 @@ export type DatabaseBackupResult = {
   createdAt: string;
   database: string;
   dumpBytes: number;
+  cleanup: {
+    removed: string[];
+    skipped: string[];
+  };
   warnings: string[];
 };
 
@@ -35,6 +39,38 @@ function resolveUnderBase(baseDirectory: string, childName: string) {
   const rel = relative(base, target);
   if (rel.startsWith('..') || rel === '' || rel.includes('..')) throw new QueueJobGuardError('Backup artifact path escaped configured backup directory.');
   return { base, target };
+}
+
+function isTimestampedBackupDirectory(name: string) {
+  return /^\d{8}T\d{6}Z$/.test(name);
+}
+
+async function cleanupBackupArtifacts(baseDirectory: string, currentDirectory: string, retentionDays: number, maxArtifacts: number) {
+  const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+  const removed: string[] = [];
+  const skipped: string[] = [];
+  const entries = await readdir(baseDirectory, { withFileTypes: true }).catch(() => []);
+  const directories = (await Promise.all(entries
+    .filter((entry) => entry.isDirectory())
+    .filter((entry) => isTimestampedBackupDirectory(entry.name))
+    .map(async (entry) => {
+      const path = join(baseDirectory, entry.name);
+      const info = await stat(path);
+      return { name: entry.name, path, mtimeMs: info.mtimeMs };
+    })))
+    .sort((a, b) => b.name.localeCompare(a.name));
+  const keep = new Set(directories.slice(0, maxArtifacts).map((entry) => entry.path));
+  for (const entry of directories) {
+    if (entry.path === currentDirectory) continue;
+    if (entry.mtimeMs >= cutoff && keep.has(entry.path)) continue;
+    try {
+      await rm(entry.path, { recursive: true, force: true });
+      removed.push(entry.name);
+    } catch (error) {
+      skipped.push(`${entry.name}: ${error instanceof Error ? error.message : 'cleanup failed'}`);
+    }
+  }
+  return { removed, skipped };
 }
 
 async function defaultMysqlDumpExecutor(settings: DatabaseSettings, targetPath: string) {
@@ -79,7 +115,7 @@ export function createDatabaseBackupRunner(config: AppConfig, settingsProvider: 
 
       const createdAt = new Date().toISOString();
       const stamp = timestampForPath(new Date(createdAt));
-      const { target: artifactDirectory } = resolveUnderBase(config.backups.directory, stamp);
+      const { base: backupRoot, target: artifactDirectory } = resolveUnderBase(config.backups.directory, stamp);
       await mkdir(artifactDirectory, { recursive: true, mode: 0o700 });
 
       const databaseDumpPath = join(artifactDirectory, 'mysql.sql.gz');
@@ -89,6 +125,7 @@ export function createDatabaseBackupRunner(config: AppConfig, settingsProvider: 
       const warnings = [...(dump.warnings ?? [])];
       if (config.backups.includeAppData) warnings.push('App-data artifact packaging is not included in this first queued backup runner slice.');
       const dumpBytes = dump.bytes ?? dumpStat?.size ?? 0;
+      const cleanup = await cleanupBackupArtifacts(backupRoot, artifactDirectory, config.backups.retentionDays, config.backups.maxArtifacts);
       const manifest = {
         createdAt,
         task: 'backup-database',
@@ -103,10 +140,11 @@ export function createDatabaseBackupRunner(config: AppConfig, settingsProvider: 
           days: config.backups.retentionDays,
           maxArtifacts: config.backups.maxArtifacts
         },
+        cleanup,
         warnings
       };
       await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-      return { task: 'backup-database', artifactDirectory, databaseDumpPath, manifestPath, createdAt, database: settings.database, dumpBytes, warnings };
+      return { task: 'backup-database', artifactDirectory, databaseDumpPath, manifestPath, createdAt, database: settings.database, dumpBytes, cleanup, warnings };
     }
   };
 }
