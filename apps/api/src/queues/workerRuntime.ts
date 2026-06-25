@@ -22,6 +22,21 @@ type Logger = Pick<Console, 'info' | 'warn' | 'error'>;
 
 type WorkerConstructor = typeof Worker;
 
+type DatabaseMaintenanceJobSummary = {
+  task?: unknown;
+  tables?: unknown;
+  warnings?: unknown;
+};
+
+function summarizeCompletedJob(queueName: string, jobName: string, returnValue: unknown) {
+  if (queueName !== 'database-maintenance' || !returnValue || typeof returnValue !== 'object') return `BullMQ job completed in ${queueName}: ${jobName}`;
+  const result = returnValue as DatabaseMaintenanceJobSummary;
+  const tableCount = Array.isArray(result.tables) ? result.tables.length : 0;
+  const warningCount = Array.isArray(result.warnings) ? result.warnings.length : 0;
+  const task = typeof result.task === 'string' ? result.task : jobName;
+  return `BullMQ job completed in ${queueName}: ${task} [tables=${tableCount}; warnings=${warningCount}]`;
+}
+
 export type QueueJobProcessorOptions = {
   instanceRepository: InstanceRepository;
   appLogRepository?: AppLogRepository;
@@ -89,6 +104,7 @@ export async function createQueueWorkerRuntime(config: AppConfig, logger: Logger
 
   for (const worker of workers) {
     worker.on('ready', () => logger.info(`BullMQ worker ready for queue ${worker.name}`));
+    worker.on('completed', (job) => logger.info(summarizeCompletedJob(worker.name, job.name ?? 'unknown', (job as Job).returnvalue)));
     worker.on('failed', (job, error) => {
       const policy = classifyQueueFailure(error);
       logger.warn(`BullMQ job failed in ${worker.name}: ${job?.name ?? 'unknown'} [${policy.failureClass}; retryable=${policy.retryable ? 'yes' : 'no'}] ${error.message}`);

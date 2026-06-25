@@ -8,6 +8,7 @@ import { loadConfig } from './config/loadConfig.js';
 import { createInMemoryInstanceRepository } from './instances/inMemoryInstanceRepository.js';
 import { createSetupAwareInstanceRepository } from './instances/mysqlInstanceRepository.js';
 import { createQueueWorkerRuntime } from './queues/workerRuntime.js';
+import { createSetupAwareDatabaseMaintenanceRunner } from './queues/databaseMaintenanceRunner.js';
 import { createUpdateChecker } from './system/updateInfo.js';
 import { createFileSetupSettingsStore } from './setup/fileSetupSettingsStore.js';
 
@@ -18,10 +19,11 @@ const setupSettingsStore = createFileSetupSettingsStore(settingsPath);
 const instanceRepository = createSetupAwareInstanceRepository(setupSettingsStore, createInMemoryInstanceRepository());
 const appLogRepository = createSetupAwareAppLogRepository(setupSettingsStore, createInMemoryAppLogRepository());
 const appSettingsRepository = createSetupAwareAppSettingsRepository(setupSettingsStore, createInMemoryAppSettingsRepository());
+const databaseMaintenanceRunner = createSetupAwareDatabaseMaintenanceRunner(setupSettingsStore);
 
 const config = loadConfig();
 const updateChecker = createUpdateChecker();
-const runtime = await createQueueWorkerRuntime(config, console, { instanceRepository, appLogRepository, appSettingsRepository, updateChecker });
+const runtime = await createQueueWorkerRuntime(config, console, { instanceRepository, appLogRepository, appSettingsRepository, updateChecker, databaseMaintenanceRunner });
 
 if (runtime.state === 'disabled') {
   process.exit(0);
