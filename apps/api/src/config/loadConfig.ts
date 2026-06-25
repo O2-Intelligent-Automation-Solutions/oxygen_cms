@@ -50,11 +50,25 @@ export type AppConfig = {
     confirmationVariable: string;
     targetRef: string | null;
   };
+  backups: {
+    enabled: boolean;
+    directory: string;
+    retentionDays: number;
+    maxArtifacts: number;
+    includeAppData: boolean;
+  };
 };
 
 type Environment = Record<string, string | undefined>;
 
 function parsePort(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return parsed;
+}
+
+function parsePositiveInteger(value: string | undefined, fallback: number): number {
   if (!value) return fallback;
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
@@ -104,6 +118,13 @@ export function loadConfig(env: Environment = process.env): AppConfig {
       cwd: env.CMS_UPDATE_RUNNER_CWD?.trim() || process.cwd(),
       confirmationVariable: env.CMS_UPDATE_CONFIRMATION_VARIABLE?.trim() || 'CONFIRM_UPDATE',
       targetRef: env.CMS_UPDATE_TARGET_REF?.trim() || null
+    },
+    backups: {
+      enabled: parseBoolean(env.CMS_BACKUP_JOBS_ENABLED, false),
+      directory: env.CMS_BACKUP_DIR?.trim() || 'deploy/backups',
+      retentionDays: parsePositiveInteger(env.CMS_BACKUP_RETENTION_DAYS, 30),
+      maxArtifacts: parsePositiveInteger(env.CMS_BACKUP_MAX_ARTIFACTS, 25),
+      includeAppData: parseBoolean(env.CMS_BACKUP_INCLUDE_APP_DATA, true)
     }
   };
 }

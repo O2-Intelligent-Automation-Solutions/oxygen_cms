@@ -101,6 +101,27 @@ CONFIRM_RESTORE=YES scripts/deploy.sh restore-db deploy/backups/<timestamp>/mysq
 
 Always take a fresh backup before restore/update operations.
 
+## Queued backup job design
+
+Milestone 8C adds backend configuration for the future queued backup runner, but does not execute backups from BullMQ yet. The storage target defaults to the same local artifact root used by `scripts/deploy.sh backup` and remains disabled by default:
+
+| Environment variable | Default | Purpose |
+| --- | --- | --- |
+| `CMS_BACKUP_JOBS_ENABLED` | `false` | Opt-in gate before CMS workers may create backup artifacts. |
+| `CMS_BACKUP_DIR` | `deploy/backups` | Directory where queued backup artifacts will be written. |
+| `CMS_BACKUP_RETENTION_DAYS` | `30` | Planned cleanup window for old backup artifacts. |
+| `CMS_BACKUP_MAX_ARTIFACTS` | `25` | Planned cap for retained backup artifact directories. |
+| `CMS_BACKUP_INCLUDE_APP_DATA` | `true` | Include CMS app data/settings payloads in addition to MySQL logical dumps. |
+
+Safety gates for the queued job implementation:
+
+1. Keep BullMQ backup payloads credential-free; workers read current setup/database settings at execution time.
+2. Require `CMS_BACKUP_JOBS_ENABLED=true` before any worker writes files.
+3. Resolve the backup directory to a server-local path and reject paths outside the configured storage root once execution is implemented.
+4. Write each run into a timestamped subdirectory with a non-secret manifest, matching the host-side backup model.
+5. Use MySQL logical dumps with transaction-safe options where possible; do not expose database passwords in job data, logs, or manifests.
+6. Enforce retention cleanup only after a successful backup and never delete the artifact from the current run.
+
 ## HTTPS / certificates
 
 The MVP deployment exposes the CMS app over HTTP on `CMS_HTTP_PORT`. For production HTTPS, place a reverse proxy or load balancer in front of the app port and terminate TLS there. Supported near-term patterns:

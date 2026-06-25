@@ -17,6 +17,13 @@ describe('loadConfig queue and update runner settings', () => {
       confirmationVariable: 'CONFIRM_UPDATE',
       targetRef: null
     });
+    expect(config.backups).toEqual({
+      enabled: false,
+      directory: 'deploy/backups',
+      retentionDays: 30,
+      maxArtifacts: 25,
+      includeAppData: true
+    });
   });
 
   it('enables BullMQ settings from environment', () => {
@@ -54,6 +61,25 @@ describe('loadConfig queue and update runner settings', () => {
       cwd: '/opt/oxygen-cms',
       confirmationVariable: 'CMS_CONFIRM_UPDATE',
       targetRef: 'v0.3.0'
+    });
+  });
+
+  it('loads guarded backup storage settings from environment', () => {
+    const config = loadConfig({
+      NODE_ENV: 'production',
+      CMS_BACKUP_JOBS_ENABLED: 'true',
+      CMS_BACKUP_DIR: '/var/lib/oxygen-cms/backups',
+      CMS_BACKUP_RETENTION_DAYS: '14',
+      CMS_BACKUP_MAX_ARTIFACTS: '10',
+      CMS_BACKUP_INCLUDE_APP_DATA: 'false'
+    });
+
+    expect(config.backups).toEqual({
+      enabled: true,
+      directory: '/var/lib/oxygen-cms/backups',
+      retentionDays: 14,
+      maxArtifacts: 10,
+      includeAppData: false
     });
   });
 });
