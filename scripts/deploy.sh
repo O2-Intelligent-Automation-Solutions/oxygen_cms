@@ -38,6 +38,7 @@ Environment overrides:
   BACKUP_DIR=/path/to/backups
   UPDATE_SOURCE_REMOTE=origin
   UPDATE_TARGET_REF=main
+  CMS_BASE_URL=http://127.0.0.1:8080
 USAGE
 }
 
@@ -150,6 +151,54 @@ pre_update() {
   printf 'Pre-update safety check complete. Review the backup above before applying an update.\n'
 }
 
+cms_base_url() {
+  local configured port
+  configured="${CMS_BASE_URL:-}"
+  if [[ -n "$configured" ]]; then
+    printf '%s' "${configured%/}"
+    return 0
+  fi
+  port="$(load_env_value CMS_HTTP_PORT)"
+  printf 'http://127.0.0.1:%s' "${port:-8080}"
+}
+
+wait_for_cms_health() {
+  local base_url="$1"
+  local attempts="${CMS_UPDATE_HEALTH_ATTEMPTS:-60}"
+  local delay="${CMS_UPDATE_HEALTH_DELAY_SECONDS:-2}"
+  local i
+  if ! command -v curl >/dev/null 2>&1; then
+    printf 'ERROR: curl is required to verify CMS health and apply schema migrations after update.\n' >&2
+    exit 1
+  fi
+  for i in $(seq 1 "$attempts"); do
+    if curl -fsS --max-time 5 "$base_url/api/health" >/dev/null; then
+      return 0
+    fi
+    sleep "$delay"
+  done
+  printf 'ERROR: CMS did not become healthy at %s/api/health after update.\n' "$base_url" >&2
+  exit 1
+}
+
+apply_schema_after_update() {
+  local base_url="$1"
+  local response_file status
+  response_file="$(mktemp)"
+  printf 'Applying CMS schema migrations through %s/api/setup/database/apply-schema...\n' "$base_url"
+  status="$(curl -sS --max-time 120 -o "$response_file" -w '%{http_code}' -X POST "$base_url/api/setup/database/apply-schema" || true)"
+  if [[ "$status" != "200" ]]; then
+    printf 'ERROR: schema migration endpoint returned HTTP %s.\n' "${status:-curl-failed}" >&2
+    cat "$response_file" >&2 || true
+    rm -f "$response_file"
+    exit 1
+  fi
+  printf 'Schema migration response: '
+  cat "$response_file"
+  printf '\n'
+  rm -f "$response_file"
+}
+
 require_clean_git_tree() {
   if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     printf 'ERROR: update requires a Git checkout. Use manual package replacement for non-Git deployments.\n' >&2
@@ -202,7 +251,8 @@ update_stack() {
   printf 'Current commit: %s\n' "$current_commit"
   printf 'Target ref: %s (%s)\n' "$target_ref" "$(printf '%s' "$target_commit" | cut -c1-12)"
   if [[ "$dry_run" == "true" ]]; then
-    printf 'Dry run only. No backup, checkout, build, or container restart was performed.\n'
+    printf 'Dry run only. No backup, checkout, build, container restart, or schema migration was performed.\n'
+    printf 'Planned post-restart schema endpoint: %s/api/setup/database/apply-schema\n' "$(cms_base_url)"
     return 0
   fi
 
@@ -217,7 +267,12 @@ update_stack() {
   printf 'Rebuilding and restarting CMS stack...\n'
   "${COMPOSE[@]}" up -d --build
   "${COMPOSE[@]}" ps
-  printf 'Update command complete. Open the CMS setup/status UI and apply any pending schema migrations if prompted.\n'
+  local base_url
+  base_url="$(cms_base_url)"
+  printf 'Waiting for updated CMS to become healthy at %s...\n' "$base_url"
+  wait_for_cms_health "$base_url"
+  apply_schema_after_update "$base_url"
+  printf 'Update command complete. CMS is healthy and schema migrations have been applied.\n'
 }
 
 init_env() {
@@ -230,6 +285,7 @@ init_env() {
 COMPOSE_PROJECT_NAME=oxygen-cms
 CMS_IMAGE=oxygen-cms:local
 CMS_HTTP_PORT=8080
+CMS_BASE_URL=http://127.0.0.1:8080
 CMS_APP_CONTAINER_NAME=oxygen-cms-prod-app
 CMS_MYSQL_CONTAINER_NAME=oxygen-cms-prod-mysql
 

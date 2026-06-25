@@ -49,7 +49,7 @@ scripts/deploy.sh pre-update # Validate stack and create a safety backup before 
 scripts/deploy.sh update --dry-run main
                              # Resolve the target update without changing the stack
 CONFIRM_UPDATE=YES scripts/deploy.sh update main
-                             # Backup, checkout target, rebuild, and restart
+                             # Backup, checkout target, rebuild, restart, health-check, and apply schema migrations
 scripts/deploy.sh restart    # Restart services
 scripts/deploy.sh stop       # Stop services, preserving volumes
 ```
@@ -91,7 +91,7 @@ scripts/deploy.sh update --dry-run main
 CONFIRM_UPDATE=YES scripts/deploy.sh update main
 ```
 
-The update command requires a clean Git working tree, resolves the requested ref from the configured remote, creates the same pre-update safety backup, checks out the resolved commit, rebuilds the production image, and restarts the Compose stack. Use `UPDATE_SOURCE_REMOTE` and `UPDATE_TARGET_REF` to change the default source/target. After the app restarts, open the CMS setup/status UI and apply any pending schema migrations if prompted.
+The update command requires a clean Git working tree, resolves the requested ref from the configured remote, creates the same pre-update safety backup, checks out the resolved commit, rebuilds/restarts the Compose stack, waits for `/api/health`, and then calls `/api/setup/database/apply-schema` so pending CMS schema migrations are applied automatically. Use `UPDATE_SOURCE_REMOTE` and `UPDATE_TARGET_REF` to change the default source/target. Use `CMS_BASE_URL` when the deployment is not reachable at the default `http://127.0.0.1:${CMS_HTTP_PORT}` path.
 
 Restore is intentionally guarded because it replaces database contents:
 
@@ -124,7 +124,7 @@ Stopping the stack with `scripts/deploy.sh stop` preserves these volumes.
 
 This deployment baseline now includes GitHub update detection, the CMS Settings → General update notice, and disabled-by-default guarded update runner API endpoints. It does not yet include:
 
-- CMS UI action buttons that trigger the guarded dry-run/update endpoints. The host-side guarded `scripts/deploy.sh update` command and backend execution/status tracking are present; UI buttons and automatic schema-migration follow-through remain next.
+- Recovery guidance and full tagged-update validation remain next. The host-side guarded `scripts/deploy.sh update` command, backend execution/status tracking, Settings UI action buttons, and automatic post-restart schema migration follow-through are present.
 - Native Jobs dashboard/review surface and remaining database maintenance jobs. Redis/BullMQ configuration, status API, optional Bull Board mount, Settings → General queue visibility, opt-in worker bootstrap/profile wiring, safe instance-check processor, schedule/manual enqueue helpers, automatic startup/CRUD/import schedule reconciliation, and the queued `purge-logs` database-maintenance path are present as the Phase 1.5 foundation.
 
 Bundled HTTPS/certificate automation is intentionally skipped for now in favor of external reverse-proxy/load-balancer TLS termination.
