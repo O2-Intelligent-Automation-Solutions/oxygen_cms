@@ -125,6 +125,12 @@ describe('processInstanceCheckJob', () => {
     const first = processInstanceCheckJob({ data: { instanceId: saved.id, source: 'scheduled' }, repository, runGuard });
     await vi.waitFor(() => expect(repository.testConnectivity).toHaveBeenCalledTimes(1));
 
+    await expect(processInstanceCheckJob({ data: { instanceId: saved.id, source: 'scheduled' }, repository, runGuard })).resolves.toMatchObject({
+      instanceId: saved.id,
+      ok: true,
+      skipped: true,
+      status: 'skipped'
+    });
     await expect(processInstanceCheckJob({ data: { instanceId: saved.id, source: 'manual' }, repository, runGuard })).rejects.toThrow('already running');
     expect(repository.testConnectivity).toHaveBeenCalledTimes(1);
 

@@ -1,5 +1,6 @@
 import type { AppLogRepository } from '../appLogs/types.js';
 import type { ConnectivityResult, InstanceRepository, OxyGenInstance } from '../instances/types.js';
+import { QueueJobOverlapError, QueueJobValidationError } from './retryPolicy.js';
 
 export type InstanceCheckJobSource = 'manual' | 'scheduled';
 
@@ -36,7 +37,7 @@ export function createInMemoryInstanceCheckRunGuard(): InstanceCheckRunGuard {
   return {
     async runExclusive<T>(instanceId: string, run: () => Promise<T>): Promise<T> {
       if (activeInstanceIds.has(instanceId)) {
-        throw new Error(`Instance check already running for instance ${instanceId}.`);
+        throw new QueueJobOverlapError(`Instance check already running for instance ${instanceId}.`);
       }
       activeInstanceIds.add(instanceId);
       try {
@@ -93,12 +94,13 @@ function connectivityDetails(instance: OxyGenInstance, result: ConnectivityResul
 
 export async function processInstanceCheckJob(options: ProcessInstanceCheckJobOptions): Promise<InstanceCheckJobSummary> {
   if (containsForbiddenKey(options.data)) {
-    throw new Error('Instance check job payloads must not contain credentials, secrets, tokens, or connection strings.');
+    throw new QueueJobValidationError('Instance check job payloads must not contain credentials, secrets, tokens, or connection strings.');
   }
 
   const guard = options.runGuard ?? { runExclusive: async <T>(_instanceId: string, run: () => Promise<T>) => run() };
 
-  return guard.runExclusive(options.data.instanceId, async () => {
+  try {
+    return await guard.runExclusive(options.data.instanceId, async () => {
     const instance = await options.repository.getInstance(options.data.instanceId);
     if (!instance) {
       if (options.data.source === 'scheduled') {
@@ -138,5 +140,17 @@ export async function processInstanceCheckJob(options: ProcessInstanceCheckJobOp
     });
 
     return { instanceId: instance.id, status: result.status, ok: result.ok, message: result.message };
-  });
+    });
+  } catch (error) {
+    if (error instanceof QueueJobOverlapError && options.data.source === 'scheduled') {
+      return {
+        instanceId: options.data.instanceId,
+        status: 'skipped',
+        ok: true,
+        skipped: true,
+        message: 'Skipped scheduled instance check because another check is already running for this instance.'
+      };
+    }
+    throw error;
+  }
 }

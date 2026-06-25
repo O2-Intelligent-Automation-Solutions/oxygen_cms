@@ -7,6 +7,7 @@ import { processDatabaseMaintenanceJob } from './databaseMaintenanceProcessor.js
 import { createInMemoryInstanceCheckRunGuard, processInstanceCheckJob, type InstanceCheckRunGuard } from './instanceCheckProcessor.js';
 import { processSystemMaintenanceJob } from './systemMaintenanceProcessor.js';
 import { QUEUE_NAMES, createQueueConnectionOptions, type QueueName } from './queueStatus.js';
+import { classifyQueueFailure } from './retryPolicy.js';
 import type { UpdateChecker } from '../system/updateInfo.js';
 
 export type QueueWorkerState = 'disabled' | 'running';
@@ -86,7 +87,10 @@ export async function createQueueWorkerRuntime(config: AppConfig, logger: Logger
 
   for (const worker of workers) {
     worker.on('ready', () => logger.info(`BullMQ worker ready for queue ${worker.name}`));
-    worker.on('failed', (job, error) => logger.warn(`BullMQ job failed in ${worker.name}: ${job?.name ?? 'unknown'} ${error.message}`));
+    worker.on('failed', (job, error) => {
+      const policy = classifyQueueFailure(error);
+      logger.warn(`BullMQ job failed in ${worker.name}: ${job?.name ?? 'unknown'} [${policy.failureClass}; retryable=${policy.retryable ? 'yes' : 'no'}] ${error.message}`);
+    });
     worker.on('error', (error) => logger.error(`BullMQ worker error in ${worker.name}: ${error.message}`));
   }
 
