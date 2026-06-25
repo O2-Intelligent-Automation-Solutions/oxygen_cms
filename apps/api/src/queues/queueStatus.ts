@@ -60,6 +60,13 @@ export type QueueJobSummary = {
     durationMs: number | null;
     attemptCost: number;
   };
+  result?: {
+    task: string | null;
+    tableCount: number | null;
+    warningCount: number | null;
+    artifactCount: number | null;
+    summary: string | null;
+  };
   data: {
     task?: string;
     source?: string;
@@ -146,6 +153,34 @@ function safeJobData(data: unknown): QueueJobSummary['data'] {
   if (typeof payload.instanceId === 'string') safe.instanceId = payload.instanceId;
   if (typeof payload.requestedBy === 'string') safe.requestedBy = payload.requestedBy;
   return safe;
+}
+
+export function summarizeSafeQueueJobResult(queue: QueueName, jobName: string, value: unknown): QueueJobSummary['result'] | undefined {
+  if (queue !== 'database-maintenance' || !value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const result = value as Record<string, unknown>;
+  const task = typeof result.task === 'string' ? result.task : jobName;
+  const tables = Array.isArray(result.tables) ? result.tables : null;
+  const warnings = Array.isArray(result.warnings) ? result.warnings : null;
+  const artifacts = result.artifacts && typeof result.artifacts === 'object' && !Array.isArray(result.artifacts) ? result.artifacts as Record<string, unknown> : null;
+  const artifactCount = artifacts
+    ? Object.values(artifacts).filter((artifact) => typeof artifact === 'string' && artifact.trim()).length
+    : ['databaseDumpPath', 'appDataArchivePath', 'manifestPath'].filter((key) => typeof result[key] === 'string' && String(result[key]).trim()).length || null;
+  const dumpBytes = typeof result.dumpBytes === 'number' && Number.isFinite(result.dumpBytes) ? result.dumpBytes : null;
+  const appDataBytes = typeof result.appDataBytes === 'number' && Number.isFinite(result.appDataBytes) ? result.appDataBytes : null;
+  const parts = [
+    tables ? `${tables.length} table${tables.length === 1 ? '' : 's'}` : null,
+    warnings ? `${warnings.length} warning${warnings.length === 1 ? '' : 's'}` : null,
+    artifactCount !== null ? `${artifactCount} artifact${artifactCount === 1 ? '' : 's'}` : null,
+    dumpBytes !== null ? `dump ${dumpBytes} bytes` : null,
+    appDataBytes !== null ? `app data ${appDataBytes} bytes` : null
+  ].filter(Boolean);
+  return {
+    task,
+    tableCount: tables ? tables.length : null,
+    warningCount: warnings ? warnings.length : null,
+    artifactCount,
+    summary: parts.length ? parts.join(' · ') : null
+  };
 }
 
 function normalizeJobState(value: string): QueueJobState {
@@ -387,6 +422,7 @@ export async function createQueueRuntime(config: AppConfig): Promise<QueueRuntim
               finishedOn: isoFromMillis(job.finishedOn),
               failedReason: truncate(job.failedReason),
               resource: resourceMetrics({ state, timestamp: job.timestamp, processedOn: job.processedOn, finishedOn: job.finishedOn, nextProcessAt: nextProcessMillis({ state, timestamp: job.timestamp, processedOn: job.processedOn, finishedOn: job.finishedOn, delay: job.delay }), attemptsMade: job.attemptsMade }),
+              result: summarizeSafeQueueJobResult(queue.name as QueueName, job.name, job.returnvalue),
               data: safeJobData(job.data)
             };
           }));
@@ -420,6 +456,7 @@ export async function createQueueRuntime(config: AppConfig): Promise<QueueRuntim
               finishedOn: isoFromMillis(job.finishedOn),
               failedReason: truncate(job.failedReason),
               resource: resourceMetrics({ state, timestamp: job.timestamp, processedOn: job.processedOn, finishedOn: job.finishedOn, nextProcessAt: nextProcessMillis({ state, timestamp: job.timestamp, processedOn: job.processedOn, finishedOn: job.finishedOn, delay: job.delay }), attemptsMade: job.attemptsMade }),
+              result: summarizeSafeQueueJobResult(queue.name as QueueName, job.name, job.returnvalue),
               data: safeJobData(job.data)
             };
           }));

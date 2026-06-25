@@ -1901,6 +1901,15 @@ components:
             waitSeconds: { type: [integer, 'null'], minimum: 0 }
             durationMs: { type: [integer, 'null'], minimum: 0 }
             attemptCost: { type: integer, minimum: 0 }
+        result:
+          type: object
+          description: Sanitized database-maintenance result summary; raw result rows, artifact paths, and secrets are not returned.
+          properties:
+            task: { type: [string, 'null'] }
+            tableCount: { type: [integer, 'null'], minimum: 0 }
+            warningCount: { type: [integer, 'null'], minimum: 0 }
+            artifactCount: { type: [integer, 'null'], minimum: 0 }
+            summary: { type: [string, 'null'] }
         timestamp: { type: [string, 'null'], format: date-time }
         processedOn: { type: [string, 'null'], format: date-time }
         finishedOn: { type: [string, 'null'], format: date-time }
