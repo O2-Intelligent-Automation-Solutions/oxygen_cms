@@ -1,7 +1,7 @@
 import type { Pool, RowDataPacket } from 'mysql2/promise';
 import { createPool } from 'mysql2/promise';
 import type { DatabaseSettings, SetupSettingsStore } from '../setup/fileSetupSettingsStore.js';
-import { DEFAULT_APP_LABELS, DEFAULT_LOG_RETENTION_SETTINGS, DEFAULT_SSL_CERTIFICATE_WARNING_SETTINGS, DEFAULT_LICENSE_EXPIRATION_WARNING_SETTINGS, DEFAULT_QUEUE_SCHEDULE_SETTINGS, type AppLabels, type AppSettingsRepository, type LogRetentionSettings, type SslCertificateWarningSettings, type LicenseExpirationWarningSettings, type QueueScheduleSettings } from './types.js';
+import { DEFAULT_APP_LABELS, DEFAULT_LOG_RETENTION_SETTINGS, DEFAULT_SSL_CERTIFICATE_WARNING_SETTINGS, DEFAULT_LICENSE_EXPIRATION_WARNING_SETTINGS, normalizeQueueScheduleSettings, type AppLabels, type AppSettingsRepository, type LogRetentionSettings, type SslCertificateWarningSettings, type LicenseExpirationWarningSettings, type QueueScheduleSettings } from './types.js';
 
 const SETTINGS_KEY_LABELS = 'labels';
 const SETTINGS_KEY_LOG_RETENTION = 'logRetention';
@@ -42,23 +42,6 @@ function normalizeLicenseExpirationWarning(value: unknown): LicenseExpirationWar
   return { ...DEFAULT_LICENSE_EXPIRATION_WARNING_SETTINGS };
 }
 
-
-function normalizeQueueSchedules(value: unknown): QueueScheduleSettings {
-  const submittedJobs = value && typeof value === 'object' && !Array.isArray(value) && 'jobs' in value && Array.isArray((value as { jobs: unknown }).jobs)
-    ? (value as { jobs: unknown[] }).jobs
-    : [];
-  return {
-    jobs: DEFAULT_QUEUE_SCHEDULE_SETTINGS.jobs.map((defaultJob) => {
-      const submitted = submittedJobs.find((job) => job && typeof job === 'object' && 'key' in job && (job as { key: unknown }).key === defaultJob.key) as { enabled?: unknown; everySeconds?: unknown } | undefined;
-      const everySeconds = Number(submitted?.everySeconds ?? defaultJob.everySeconds);
-      return {
-        ...defaultJob,
-        enabled: typeof submitted?.enabled === 'boolean' ? submitted.enabled : defaultJob.enabled,
-        everySeconds: Number.isFinite(everySeconds) ? Math.min(Math.max(Math.trunc(everySeconds), 86_400), 2_592_000) : defaultJob.everySeconds
-      };
-    })
-  };
-}
 
 function parseSettingValue(value: SettingRow['value_json']): unknown {
   if (typeof value !== 'string') return value;
@@ -133,11 +116,11 @@ export function createMysqlAppSettingsRepository(pool: Pool): AppSettingsReposit
     },
     async getQueueSchedules() {
       const [rows] = await pool.query<SettingRow[]>('SELECT value_json FROM application_settings WHERE setting_key = ? LIMIT 1', [SETTINGS_KEY_QUEUE_SCHEDULES]);
-      if (!rows[0]) return normalizeQueueSchedules(null);
-      return normalizeQueueSchedules(parseSettingValue(rows[0].value_json));
+      if (!rows[0]) return normalizeQueueScheduleSettings(null);
+      return normalizeQueueScheduleSettings(parseSettingValue(rows[0].value_json));
     },
     async saveQueueSchedules(settings) {
-      const normalized = normalizeQueueSchedules(settings);
+      const normalized = normalizeQueueScheduleSettings(settings);
       await pool.query(
         `INSERT INTO application_settings (setting_key, value_json)
          VALUES (?, CAST(? AS JSON))

@@ -1312,7 +1312,7 @@ paths:
     put:
       tags: [Application Settings]
       summary: Save recurring maintenance queue schedules
-      description: SystemAdmin only. Saves enabled state and cadence for maintenance schedules, reconciles BullMQ schedulers at API startup or explicit route handling, and requires `everySeconds` to be at least one day.
+      description: SystemAdmin only. Saves enabled state and cadence for maintenance schedules, reconciles BullMQ schedulers at API startup or explicit route handling, and accepts either legacy `everySeconds` or the normalized interval `schedule` object with at least one day.
       requestBody:
         required: true
         content:
@@ -2180,23 +2180,35 @@ components:
         - database-maintenance:prune-check-history
         - system-maintenance:check-application-updates
         - system-maintenance:prune-queue-history
+    QueueScheduleDefinition:
+      oneOf:
+        - type: object
+          required: [type, everySeconds]
+          properties:
+            type: { type: string, enum: [interval] }
+            everySeconds: { type: integer, minimum: 86400, maximum: 2592000, description: Interval cadence in seconds. Current compatibility slice supports interval schedules only; CRON/anchored schedules are designed but not accepted until the next runtime/UI slice. }
     QueueScheduleJobSettings:
       type: object
-      required: [key, queue, name, label, enabled, everySeconds]
+      required: [key, queue, name, label, enabled, everySeconds, schedule]
       properties:
         key: { $ref: '#/components/schemas/QueueScheduleJobKey' }
         queue: { type: string, enum: [database-maintenance, system-maintenance] }
         name: { type: string }
         label: { type: string }
         enabled: { type: boolean }
-        everySeconds: { type: integer, minimum: 86400, maximum: 2592000, description: Recurring cadence in seconds. Settings UI displays whole days and enforces a minimum of one day. }
+        everySeconds: { type: integer, minimum: 86400, maximum: 2592000, description: Compatibility recurring cadence in seconds. Settings UI displays whole days and enforces a minimum of one day. }
+        schedule: { $ref: '#/components/schemas/QueueScheduleDefinition' }
     QueueScheduleJobUpdate:
       type: object
-      required: [key, enabled, everySeconds]
+      required: [key, enabled]
       properties:
         key: { $ref: '#/components/schemas/QueueScheduleJobKey' }
         enabled: { type: boolean }
-        everySeconds: { type: integer, minimum: 86400, maximum: 2592000, description: Recurring cadence in seconds; one-day minimum. }
+        everySeconds: { type: integer, minimum: 86400, maximum: 2592000, description: Legacy compatibility recurring cadence in seconds; one-day minimum. }
+        schedule: { $ref: '#/components/schemas/QueueScheduleDefinition' }
+      anyOf:
+        - required: [everySeconds]
+        - required: [schedule]
     QueueScheduleSettings:
       type: object
       required: [jobs]

@@ -96,8 +96,8 @@ describe('application settings API', () => {
     const defaults = await app.inject({ method: 'GET', url: '/api/app-settings/queue-schedules', headers: { authorization: `Bearer ${token}` } });
     expect(defaults.statusCode).toBe(200);
     expect(defaults.json().queueSchedules.jobs).toEqual(expect.arrayContaining([
-      { key: 'database-maintenance:purge-logs', queue: 'database-maintenance', name: 'purge-logs', label: 'Purge Logs', enabled: true, everySeconds: 86400 },
-      { key: 'system-maintenance:check-application-updates', queue: 'system-maintenance', name: 'check-application-updates', label: 'Check Application Updates', enabled: true, everySeconds: 86400 }
+      expect.objectContaining({ key: 'database-maintenance:purge-logs', queue: 'database-maintenance', name: 'purge-logs', label: 'Purge Logs', enabled: true, everySeconds: 86400, schedule: { type: 'interval', everySeconds: 86400 } }),
+      expect.objectContaining({ key: 'system-maintenance:check-application-updates', queue: 'system-maintenance', name: 'check-application-updates', label: 'Check Application Updates', enabled: true, everySeconds: 86400, schedule: { type: 'interval', everySeconds: 86400 } })
     ]));
 
     const updated = await app.inject({ method: 'PUT', url: '/api/app-settings/queue-schedules', headers: { authorization: `Bearer ${token}` }, payload: { jobs: [
@@ -117,6 +117,39 @@ describe('application settings API', () => {
 
     const invalid = await app.inject({ method: 'PUT', url: '/api/app-settings/queue-schedules', headers: { authorization: `Bearer ${token}` }, payload: { jobs: [{ key: 'database-maintenance:purge-logs', enabled: true, everySeconds: 10 }] } });
     expect(invalid.statusCode).toBe(400);
+
+    await app.close();
+  });
+
+  it('accepts normalized interval schedule objects while preserving everySeconds compatibility', async () => {
+    const reconcileQueueSchedules = vi.fn(async () => undefined);
+    const queueStatusProvider: QueueRuntime = {
+      async readStatus() {
+        return { enabled: true, mode: 'bullmq', generatedAt: '2026-06-16T00:00:00.000Z', redis: { configured: true, connected: true, host: '127.0.0.1', port: 6379, error: null }, bullBoard: { enabled: false, path: null }, queues: [] };
+      },
+      async readJobs() {
+        return { enabled: true, mode: 'bullmq', generatedAt: '2026-06-16T00:00:00.000Z', jobs: [] };
+      },
+      reconcileQueueSchedules
+    };
+    const { app, token } = await loginAdmin(queueStatusProvider);
+
+    const updated = await app.inject({ method: 'PUT', url: '/api/app-settings/queue-schedules', headers: { authorization: `Bearer ${token}` }, payload: { jobs: [
+      { key: 'database-maintenance:purge-logs', enabled: true, schedule: { type: 'interval', everySeconds: 259200 } },
+      { key: 'system-maintenance:check-application-updates', enabled: true, schedule: { type: 'interval', everySeconds: 86400 } }
+    ] } });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json().queueSchedules.jobs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: 'database-maintenance:purge-logs', everySeconds: 259200, schedule: { type: 'interval', everySeconds: 259200 } })
+    ]));
+    expect(reconcileQueueSchedules).toHaveBeenCalledWith(expect.objectContaining({
+      jobs: expect.arrayContaining([
+        expect.objectContaining({ key: 'database-maintenance:purge-logs', everySeconds: 259200, schedule: { type: 'interval', everySeconds: 259200 } })
+      ])
+    }));
+
+    const invalidCron = await app.inject({ method: 'PUT', url: '/api/app-settings/queue-schedules', headers: { authorization: `Bearer ${token}` }, payload: { jobs: [{ key: 'database-maintenance:purge-logs', enabled: true, schedule: { type: 'cron', expression: '0 16 * * *', timezone: 'America/Chicago' } }] } });
+    expect(invalidCron.statusCode).toBe(400);
 
     await app.close();
   });

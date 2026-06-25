@@ -1,4 +1,4 @@
-import { DEFAULT_APP_LABELS, DEFAULT_LOG_RETENTION_SETTINGS, DEFAULT_SSL_CERTIFICATE_WARNING_SETTINGS, DEFAULT_LICENSE_EXPIRATION_WARNING_SETTINGS, DEFAULT_QUEUE_SCHEDULE_SETTINGS, type AppLabels, type AppSettingsRepository, type LogRetentionSettings, type SslCertificateWarningSettings, type LicenseExpirationWarningSettings, type QueueScheduleSettings } from './types.js';
+import { DEFAULT_APP_LABELS, DEFAULT_LOG_RETENTION_SETTINGS, DEFAULT_SSL_CERTIFICATE_WARNING_SETTINGS, DEFAULT_LICENSE_EXPIRATION_WARNING_SETTINGS, DEFAULT_QUEUE_SCHEDULE_SETTINGS, normalizeQueueScheduleSettings, type AppLabels, type AppSettingsRepository, type LogRetentionSettings, type SslCertificateWarningSettings, type LicenseExpirationWarningSettings, type QueueScheduleSettings } from './types.js';
 
 export function createInMemoryAppSettingsRepository(): AppSettingsRepository {
   let labels: AppLabels = { ...DEFAULT_APP_LABELS };
@@ -39,12 +39,7 @@ export function createInMemoryAppSettingsRepository(): AppSettingsRepository {
       return { jobs: queueSchedules.jobs.map((job) => ({ ...job })) };
     },
     async saveQueueSchedules(nextSettings) {
-      const merged = DEFAULT_QUEUE_SCHEDULE_SETTINGS.jobs.map((defaultJob) => {
-        const override = nextSettings.jobs.find((job) => job.key === defaultJob.key);
-        const everySeconds = override?.everySeconds ?? defaultJob.everySeconds;
-        return { ...defaultJob, enabled: override?.enabled ?? defaultJob.enabled, everySeconds: Math.min(Math.max(Math.trunc(everySeconds), 86_400), 2_592_000) };
-      });
-      queueSchedules = { jobs: merged };
+      queueSchedules = normalizeQueueScheduleSettings(nextSettings);
       return { jobs: queueSchedules.jobs.map((job) => ({ ...job })) };
     }
   };
