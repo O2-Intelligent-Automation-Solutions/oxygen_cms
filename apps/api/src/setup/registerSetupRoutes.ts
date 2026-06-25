@@ -4,7 +4,7 @@ import type { AuthRepository } from '../auth/types.js';
 import type { DatabaseProvisioner } from './databaseProvisioner.js';
 import type { DeploymentConfig } from './deploymentConfig.js';
 import { publicDeploymentConfig } from './deploymentConfig.js';
-import type { SetupSettingsStore } from './fileSetupSettingsStore.js';
+import type { SetupSettingsStore, DatabaseSettings } from './fileSetupSettingsStore.js';
 import { getSetupStatus, type SetupStatusProvider } from './setupStatus.js';
 import { CURRENT_SCHEMA_VERSION } from './types.js';
 
@@ -34,6 +34,18 @@ function toDatabaseSettings(input: z.infer<typeof databaseSetupSchema>) {
     database: input.database,
     user: input.appUser,
     password: input.appPassword
+  };
+}
+
+function deploymentSchemaSettings(deploymentConfig: DeploymentConfig): DatabaseSettings | null {
+  const mysql = deploymentConfig.mysql;
+  if (!mysql?.host || !mysql.database || !mysql.applicationUser || !mysql.applicationPassword) return null;
+  return {
+    host: mysql.host,
+    port: mysql.port,
+    database: mysql.database,
+    user: mysql.privilegedUser && mysql.privilegedPassword ? mysql.privilegedUser : mysql.applicationUser,
+    password: mysql.privilegedUser && mysql.privilegedPassword ? mysql.privilegedPassword : mysql.applicationPassword
   };
 }
 
@@ -140,14 +152,15 @@ export async function registerSetupRoutes(
   });
 
   app.post('/api/setup/database/apply-schema', async (_request, reply) => {
-    if (!setupSettingsStore) return reply.code(501).send({ error: 'Setup settings store is not configured.' });
-    const database = await setupSettingsStore.getDatabaseSettings();
-    const schemaDatabase = await setupSettingsStore.getSchemaDatabaseSettings();
+    const storedDatabase = await setupSettingsStore?.getDatabaseSettings();
+    const schemaDatabase = await setupSettingsStore?.getSchemaDatabaseSettings();
+    const deploymentDatabase = deploymentSchemaSettings(deploymentConfig);
+    const database = storedDatabase ?? deploymentDatabase;
     if (!database) return reply.code(400).send({ error: 'Database must be configured before applying schema.' });
     try {
       const schema = await databaseProvisioner.applySchema(schemaDatabase ?? database);
-      await setupSettingsStore.markSchemaCurrent();
-      await setupSettingsStore.clearSchemaDatabaseSettings();
+      await setupSettingsStore?.markSchemaCurrent();
+      await setupSettingsStore?.clearSchemaDatabaseSettings();
       return reply.code(200).send({
         ok: true,
         database: database.database,

@@ -282,14 +282,80 @@ const applicationLogsSchemaSql = `CREATE TABLE IF NOT EXISTS application_logs (
 );`;
 
 
-const applicationLogsEntityGuidSql = `ALTER TABLE application_logs
-  ADD COLUMN entity_guid CHAR(36) NULL AFTER user_name,
-  ADD KEY idx_application_logs_entity_guid (entity_guid);`;
+const applicationLogsEntityGuidSql = `SET @add_application_logs_entity_guid_column_sql = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE application_logs ADD COLUMN entity_guid CHAR(36) NULL AFTER user_name',
+    'SELECT 1'
+  )
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'application_logs'
+    AND column_name = 'entity_guid'
+);
+PREPARE add_application_logs_entity_guid_column_stmt FROM @add_application_logs_entity_guid_column_sql;
+EXECUTE add_application_logs_entity_guid_column_stmt;
+DEALLOCATE PREPARE add_application_logs_entity_guid_column_stmt;
 
-const applicationLogsTenantIdSql = `ALTER TABLE application_logs
-  ADD COLUMN tenant_id CHAR(36) NULL AFTER entity_guid,
-  ADD KEY idx_application_logs_tenant_id (tenant_id),
-  ADD KEY idx_application_logs_tenant_entity (tenant_id, entity_guid);`;
+SET @add_application_logs_entity_guid_index_sql = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE application_logs ADD KEY idx_application_logs_entity_guid (entity_guid)',
+    'SELECT 1'
+  )
+  FROM information_schema.statistics
+  WHERE table_schema = DATABASE()
+    AND table_name = 'application_logs'
+    AND index_name = 'idx_application_logs_entity_guid'
+);
+PREPARE add_application_logs_entity_guid_index_stmt FROM @add_application_logs_entity_guid_index_sql;
+EXECUTE add_application_logs_entity_guid_index_stmt;
+DEALLOCATE PREPARE add_application_logs_entity_guid_index_stmt;`;
+
+const applicationLogsTenantIdSql = `SET @add_application_logs_tenant_id_column_sql = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE application_logs ADD COLUMN tenant_id CHAR(36) NULL AFTER entity_guid',
+    'SELECT 1'
+  )
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'application_logs'
+    AND column_name = 'tenant_id'
+);
+PREPARE add_application_logs_tenant_id_column_stmt FROM @add_application_logs_tenant_id_column_sql;
+EXECUTE add_application_logs_tenant_id_column_stmt;
+DEALLOCATE PREPARE add_application_logs_tenant_id_column_stmt;
+
+SET @add_application_logs_tenant_id_index_sql = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE application_logs ADD KEY idx_application_logs_tenant_id (tenant_id)',
+    'SELECT 1'
+  )
+  FROM information_schema.statistics
+  WHERE table_schema = DATABASE()
+    AND table_name = 'application_logs'
+    AND index_name = 'idx_application_logs_tenant_id'
+);
+PREPARE add_application_logs_tenant_id_index_stmt FROM @add_application_logs_tenant_id_index_sql;
+EXECUTE add_application_logs_tenant_id_index_stmt;
+DEALLOCATE PREPARE add_application_logs_tenant_id_index_stmt;
+
+SET @add_application_logs_tenant_entity_index_sql = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE application_logs ADD KEY idx_application_logs_tenant_entity (tenant_id, entity_guid)',
+    'SELECT 1'
+  )
+  FROM information_schema.statistics
+  WHERE table_schema = DATABASE()
+    AND table_name = 'application_logs'
+    AND index_name = 'idx_application_logs_tenant_entity'
+);
+PREPARE add_application_logs_tenant_entity_index_stmt FROM @add_application_logs_tenant_entity_index_sql;
+EXECUTE add_application_logs_tenant_entity_index_stmt;
+DEALLOCATE PREPARE add_application_logs_tenant_entity_index_stmt;`;
 
 const instanceImportColumnsSql = `ALTER TABLE oxygen_instances
   ADD COLUMN check_license TINYINT(1) NOT NULL DEFAULT 1 AFTER is_enabled,

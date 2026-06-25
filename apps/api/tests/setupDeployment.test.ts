@@ -113,4 +113,48 @@ describe('setup deployment capabilities', () => {
 
     await app.close();
   });
+
+  it('applies schema from deployment database settings when setup settings are not saved', async () => {
+    const calls: string[] = [];
+    const dir = await mkdtemp(join(tmpdir(), 'oxygen-cms-managed-schema-fallback-'));
+    tempDirs.push(dir);
+    const setupSettingsStore = createFileSetupSettingsStore(join(dir, 'settings.json'));
+    const databaseProvisioner: DatabaseProvisioner = {
+      async testConnection() { return { ok: true, message: 'ok' }; },
+      async listDatabases() { return []; },
+      async provision(input) { return { settings: input.settings, createdDatabase: true, createdUser: true }; },
+      async applySchema(settings) {
+        calls.push(`schema:${settings.host}:${settings.database}:${settings.user}`);
+        return { appliedVersions: ['0.19'], targetSchemaVersion: '0.19' };
+      }
+    };
+
+    const app = await buildApp({
+      logger: false,
+      authRepository: createInMemoryAuthRepository(),
+      setupSettingsStore,
+      setupStatusProvider: createFileSetupStatusProvider(setupSettingsStore),
+      databaseProvisioner,
+      deploymentConfig: {
+        mode: 'self-contained',
+        managedMysql: true,
+        mysql: {
+          host: 'mysql',
+          port: 3306,
+          database: 'O2IAS_CMS',
+          applicationUser: 'oxygen_cms',
+          applicationPassword: 'ManagedAppPassword!42',
+          privilegedUser: 'root',
+          privilegedPassword: 'ManagedRootPassword!42'
+        }
+      }
+    });
+
+    const schema = await app.inject({ method: 'POST', url: '/api/setup/database/apply-schema' });
+    expect(schema.statusCode).toBe(200);
+    expect(schema.json()).toMatchObject({ ok: true, database: 'O2IAS_CMS', appliedVersions: ['0.19'] });
+    expect(calls).toEqual(['schema:mysql:O2IAS_CMS:root']);
+
+    await app.close();
+  });
 });
