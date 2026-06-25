@@ -129,10 +129,12 @@ describe('queue worker runtime', () => {
         task: 'backup-database' as const,
         artifactDirectory: '/tmp/backups/20260625T000000Z',
         databaseDumpPath: '/tmp/backups/20260625T000000Z/mysql.sql.gz',
+        appDataArchivePath: '/tmp/backups/20260625T000000Z/app-data.tar.gz',
         manifestPath: '/tmp/backups/20260625T000000Z/manifest.json',
         createdAt: '2026-06-25T00:00:00.000Z',
         database: 'O2IAS_CMS',
         dumpBytes: 123,
+        appDataBytes: 45,
         cleanup: { removed: [], skipped: [] },
         warnings: []
       }))

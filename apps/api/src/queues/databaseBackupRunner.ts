@@ -12,10 +12,12 @@ export type DatabaseBackupResult = {
   task: 'backup-database';
   artifactDirectory: string;
   databaseDumpPath: string;
+  appDataArchivePath: string | null;
   manifestPath: string;
   createdAt: string;
   database: string;
   dumpBytes: number;
+  appDataBytes: number | null;
   cleanup: {
     removed: string[];
     skipped: string[];
@@ -28,6 +30,12 @@ export type DatabaseBackupRunner = {
 };
 
 export type DatabaseDumpExecutor = (settings: DatabaseSettings, targetPath: string) => Promise<{ bytes?: number; warnings?: string[] }>;
+export type AppDataArchiver = (sourceDirectory: string, targetPath: string) => Promise<{ bytes?: number; warnings?: string[] }>;
+
+export type DatabaseBackupRunnerOptions = {
+  appDataDirectory?: string;
+  appDataArchiver?: AppDataArchiver;
+};
 
 function timestampForPath(now = new Date()) {
   return now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
@@ -105,7 +113,27 @@ async function defaultMysqlDumpExecutor(settings: DatabaseSettings, targetPath: 
   return { bytes: file.size, warnings: stderr.trim() ? [stderr.trim()] : [] };
 }
 
-export function createDatabaseBackupRunner(config: AppConfig, settingsProvider: { getDatabaseSettings(): Promise<DatabaseSettings | null>; isSchemaCurrent(): Promise<boolean> }, dumpExecutor: DatabaseDumpExecutor = defaultMysqlDumpExecutor): DatabaseBackupRunner {
+async function defaultAppDataArchiver(sourceDirectory: string, targetPath: string) {
+  const source = await stat(sourceDirectory).catch(() => null);
+  const args = source?.isDirectory() ? ['-C', sourceDirectory, '-czf', targetPath, '.'] : ['-czf', targetPath, '-T', '/dev/null'];
+  const child = spawn('tar', args, { stdio: ['ignore', 'ignore', 'pipe'] });
+  let stderr = '';
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data', (chunk) => { stderr += chunk; });
+  await new Promise<void>((resolveExit, rejectExit) => {
+    child.once('error', rejectExit);
+    child.once('close', (code) => {
+      if (code === 0) resolveExit();
+      else rejectExit(new Error(`tar exited with code ${code}${stderr.trim() ? `: ${stderr.trim()}` : ''}`));
+    });
+  });
+  const file = await stat(targetPath);
+  const warnings = stderr.trim() ? [stderr.trim()] : [];
+  if (!source?.isDirectory()) warnings.push('App-data source directory was missing; wrote empty app-data archive.');
+  return { bytes: file.size, warnings };
+}
+
+export function createDatabaseBackupRunner(config: AppConfig, settingsProvider: { getDatabaseSettings(): Promise<DatabaseSettings | null>; isSchemaCurrent(): Promise<boolean> }, dumpExecutor: DatabaseDumpExecutor = defaultMysqlDumpExecutor, options: DatabaseBackupRunnerOptions = {}): DatabaseBackupRunner {
   return {
     async backupDatabase() {
       if (!config.backups.enabled) throw new QueueJobGuardError('Database backup jobs require CMS_BACKUP_JOBS_ENABLED=true.');
@@ -119,11 +147,22 @@ export function createDatabaseBackupRunner(config: AppConfig, settingsProvider: 
       await mkdir(artifactDirectory, { recursive: true, mode: 0o700 });
 
       const databaseDumpPath = join(artifactDirectory, 'mysql.sql.gz');
+      const appDataArchivePath = config.backups.includeAppData ? join(artifactDirectory, 'app-data.tar.gz') : null;
       const manifestPath = join(artifactDirectory, 'manifest.json');
       const dump = await dumpExecutor(settings, databaseDumpPath);
       const dumpStat = await stat(databaseDumpPath).catch(() => null);
       const warnings = [...(dump.warnings ?? [])];
-      if (config.backups.includeAppData) warnings.push('App-data artifact packaging is not included in this first queued backup runner slice.');
+      let appDataBytes: number | null = null;
+      if (appDataArchivePath) {
+        if (options.appDataDirectory) {
+          const appDataArchive = await (options.appDataArchiver ?? defaultAppDataArchiver)(options.appDataDirectory, appDataArchivePath);
+          const appDataStat = await stat(appDataArchivePath).catch(() => null);
+          appDataBytes = appDataArchive.bytes ?? appDataStat?.size ?? 0;
+          warnings.push(...(appDataArchive.warnings ?? []));
+        } else {
+          warnings.push('App-data source directory was not configured; app-data archive was skipped.');
+        }
+      }
       const dumpBytes = dump.bytes ?? dumpStat?.size ?? 0;
       const cleanup = await cleanupBackupArtifacts(backupRoot, artifactDirectory, config.backups.retentionDays, config.backups.maxArtifacts);
       const manifest = {
@@ -134,7 +173,7 @@ export function createDatabaseBackupRunner(config: AppConfig, settingsProvider: 
         port: settings.port,
         artifacts: {
           databaseDump: 'mysql.sql.gz',
-          appData: null
+          appData: appDataArchivePath ? 'app-data.tar.gz' : null
         },
         retention: {
           days: config.backups.retentionDays,
@@ -144,11 +183,11 @@ export function createDatabaseBackupRunner(config: AppConfig, settingsProvider: 
         warnings
       };
       await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-      return { task: 'backup-database', artifactDirectory, databaseDumpPath, manifestPath, createdAt, database: settings.database, dumpBytes, cleanup, warnings };
+      return { task: 'backup-database', artifactDirectory, databaseDumpPath, appDataArchivePath, manifestPath, createdAt, database: settings.database, dumpBytes, appDataBytes, cleanup, warnings };
     }
   };
 }
 
-export function createSetupAwareDatabaseBackupRunner(config: AppConfig, setupSettingsStore: SetupSettingsStore, dumpExecutor?: DatabaseDumpExecutor): DatabaseBackupRunner {
-  return createDatabaseBackupRunner(config, setupSettingsStore, dumpExecutor);
+export function createSetupAwareDatabaseBackupRunner(config: AppConfig, setupSettingsStore: SetupSettingsStore, appDataDirectory?: string, dumpExecutor?: DatabaseDumpExecutor, appDataArchiver?: AppDataArchiver): DatabaseBackupRunner {
+  return createDatabaseBackupRunner(config, setupSettingsStore, dumpExecutor, { appDataDirectory, appDataArchiver });
 }

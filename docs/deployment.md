@@ -118,12 +118,12 @@ Safety gates for the queued job implementation:
 1. Keep BullMQ backup payloads credential-free; workers read current setup/database settings at execution time.
 2. Require `CMS_BACKUP_JOBS_ENABLED=true` before any worker writes files or invokes `mysqldump`.
 3. Resolve each run to a timestamped subdirectory under the configured backup root.
-4. Write `mysql.sql.gz` plus a non-secret `manifest.json`, matching the host-side backup model.
+4. Write `mysql.sql.gz`, optional `app-data.tar.gz`, and a non-secret `manifest.json`, matching the host-side backup model.
 5. Use MySQL logical dumps with transaction-safe options where possible; do not expose database passwords in job data, logs, or manifests.
 6. Enforce retention cleanup only after a successful backup; cleanup deletes only timestamp-shaped artifact directories under the configured backup root and never deletes the current run.
-7. Treat app-data packaging as a follow-up runner slice; the current runner records an explicit warning when app-data inclusion is configured but not yet packaged.
+7. Package the API data directory as `app-data.tar.gz` when `CMS_BACKUP_INCLUDE_APP_DATA=true`; if the app-data source is unavailable, write a manifest warning rather than adding secrets or arbitrary paths to the job payload.
 
-The first queued runner slice is intentionally database-dump-only and worker-only. `scripts/deploy.sh backup` remains the primary operator-facing backup command until Run Now controls and app-data packaging are reviewed.
+The first queued runner slice is intentionally worker-only. `scripts/deploy.sh backup` remains the primary operator-facing backup command until Run Now controls are reviewed.
 
 ## Queued restore job design
 

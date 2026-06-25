@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { basename, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { createInMemoryAppLogRepository } from './appLogs/inMemoryAppLogRepository.js';
 import { createSetupAwareAppLogRepository } from './appLogs/mysqlAppLogRepository.js';
 import { createInMemoryAppSettingsRepository } from './appSettings/inMemoryAppSettingsRepository.js';
@@ -23,7 +23,7 @@ const appSettingsRepository = createSetupAwareAppSettingsRepository(setupSetting
 
 const config = loadConfig();
 const databaseMaintenanceRunner = createSetupAwareDatabaseMaintenanceRunner(setupSettingsStore);
-const databaseBackupRunner = createSetupAwareDatabaseBackupRunner(config, setupSettingsStore);
+const databaseBackupRunner = createSetupAwareDatabaseBackupRunner(config, setupSettingsStore, dirname(settingsPath));
 const updateChecker = createUpdateChecker();
 const runtime = await createQueueWorkerRuntime(config, console, { instanceRepository, appLogRepository, appSettingsRepository, updateChecker, databaseMaintenanceRunner, databaseBackupRunner });
 

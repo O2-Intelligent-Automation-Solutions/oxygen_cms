@@ -78,14 +78,41 @@ describe('database backup runner', () => {
 
     const manifestText = await readFile(result.manifestPath, 'utf8');
     expect(manifestText).not.toContain('super-secret');
-    const manifest = JSON.parse(manifestText) as { database: string; artifacts: { databaseDump: string; appData: null }; retention: { days: number; maxArtifacts: number }; cleanup: { removed: string[]; skipped: string[] }; warnings: string[] };
+    const manifest = JSON.parse(manifestText) as { database: string; artifacts: { databaseDump: string; appData: string | null }; retention: { days: number; maxArtifacts: number }; cleanup: { removed: string[]; skipped: string[] }; warnings: string[] };
     expect(manifest).toMatchObject({
       database: 'O2IAS_CMS',
-      artifacts: { databaseDump: 'mysql.sql.gz', appData: null },
+      artifacts: { databaseDump: 'mysql.sql.gz', appData: 'app-data.tar.gz' },
       retention: { days: 7, maxArtifacts: 3 },
       cleanup: { removed: [], skipped: [] }
     });
-    expect(manifest.warnings).toEqual(expect.arrayContaining(['mysqldump warning', expect.stringContaining('App-data artifact packaging')]));
+    expect(manifest.warnings).toEqual(expect.arrayContaining(['mysqldump warning', expect.stringContaining('App-data source directory was not configured')]));
+  });
+
+  it('packages app data when an app-data source directory is configured', async () => {
+    const directory = await tempBackupDir();
+    const appDataDirectory = await tempBackupDir();
+    await writeFile(join(appDataDirectory, 'settings.json'), '{"ok":true}', 'utf8');
+    const executor = vi.fn(async (_settings: DatabaseSettings, targetPath: string) => {
+      await writeFile(targetPath, 'compressed dump bytes', 'utf8');
+      return {};
+    });
+    const archiver = vi.fn(async (_sourceDirectory: string, targetPath: string) => {
+      await writeFile(targetPath, 'compressed app data', 'utf8');
+      return { warnings: ['app data warning'] };
+    });
+    const runner = createDatabaseBackupRunner(loadConfig({
+      CMS_BACKUP_JOBS_ENABLED: 'true',
+      CMS_BACKUP_DIR: directory,
+      CMS_BACKUP_INCLUDE_APP_DATA: 'true'
+    }), settingsProvider(), executor, { appDataDirectory, appDataArchiver: archiver });
+
+    const result = await runner.backupDatabase();
+    expect(result.appDataArchivePath?.endsWith('/app-data.tar.gz')).toBe(true);
+    expect(result.appDataBytes).toBeGreaterThan(0);
+    expect(archiver).toHaveBeenCalledWith(appDataDirectory, result.appDataArchivePath);
+    const manifest = JSON.parse(await readFile(result.manifestPath, 'utf8')) as { artifacts: { appData: string | null }; warnings: string[] };
+    expect(manifest.artifacts.appData).toBe('app-data.tar.gz');
+    expect(manifest.warnings).toContain('app data warning');
   });
 
   it('cleans up old backup artifacts only after a successful backup', async () => {
