@@ -87,6 +87,20 @@ describe('queue worker runtime', () => {
     });
     expect(appSettingsRepository.getLogRetention).toHaveBeenCalledTimes(1);
     expect(appLogRepository.pruneOlderThan).toHaveBeenCalledWith(14);
+    expect(appLogRepository.append).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'Service',
+      severity: 'Logging',
+      source: 'CMS Queue Worker',
+      userName: 'system',
+      message: 'Database maintenance job started: purge-logs',
+      details: expect.objectContaining({ queue: 'database-maintenance', task: 'purge-logs', requestedBy: 'system' })
+    }));
+    expect(appLogRepository.append).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'Service',
+      severity: 'Logging',
+      message: 'Database maintenance job completed: purge-logs',
+      details: expect.objectContaining({ result: expect.objectContaining({ task: 'purge-logs', tableCount: 2 }) })
+    }));
   });
 
   it('rejects unknown or unsafe database-maintenance jobs without touching logs', async () => {
@@ -110,6 +124,11 @@ describe('queue worker runtime', () => {
     await expect(processor('database-maintenance', { task: 'optimize-tables', requestedBy: 'system' })).resolves.toEqual({ task: 'optimize-tables', tables: ['oxygen_instance_check_history'], warnings: ['metadata lock wait avoided'] });
     expect(databaseMaintenanceRunner.analyzeTables).toHaveBeenCalledTimes(1);
     expect(databaseMaintenanceRunner.optimizeTables).toHaveBeenCalledTimes(1);
+    expect(appLogRepository.append).toHaveBeenCalledWith(expect.objectContaining({
+      severity: 'Warning',
+      message: 'Database maintenance job completed: optimize-tables',
+      details: expect.objectContaining({ result: expect.objectContaining({ task: 'optimize-tables', tableCount: 1, warningCount: 1 }) })
+    }));
     expect(appLogRepository.pruneOlderThan).not.toHaveBeenCalled();
   });
 
@@ -119,6 +138,11 @@ describe('queue worker runtime', () => {
 
     await expect(processor('database-maintenance', { task: 'analyze-tables' })).rejects.toThrow('requires an explicit database maintenance runner');
     await expect(processor('database-maintenance', { task: 'optimize-tables' })).rejects.toThrow('requires an explicit database maintenance runner');
+    expect(appLogRepository.append).toHaveBeenCalledWith(expect.objectContaining({
+      severity: 'Error',
+      message: 'Database maintenance job failed: analyze-tables',
+      details: expect.objectContaining({ task: 'analyze-tables', error: expect.stringContaining('requires an explicit database maintenance runner') })
+    }));
     expect(appLogRepository.pruneOlderThan).not.toHaveBeenCalled();
   });
 

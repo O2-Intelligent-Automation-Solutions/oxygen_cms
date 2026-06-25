@@ -1,6 +1,7 @@
 import type { AppLogRepository } from '../appLogs/types.js';
 import type { AppSettingsRepository } from '../appSettings/types.js';
 import { QueueJobGuardError, QueueJobValidationError } from './retryPolicy.js';
+import { summarizeSafeQueueJobResult } from './queueStatus.js';
 import type { DatabaseBackupRunner } from './databaseBackupRunner.js';
 
 const forbiddenPayloadKeys = ['password', 'secret', 'token', 'apiKey', 'connectionString', 'encryptedPassword', 'credential'] as const;
@@ -47,8 +48,26 @@ function parseDatabaseMaintenanceJob(data: unknown): DatabaseMaintenanceJobData 
   return { task: payload.task as DatabaseMaintenanceTask, requestedBy: typeof payload.requestedBy === 'string' ? payload.requestedBy : undefined };
 }
 
-export async function processDatabaseMaintenanceJob({ data, appLogRepository, appSettingsRepository, databaseMaintenanceRunner, databaseBackupRunner }: DatabaseMaintenanceProcessorOptions & { data: unknown }) {
-  const job = parseDatabaseMaintenanceJob(data);
+async function appendDatabaseMaintenanceLog(appLogRepository: AppLogRepository | undefined, entry: { severity: 'Logging' | 'Warning' | 'Error'; task: DatabaseMaintenanceTask; message: string; requestedBy?: string; details?: unknown }) {
+  if (!appLogRepository) return;
+  await appLogRepository.append({
+    type: 'Service',
+    severity: entry.severity,
+    source: 'CMS Queue Worker',
+    userName: entry.requestedBy ?? null,
+    tenantId: null,
+    entityGuid: null,
+    message: entry.message,
+    details: {
+      queue: 'database-maintenance',
+      task: entry.task,
+      requestedBy: entry.requestedBy ?? null,
+      ...(entry.details && typeof entry.details === 'object' && !Array.isArray(entry.details) ? entry.details as Record<string, unknown> : {})
+    }
+  });
+}
+
+async function executeDatabaseMaintenanceJob(job: DatabaseMaintenanceJobData, { appLogRepository, appSettingsRepository, databaseMaintenanceRunner, databaseBackupRunner }: DatabaseMaintenanceProcessorOptions) {
   if (job.task === 'backup-database') {
     if (!databaseBackupRunner) throw new QueueJobGuardError('Database backup requires an explicit database backup runner.');
     return databaseBackupRunner.backupDatabase();
@@ -69,4 +88,36 @@ export async function processDatabaseMaintenanceJob({ data, appLogRepository, ap
   const retention = await appSettingsRepository.getLogRetention();
   const result = await appLogRepository.pruneOlderThan(retention.days);
   return { task: job.task, retention, ...result };
+}
+
+export async function processDatabaseMaintenanceJob(options: DatabaseMaintenanceProcessorOptions & { data: unknown }) {
+  const { data, appLogRepository } = options;
+  const job = parseDatabaseMaintenanceJob(data);
+  await appendDatabaseMaintenanceLog(appLogRepository, {
+    severity: 'Logging',
+    task: job.task,
+    requestedBy: job.requestedBy,
+    message: `Database maintenance job started: ${job.task}`
+  });
+  try {
+    const result = await executeDatabaseMaintenanceJob(job, options);
+    const summary = summarizeSafeQueueJobResult('database-maintenance', job.task, result);
+    await appendDatabaseMaintenanceLog(appLogRepository, {
+      severity: summary?.warningCount && summary.warningCount > 0 ? 'Warning' : 'Logging',
+      task: job.task,
+      requestedBy: job.requestedBy,
+      message: `Database maintenance job completed: ${job.task}`,
+      details: { result: summary ?? null }
+    });
+    return result;
+  } catch (error) {
+    await appendDatabaseMaintenanceLog(appLogRepository, {
+      severity: 'Error',
+      task: job.task,
+      requestedBy: job.requestedBy,
+      message: `Database maintenance job failed: ${job.task}`,
+      details: { error: error instanceof Error ? error.message : 'Database maintenance job failed.' }
+    });
+    throw error;
+  }
 }
