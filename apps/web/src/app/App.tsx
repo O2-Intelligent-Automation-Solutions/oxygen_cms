@@ -546,6 +546,8 @@ export function App() {
   const [systemQueueStatus, setSystemQueueStatus] = useState<SystemQueueStatus | null>(null);
   const [systemQueueJobs, setSystemQueueJobs] = useState<SystemQueueJobs | null>(null);
   const [isSystemVersionRefreshing, setIsSystemVersionRefreshing] = useState(false);
+  const [updateRunnerAction, setUpdateRunnerAction] = useState<'dry-run' | 'update' | null>(null);
+  const [updateTargetRef, setUpdateTargetRef] = useState('');
   const [isAdminDataRefreshing, setIsAdminDataRefreshing] = useState(false);
   const [databaseDetailPanel, setDatabaseDetailPanel] = useState<DatabaseDetailPanel>('storage');
   const [databaseDetailModal, setDatabaseDetailModal] = useState<DatabaseDetailPanel | null>(null);
@@ -1001,6 +1003,7 @@ export function App() {
       ]);
       setSystemVersion(versionRes.version);
       setSystemUpdateStatus(statusRes.updateStatus);
+      if (!updateTargetRef && statusRes.updateStatus.runner.targetRef) setUpdateTargetRef(statusRes.updateStatus.runner.targetRef);
       if (queueRes) setSystemQueueStatus(queueRes.queues);
       if (queueJobsRes) setSystemQueueJobs(queueJobsRes.queueJobs);
       if (canManagePoller) await loadQueueSchedules(t).catch(() => undefined);
@@ -1013,6 +1016,30 @@ export function App() {
       else throw err;
     } finally {
       setIsSystemVersionRefreshing(false);
+    }
+  }
+
+  async function runUpdateRunner(mode: 'dry-run' | 'update') {
+    if (!token || updateRunnerAction) return;
+    const status = systemUpdateStatus;
+    const targetRef = updateTargetRef.trim() || status?.runner.targetRef || systemVersion?.update.latestVersion || 'main';
+    if (mode === 'update' && !window.confirm(`Run confirmed OxyGen CMS update to ${targetRef}? This will execute the guarded host update command when the runner is enabled.`)) return;
+    clearStatus();
+    setUpdateRunnerAction(mode);
+    try {
+      const endpoint = mode === 'dry-run' ? '/api/system/update-runner/dry-run' : '/api/system/update-runner/update';
+      const res = await api<{ updateStatus: SystemUpdateStatus }>(endpoint, {
+        method: 'POST',
+        token,
+        body: JSON.stringify(mode === 'dry-run' ? { targetRef } : { targetRef, confirmed: true })
+      });
+      setSystemUpdateStatus(res.updateStatus);
+      showStatus(mode === 'dry-run' ? `Update dry run started for ${targetRef}.` : `Confirmed update started for ${targetRef}.`, 'warning');
+      window.setTimeout(() => void loadSystemVersion(token).catch(() => undefined), 1500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : mode === 'dry-run' ? 'Update dry run failed.' : 'Confirmed update failed.');
+    } finally {
+      setUpdateRunnerAction(null);
     }
   }
 
@@ -2483,6 +2510,7 @@ export function App() {
       <dl className="detail-list version-detail-list"><dt>Repository</dt><dd>{current?.repository ?? 'Unknown'}</dd><dt>Channel</dt><dd>{current?.updateChannel ?? 'stable'}</dd><dt>Build date</dt><dd>{current?.buildDate ? formatDateTime(current.buildDate) : 'Not stamped by deployment'}</dd><dt>Published</dt><dd>{update?.publishedAt ? formatDateTime(update.publishedAt) : 'Unavailable'}</dd><dt>Dry run</dt><dd><code>{status?.runner.dryRunCommand ?? 'scripts/deploy.sh update --dry-run'}</code></dd><dt>Confirmed update</dt><dd><code>{status ? `${status.runner.confirmationVariable}=YES ${status.runner.command}` : 'CONFIRM_UPDATE=YES scripts/deploy.sh update'}</code></dd></dl>
       {status && <section className="update-runner-workflow" aria-label="Guarded update workflow"><div className="update-workflow-copy"><strong>Guarded update workflow</strong><span>These steps are the host-side deployment workflow. They remain pending until an authorized dry run or confirmed update is started.</span></div><div className="update-readiness-grid">{status.steps.map((step, index) => <article className={`update-readiness-step ${updateStepTone(step.state)}`} key={step.code}><span className="update-step-index">{index + 1}</span><div><strong>{step.label}</strong><p>{step.description}</p>{step.message && <small>{step.message}</small>}</div><span className="update-step-state">{step.state.replace('-', ' ')}</span></article>)}</div></section>}
       {status?.lastRun && <p className="panel-copy version-update-message">Last {status.lastRun.mode === 'dry-run' ? 'dry run' : 'update'} for {status.lastRun.targetRef} is {status.lastRun.state}{status.lastRun.summary ? `: ${status.lastRun.summary}` : ''}.</p>}
+      {status && <section className="update-runner-actions" aria-label="Guarded update actions"><label><span>Target ref</span><input value={updateTargetRef} onChange={(e) => setUpdateTargetRef(e.target.value)} placeholder={status.runner.targetRef || update?.latestVersion || 'main'} disabled={status.runner.inProgress || Boolean(updateRunnerAction)} /></label><div><Button className="compact-button" type="button" onClick={() => void runUpdateRunner('dry-run')} disabled={!status.runner.canRun || Boolean(updateRunnerAction)}><Play /> {updateRunnerAction === 'dry-run' ? 'Starting…' : 'Run Dry Run'}</Button><Button className="compact-button btn-danger-outline" type="button" onClick={() => void runUpdateRunner('update')} disabled={!status.runner.canRun || Boolean(updateRunnerAction)}><Download /> {updateRunnerAction === 'update' ? 'Starting…' : 'Confirm Update'}</Button></div><small>{status.runner.enabled ? 'Dry Run is safe. Confirm Update still requires server-side guarded runner configuration and confirmation.' : 'Update execution is disabled until CMS_UPDATE_RUNNER_ENABLED=true is configured on the host.'}</small></section>}
       <div className="version-update-actions"><Button className="compact-button" type="button" onClick={() => void loadSystemVersion(token, 'manual')} disabled={isSystemVersionRefreshing}><RotateCw className={isSystemVersionRefreshing ? 'spin-icon' : ''} /> Refresh Readiness</Button>{(update?.releaseUrl || current?.sourceUrl) && <Button className="compact-button" type="button" fillMode="flat" onClick={() => window.open(update?.releaseUrl || current?.sourceUrl, '_blank', 'noopener,noreferrer')}><ExternalLink /> View Source</Button>}</div>
     </article>;
   }
