@@ -99,6 +99,7 @@ describe('application settings API', () => {
       expect.objectContaining({ key: 'database-maintenance:purge-logs', queue: 'database-maintenance', name: 'purge-logs', label: 'Purge Logs', enabled: true, everySeconds: 86400, schedule: { type: 'interval', everySeconds: 86400 } }),
       expect.objectContaining({ key: 'database-maintenance:analyze-tables', queue: 'database-maintenance', name: 'analyze-tables', label: 'Analyze Tables', enabled: false, everySeconds: 86400, schedule: { type: 'interval', everySeconds: 86400 } }),
       expect.objectContaining({ key: 'database-maintenance:optimize-tables', queue: 'database-maintenance', name: 'optimize-tables', label: 'Optimize Tables', enabled: false, everySeconds: 86400, schedule: { type: 'interval', everySeconds: 86400 } }),
+      expect.objectContaining({ key: 'database-maintenance:backup-database', queue: 'database-maintenance', name: 'backup-database', label: 'Backup Database', enabled: false, everySeconds: 86400, schedule: { type: 'interval', everySeconds: 86400 } }),
       expect.objectContaining({ key: 'system-maintenance:check-application-updates', queue: 'system-maintenance', name: 'check-application-updates', label: 'Check Application Updates', enabled: true, everySeconds: 86400, schedule: { type: 'interval', everySeconds: 86400 } })
     ]));
 

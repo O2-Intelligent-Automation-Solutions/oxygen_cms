@@ -79,7 +79,7 @@ type InstanceImportResult = { dryRun: boolean; created: number; updated: number;
 type LogRetentionSettings = { days: number };
 type SslCertificateWarningSettings = { daysBeforeExpiration: number };
 type LicenseExpirationWarningSettings = { daysBeforeExpiration: number };
-type QueueScheduleJobKey = 'database-maintenance:purge-logs' | 'database-maintenance:prune-check-history' | 'database-maintenance:analyze-tables' | 'database-maintenance:optimize-tables' | 'system-maintenance:check-application-updates' | 'system-maintenance:prune-queue-history';
+type QueueScheduleJobKey = 'database-maintenance:purge-logs' | 'database-maintenance:prune-check-history' | 'database-maintenance:analyze-tables' | 'database-maintenance:optimize-tables' | 'database-maintenance:backup-database' | 'system-maintenance:check-application-updates' | 'system-maintenance:prune-queue-history';
 type QueueScheduleJobSettings = { key: QueueScheduleJobKey; queue: QueueStatusItem['name']; name: string; label: string; enabled: boolean; everySeconds: number };
 type QueueScheduleSettings = { jobs: QueueScheduleJobSettings[] };
 type ConnectivityStepDetail = { ok?: boolean; skipped?: boolean; message?: string; httpStatusCode?: number; errorCode?: string; valid?: boolean | null; expiresAt?: string | null; durationMs?: number; address?: string | null; family?: number; host?: string; port?: number };
@@ -908,6 +908,7 @@ export function App() {
     if (job.key === 'database-maintenance:prune-check-history') return 'Prunes old instance health-check history using the same retention window.';
     if (job.key === 'database-maintenance:analyze-tables') return 'Refreshes MySQL table statistics for allowlisted CMS maintenance tables.';
     if (job.key === 'database-maintenance:optimize-tables') return 'Runs guarded OPTIMIZE on allowlisted InnoDB tables only when reusable/free space is reported.';
+    if (job.key === 'database-maintenance:backup-database') return 'Creates a guarded CMS backup artifact when backup jobs are explicitly enabled on the worker.';
     if (job.key === 'system-maintenance:check-application-updates') return 'Refreshes GitHub release/update metadata shown in Operations.';
     if (job.key === 'system-maintenance:prune-queue-history') return 'Cleans retained BullMQ completed/failed job history to keep Redis tidy.';
     return 'Recurring CMS maintenance job.';
