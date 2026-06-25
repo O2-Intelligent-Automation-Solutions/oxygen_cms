@@ -124,6 +124,24 @@ Safety gates for the queued job implementation:
 
 The first queued runner slice is intentionally database-dump-only and worker-only. `scripts/deploy.sh backup` remains the primary operator-facing backup command until Run Now controls, app-data packaging, and retention cleanup are reviewed.
 
+## Queued restore job design
+
+Restore remains host/operator-driven today:
+
+```bash
+CONFIRM_RESTORE=YES scripts/deploy.sh restore-db deploy/backups/<timestamp>/mysql.sql.gz
+```
+
+A future queued restore path must be treated as destructive and stay separate from the backup runner. Design gates before any CMS worker may restore data:
+
+1. Add a dedicated restore runner dependency and task contract; do not reuse the backup runner or direct route logic.
+2. Require an explicit deployment opt-in and a per-request confirmation phrase such as `RESTORE_DATABASE`, not just an authenticated click.
+3. Require a fresh pre-restore backup to complete first, and record both source backup and safety-backup artifact IDs in a non-secret manifest/audit log.
+4. Accept only server-local backup artifact IDs under the configured backup root; never accept arbitrary file paths, URLs, uploaded SQL, credentials, or raw shell fragments in queue payloads.
+5. Validate backup manifest shape before restore, including expected database artifact name and creation timestamp.
+6. Stop or pause competing workers/schedulers before restore, apply the database dump, restart the app/worker, then run schema-current checks and health smoke before reporting success.
+7. Keep restore hidden from Run Now/general queue controls until the explicit confirmation UX, audit trail, rollback guidance, and tests are reviewed.
+
 ## HTTPS / certificates
 
 The MVP deployment exposes the CMS app over HTTP on `CMS_HTTP_PORT`. For production HTTPS, place a reverse proxy or load balancer in front of the app port and terminate TLS there. Supported near-term patterns:
