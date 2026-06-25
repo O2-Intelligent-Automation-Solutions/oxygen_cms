@@ -2493,9 +2493,26 @@ export function App() {
 
   function updateStatusLabel(snapshot: SystemVersionSnapshot | null) {
     if (!snapshot) return 'Checking';
-    if (snapshot.update.available) return 'Update Available';
+    if (snapshot.update.available) return snapshot.update.source === 'github-branch' ? 'Branch Update Available' : 'Update Available';
     if (snapshot.update.error) return 'Check Unavailable';
-    return 'Up to Date';
+    return snapshot.update.source === 'github-branch' ? 'Branch Current' : 'Up to Date';
+  }
+
+  function latestUpdateLabel(update: SystemVersionSnapshot['update'] | undefined) {
+    if (!update) return { heading: 'Latest', value: 'Unknown', detail: 'Not checked yet', timestampLabel: 'Published', targetPlaceholder: 'main' };
+    if (update.source === 'github-branch') {
+      const branchName = update.latestName?.split(' @ ')[0] || 'default branch';
+      return {
+        heading: 'Default Branch',
+        value: update.latestName ?? update.latestVersion ?? branchName,
+        detail: 'GitHub branch commit',
+        timestampLabel: 'Branch commit',
+        targetPlaceholder: branchName
+      };
+    }
+    if (update.source === 'github-tag') return { heading: 'Latest', value: update.latestVersion ?? 'Unknown', detail: 'GitHub tag', timestampLabel: 'Published', targetPlaceholder: update.latestVersion ?? 'main' };
+    if (update.source === 'github-release') return { heading: 'Latest', value: update.latestVersion ?? 'Unknown', detail: 'GitHub release', timestampLabel: 'Published', targetPlaceholder: update.latestVersion ?? 'main' };
+    return { heading: 'Latest', value: 'Unknown', detail: 'GitHub unavailable', timestampLabel: 'Published', targetPlaceholder: 'main' };
   }
 
   function updateRunnerLabel(status: SystemUpdateStatus | null) {
@@ -2520,21 +2537,23 @@ export function App() {
     const current = snapshot?.current;
     const status = systemUpdateStatus;
     const tone = updateTone(snapshot);
+    const latest = latestUpdateLabel(update);
+    const updateTargetPlaceholder = status?.runner.targetRef || latest.targetPlaceholder || 'main';
     return <article className={`panel settings-panel version-update-panel ${tone}`}>
       <div className="panel-heading"><Download /><div><p className="eyebrow small">Application updates</p><h3>OxyGen CMS Version & Update Readiness</h3></div></div>
       <section className={`version-update-summary ${tone}`}>
         <div><span>Current</span><strong>{current?.version ?? 'Unknown'}</strong><small>{current?.commit ? `Build ${current.commit.slice(0, 12)}` : 'Build commit not stamped'}</small></div>
-        <div><span>Latest</span><strong>{update?.latestVersion ?? 'Unknown'}</strong><small>{update?.source === 'unavailable' ? 'GitHub unavailable' : update?.source === 'github-tag' ? 'GitHub tag' : update?.source === 'github-branch' ? 'GitHub branch' : 'GitHub release'}</small></div>
+        <div><span>{latest.heading}</span><strong>{latest.value}</strong><small>{latest.detail}</small></div>
         <div><span>Version Status</span><strong>{updateStatusLabel(snapshot)}</strong><small>{update ? `Checked ${formatDateTime(update.checkedAt)}` : 'Not checked yet'}</small></div>
         <div><span>Update Runner</span><strong>{updateRunnerLabel(status)}</strong><small>{status ? `Generated ${formatDateTime(status.generatedAt)}` : 'Checking host command'}</small></div>
       </section>
-      {update?.available && <p className="panel-copy version-update-message">A newer OxyGen CMS version is available. CMS shows guarded update readiness and host-side execution can be enabled explicitly for self-hosted deployments.</p>}
+      {update?.available && <p className="panel-copy version-update-message">{update.source === 'github-branch' ? 'The GitHub default branch has a newer commit than this running build. CMS can dry-run or update to that branch when guarded host execution is enabled.' : 'A newer OxyGen CMS version is available. CMS shows guarded update readiness and host-side execution can be enabled explicitly for self-hosted deployments.'}</p>}
       {update?.error && <p className="panel-copy version-update-message warning">Update checks are non-blocking. CMS could not reach GitHub: {update.error}</p>}
       {status?.lastError && <p className="panel-copy version-update-message warning">Last update runner error: {status.lastError}</p>}
-      <dl className="detail-list version-detail-list"><dt>Repository</dt><dd>{current?.repository ?? 'Unknown'}</dd><dt>Channel</dt><dd>{current?.updateChannel ?? 'stable'}</dd><dt>Build date</dt><dd>{current?.buildDate ? formatDateTime(current.buildDate) : 'Not stamped by deployment'}</dd><dt>Published</dt><dd>{update?.publishedAt ? formatDateTime(update.publishedAt) : 'Unavailable'}</dd><dt>Dry run</dt><dd><code>{status?.runner.dryRunCommand ?? 'scripts/deploy.sh update --dry-run'}</code></dd><dt>Confirmed update</dt><dd><code>{status ? `${status.runner.confirmationVariable}=YES ${status.runner.command}` : 'CONFIRM_UPDATE=YES scripts/deploy.sh update'}</code></dd></dl>
+      <dl className="detail-list version-detail-list"><dt>Repository</dt><dd>{current?.repository ?? 'Unknown'}</dd><dt>Channel</dt><dd>{current?.updateChannel ?? 'stable'}</dd><dt>Build date</dt><dd>{current?.buildDate ? formatDateTime(current.buildDate) : 'Not stamped by deployment'}</dd><dt>{latest.timestampLabel}</dt><dd>{update?.publishedAt ? formatDateTime(update.publishedAt) : 'Unavailable'}</dd><dt>Dry run</dt><dd><code>{status?.runner.dryRunCommand ?? 'scripts/deploy.sh update --dry-run'}</code></dd><dt>Confirmed update</dt><dd><code>{status ? `${status.runner.confirmationVariable}=YES ${status.runner.command}` : 'CONFIRM_UPDATE=YES scripts/deploy.sh update'}</code></dd></dl>
       {status && <section className="update-runner-workflow" aria-label="Guarded update workflow"><div className="update-workflow-copy"><strong>Guarded update workflow</strong><span>These steps are the host-side deployment workflow. They remain pending until an authorized dry run or confirmed update is started.</span></div><div className="update-readiness-grid">{status.steps.map((step, index) => <article className={`update-readiness-step ${updateStepTone(step.state)}`} key={step.code}><span className="update-step-index">{index + 1}</span><div><strong>{step.label}</strong><p>{step.description}</p>{step.message && <small>{step.message}</small>}</div><span className="update-step-state">{step.state.replace('-', ' ')}</span></article>)}</div></section>}
       {status?.lastRun && <p className="panel-copy version-update-message">Last {status.lastRun.mode === 'dry-run' ? 'dry run' : 'update'} for {status.lastRun.targetRef} is {status.lastRun.state}{status.lastRun.summary ? `: ${status.lastRun.summary}` : ''}.</p>}
-      {status && <section className="update-runner-actions" aria-label="Guarded update actions"><label><span>Target ref</span><input value={updateTargetRef} onChange={(e) => setUpdateTargetRef(e.target.value)} placeholder={status.runner.targetRef || update?.latestVersion || 'main'} disabled={status.runner.inProgress || Boolean(updateRunnerAction)} /></label><div><Button className="compact-button" type="button" onClick={() => void runUpdateRunner('dry-run')} disabled={!status.runner.canRun || Boolean(updateRunnerAction)}><Play /> {updateRunnerAction === 'dry-run' ? 'Starting…' : 'Run Dry Run'}</Button><Button className="compact-button btn-danger-outline" type="button" onClick={() => void runUpdateRunner('update')} disabled={!status.runner.canRun || Boolean(updateRunnerAction)}><Download /> {updateRunnerAction === 'update' ? 'Starting…' : 'Confirm Update'}</Button></div><small>{status.runner.enabled ? 'Dry Run is safe. Confirm Update still requires server-side guarded runner configuration and confirmation.' : 'Update execution is disabled until CMS_UPDATE_RUNNER_ENABLED=true is configured on the host.'}</small></section>}
+      {status && <section className="update-runner-actions" aria-label="Guarded update actions"><label><span>Target ref</span><input value={updateTargetRef} onChange={(e) => setUpdateTargetRef(e.target.value)} placeholder={updateTargetPlaceholder} disabled={status.runner.inProgress || Boolean(updateRunnerAction)} /></label><div><Button className="compact-button" type="button" onClick={() => void runUpdateRunner('dry-run')} disabled={!status.runner.canRun || Boolean(updateRunnerAction)}><Play /> {updateRunnerAction === 'dry-run' ? 'Starting…' : 'Run Dry Run'}</Button><Button className="compact-button btn-danger-outline" type="button" onClick={() => void runUpdateRunner('update')} disabled={!status.runner.canRun || Boolean(updateRunnerAction)}><Download /> {updateRunnerAction === 'update' ? 'Starting…' : 'Confirm Update'}</Button></div><small>{status.runner.enabled ? 'Dry Run is safe. Confirm Update still requires server-side guarded runner configuration and confirmation.' : 'Update execution is disabled until CMS_UPDATE_RUNNER_ENABLED=true is configured on the host.'}</small></section>}
       {status && <section className="update-recovery-guidance" aria-label="Update recovery guidance"><strong>Recovery guidance</strong><ul><li>Every confirmed update creates a pre-update backup before checkout/build/restart.</li><li>If the app fails after update, review the latest backup under <code>deploy/backups/</code>, then restore with <code>CONFIRM_RESTORE=YES scripts/deploy.sh restore-db deploy/backups/&lt;timestamp&gt;/mysql.sql.gz</code>.</li><li>If the runner fails before checkout, fix the reported blocker and rerun Dry Run before Confirm Update.</li><li>If schema migration fails after restart, keep the backup, correct the database/setup issue, then rerun the guarded update or the setup schema step.</li></ul></section>}
       <div className="version-update-actions"><Button className="compact-button" type="button" onClick={() => void loadSystemVersion(token, 'manual')} disabled={isSystemVersionRefreshing}><RotateCw className={isSystemVersionRefreshing ? 'spin-icon' : ''} /> Refresh Readiness</Button>{(update?.releaseUrl || current?.sourceUrl) && <Button className="compact-button" type="button" fillMode="flat" onClick={() => window.open(update?.releaseUrl || current?.sourceUrl, '_blank', 'noopener,noreferrer')}><ExternalLink /> View Source</Button>}</div>
     </article>;
@@ -2542,7 +2561,12 @@ export function App() {
 
   function renderUpdateNotice() {
     if (!systemVersion?.update.available) return null;
-    return <section className="version-update-notice" role="status"><div><strong>OxyGen CMS update available</strong><span>{systemVersion.update.latestVersion} is available from GitHub. Current version: {systemVersion.current.version}.</span></div><Button className="compact-button" type="button" onClick={() => nav('settings-general')}><Download /> View Update</Button></section>;
+    const update = systemVersion.update;
+    const label = update.source === 'github-branch' ? update.latestName ?? update.latestVersion : update.latestVersion;
+    const message = update.source === 'github-branch'
+      ? `The GitHub default branch has a newer commit (${label}) than this running build.`
+      : `${label} is available from GitHub. Current version: ${systemVersion.current.version}.`;
+    return <section className="version-update-notice" role="status"><div><strong>OxyGen CMS update available</strong><span>{message}</span></div><Button className="compact-button" type="button" onClick={() => nav('settings-general')}><Download /> View Update</Button></section>;
   }
 
 
