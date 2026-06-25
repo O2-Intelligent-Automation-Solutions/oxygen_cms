@@ -315,8 +315,8 @@ export async function buildApp(options: BuildAppOptions = {}) {
   });
   const queueRuntime: QueueRuntime = providedQueueStatusProvider ?? await createQueueRuntime(config);
   const queueStatusProvider: QueueStatusProvider = queueRuntime;
-  const instanceCheckQueueScheduler = providedInstanceCheckQueueScheduler ?? await createInstanceCheckQueueScheduler(config);
-  const databaseMaintenanceQueue = providedDatabaseMaintenanceQueue ?? await createDatabaseMaintenanceQueue(config);
+  const instanceCheckQueueScheduler = providedInstanceCheckQueueScheduler === undefined ? await createInstanceCheckQueueScheduler(config) : providedInstanceCheckQueueScheduler;
+  const databaseMaintenanceQueue = providedDatabaseMaintenanceQueue === undefined ? await createDatabaseMaintenanceQueue(config) : providedDatabaseMaintenanceQueue;
   const reconcileInstanceCheckQueueSchedules = instanceCheckQueueScheduler ? async () => {
     try {
       await reconcileInstanceCheckSchedules({ repository: instanceRepository, queue: instanceCheckQueueScheduler });
