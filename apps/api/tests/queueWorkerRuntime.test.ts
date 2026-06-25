@@ -121,4 +121,37 @@ describe('queue worker runtime', () => {
     await expect(processor('database-maintenance', { task: 'optimize-tables' })).rejects.toThrow('requires an explicit database maintenance runner');
     expect(appLogRepository.pruneOlderThan).not.toHaveBeenCalled();
   });
+
+  it('dispatches guarded backup-database maintenance jobs when a backup runner is configured', async () => {
+    const { instanceRepository, appLogRepository, appSettingsRepository } = fakeRepositories();
+    const databaseBackupRunner = {
+      backupDatabase: vi.fn(async () => ({
+        task: 'backup-database' as const,
+        artifactDirectory: '/tmp/backups/20260625T000000Z',
+        databaseDumpPath: '/tmp/backups/20260625T000000Z/mysql.sql.gz',
+        manifestPath: '/tmp/backups/20260625T000000Z/manifest.json',
+        createdAt: '2026-06-25T00:00:00.000Z',
+        database: 'O2IAS_CMS',
+        dumpBytes: 123,
+        warnings: []
+      }))
+    };
+    const processor = createQueueJobProcessor({ instanceRepository, appLogRepository, appSettingsRepository, databaseBackupRunner });
+
+    await expect(processor('database-maintenance', { task: 'backup-database', requestedBy: 'system' })).resolves.toMatchObject({
+      task: 'backup-database',
+      database: 'O2IAS_CMS',
+      dumpBytes: 123
+    });
+    expect(databaseBackupRunner.backupDatabase).toHaveBeenCalledTimes(1);
+    expect(appLogRepository.pruneOlderThan).not.toHaveBeenCalled();
+  });
+
+  it('guards backup-database when no backup runner is configured', async () => {
+    const { instanceRepository, appLogRepository, appSettingsRepository } = fakeRepositories();
+    const processor = createQueueJobProcessor({ instanceRepository, appLogRepository, appSettingsRepository });
+
+    await expect(processor('database-maintenance', { task: 'backup-database' })).rejects.toThrow('requires an explicit database backup runner');
+    expect(appLogRepository.pruneOlderThan).not.toHaveBeenCalled();
+  });
 });

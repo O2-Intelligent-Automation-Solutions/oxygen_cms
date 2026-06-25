@@ -1,10 +1,11 @@
 import type { AppLogRepository } from '../appLogs/types.js';
 import type { AppSettingsRepository } from '../appSettings/types.js';
 import { QueueJobGuardError, QueueJobValidationError } from './retryPolicy.js';
+import type { DatabaseBackupRunner } from './databaseBackupRunner.js';
 
 const forbiddenPayloadKeys = ['password', 'secret', 'token', 'apiKey', 'connectionString', 'encryptedPassword', 'credential'] as const;
 
-export type DatabaseMaintenanceTask = 'purge-logs' | 'prune-check-history' | 'analyze-tables' | 'optimize-tables';
+export type DatabaseMaintenanceTask = 'purge-logs' | 'prune-check-history' | 'analyze-tables' | 'optimize-tables' | 'backup-database';
 
 export type DatabaseMaintenanceJobData = {
   task: DatabaseMaintenanceTask;
@@ -20,6 +21,7 @@ export type DatabaseMaintenanceProcessorOptions = {
   appLogRepository?: AppLogRepository;
   appSettingsRepository?: AppSettingsRepository;
   databaseMaintenanceRunner?: DatabaseMaintenanceRunner;
+  databaseBackupRunner?: DatabaseBackupRunner;
 };
 
 function assertSafePayload(data: Record<string, unknown>) {
@@ -31,7 +33,7 @@ function assertSafePayload(data: Record<string, unknown>) {
   }
 }
 
-const supportedTasks = new Set<DatabaseMaintenanceTask>(['purge-logs', 'prune-check-history', 'analyze-tables', 'optimize-tables']);
+const supportedTasks = new Set<DatabaseMaintenanceTask>(['purge-logs', 'prune-check-history', 'analyze-tables', 'optimize-tables', 'backup-database']);
 
 function parseDatabaseMaintenanceJob(data: unknown): DatabaseMaintenanceJobData {
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
@@ -45,8 +47,12 @@ function parseDatabaseMaintenanceJob(data: unknown): DatabaseMaintenanceJobData 
   return { task: payload.task as DatabaseMaintenanceTask, requestedBy: typeof payload.requestedBy === 'string' ? payload.requestedBy : undefined };
 }
 
-export async function processDatabaseMaintenanceJob({ data, appLogRepository, appSettingsRepository, databaseMaintenanceRunner }: DatabaseMaintenanceProcessorOptions & { data: unknown }) {
+export async function processDatabaseMaintenanceJob({ data, appLogRepository, appSettingsRepository, databaseMaintenanceRunner, databaseBackupRunner }: DatabaseMaintenanceProcessorOptions & { data: unknown }) {
   const job = parseDatabaseMaintenanceJob(data);
+  if (job.task === 'backup-database') {
+    if (!databaseBackupRunner) throw new QueueJobGuardError('Database backup requires an explicit database backup runner.');
+    return databaseBackupRunner.backupDatabase();
+  }
   if (job.task === 'analyze-tables') {
     if (!databaseMaintenanceRunner) throw new QueueJobGuardError('Analyze tables requires an explicit database maintenance runner.');
     return databaseMaintenanceRunner.analyzeTables();

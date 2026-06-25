@@ -103,7 +103,7 @@ Always take a fresh backup before restore/update operations.
 
 ## Queued backup job design
 
-Milestone 8C adds backend configuration for the future queued backup runner, but does not execute backups from BullMQ yet. The storage target defaults to the same local artifact root used by `scripts/deploy.sh backup` and remains disabled by default:
+Milestone 8C adds backend configuration and the first guarded worker runner for queued CMS database backups. The runner is not exposed as a Run Now UI action yet. When a future queue control enqueues `database-maintenance:backup-database`, artifact creation remains disabled unless the deployment explicitly opts in. The storage target defaults to the same local artifact root used by `scripts/deploy.sh backup`:
 
 | Environment variable | Default | Purpose |
 | --- | --- | --- |
@@ -116,11 +116,13 @@ Milestone 8C adds backend configuration for the future queued backup runner, but
 Safety gates for the queued job implementation:
 
 1. Keep BullMQ backup payloads credential-free; workers read current setup/database settings at execution time.
-2. Require `CMS_BACKUP_JOBS_ENABLED=true` before any worker writes files.
-3. Resolve the backup directory to a server-local path and reject paths outside the configured storage root once execution is implemented.
-4. Write each run into a timestamped subdirectory with a non-secret manifest, matching the host-side backup model.
+2. Require `CMS_BACKUP_JOBS_ENABLED=true` before any worker writes files or invokes `mysqldump`.
+3. Resolve each run to a timestamped subdirectory under the configured backup root.
+4. Write `mysql.sql.gz` plus a non-secret `manifest.json`, matching the host-side backup model.
 5. Use MySQL logical dumps with transaction-safe options where possible; do not expose database passwords in job data, logs, or manifests.
-6. Enforce retention cleanup only after a successful backup and never delete the artifact from the current run.
+6. Treat app-data packaging and retention cleanup as follow-up runner slices; the first runner records an explicit warning when app-data inclusion is configured but not yet packaged.
+
+The first queued runner slice is intentionally database-dump-only and worker-only. `scripts/deploy.sh backup` remains the primary operator-facing backup command until Run Now controls, app-data packaging, and retention cleanup are reviewed.
 
 ## HTTPS / certificates
 

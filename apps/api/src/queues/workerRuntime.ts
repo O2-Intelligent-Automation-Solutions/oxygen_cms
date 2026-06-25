@@ -4,6 +4,7 @@ import type { AppSettingsRepository } from '../appSettings/types.js';
 import type { AppConfig } from '../config/loadConfig.js';
 import type { InstanceRepository } from '../instances/types.js';
 import { processDatabaseMaintenanceJob, type DatabaseMaintenanceRunner } from './databaseMaintenanceProcessor.js';
+import type { DatabaseBackupRunner } from './databaseBackupRunner.js';
 import { createInMemoryInstanceCheckRunGuard, processInstanceCheckJob, type InstanceCheckRunGuard } from './instanceCheckProcessor.js';
 import { processSystemMaintenanceJob } from './systemMaintenanceProcessor.js';
 import { QUEUE_NAMES, createQueueConnectionOptions, type QueueName } from './queueStatus.js';
@@ -43,6 +44,7 @@ export type QueueJobProcessorOptions = {
   appSettingsRepository?: AppSettingsRepository;
   updateChecker?: UpdateChecker;
   databaseMaintenanceRunner?: DatabaseMaintenanceRunner;
+  databaseBackupRunner?: DatabaseBackupRunner;
   queues?: Array<Queue<unknown, unknown, string>>;
   instanceCheckRunGuard?: InstanceCheckRunGuard;
 };
@@ -65,7 +67,8 @@ export function createQueueJobProcessor(options: QueueJobProcessorOptions) {
         data,
         appLogRepository: options.appLogRepository,
         appSettingsRepository: options.appSettingsRepository,
-        databaseMaintenanceRunner: options.databaseMaintenanceRunner
+        databaseMaintenanceRunner: options.databaseMaintenanceRunner,
+        databaseBackupRunner: options.databaseBackupRunner
       });
     }
 
