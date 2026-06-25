@@ -123,11 +123,19 @@ describe('queue status API', () => {
     const runNow = await app.inject({ method: 'POST', url: '/api/system/queue-jobs/database-maintenance%3Apurge-logs/run-now', headers: { authorization: `Bearer ${token}` } });
     expect(runNow.statusCode).toBe(202);
     expect(runNow.json()).toMatchObject({ queued: true, key: 'database-maintenance:purge-logs' });
+    const analyzeNow = await app.inject({ method: 'POST', url: '/api/system/queue-jobs/database-maintenance%3Aanalyze-tables/run-now', headers: { authorization: `Bearer ${token}` } });
+    expect(analyzeNow.statusCode).toBe(202);
+    expect(analyzeNow.json()).toMatchObject({ queued: true, key: 'database-maintenance:analyze-tables' });
+    const optimizeNow = await app.inject({ method: 'POST', url: '/api/system/queue-jobs/database-maintenance%3Aoptimize-tables/run-now', headers: { authorization: `Bearer ${token}` } });
+    expect(optimizeNow.statusCode).toBe(202);
+    expect(optimizeNow.json()).toMatchObject({ queued: true, key: 'database-maintenance:optimize-tables' });
     expect((await appSettingsRepository.getQueueSchedules()).jobs.find((job) => job.key === 'database-maintenance:purge-logs')).toMatchObject({ enabled: false });
 
     const resumed = await app.inject({ method: 'POST', url: '/api/system/queue-jobs/database-maintenance%3Apurge-logs/resume', headers: { authorization: `Bearer ${token}` } });
     expect(resumed.statusCode).toBe(200);
     expect((await appSettingsRepository.getQueueSchedules()).jobs.find((job) => job.key === 'database-maintenance:purge-logs')).toMatchObject({ enabled: true });
+    expect((await appSettingsRepository.getQueueSchedules()).jobs.find((job) => job.key === 'database-maintenance:analyze-tables')).toMatchObject({ enabled: false });
+    expect((await appSettingsRepository.getQueueSchedules()).jobs.find((job) => job.key === 'database-maintenance:optimize-tables')).toMatchObject({ enabled: false });
     expect(actions).toEqual(expect.arrayContaining([
       { action: 'reconcile', key: 'disabled' },
       { action: 'run-now', key: 'database-maintenance:purge-logs', requestedBy: 'Admin User' },

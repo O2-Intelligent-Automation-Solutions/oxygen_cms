@@ -33,6 +33,8 @@ export const DEFAULT_LICENSE_EXPIRATION_WARNING_SETTINGS: LicenseExpirationWarni
 export type QueueScheduleJobKey =
   | 'database-maintenance:purge-logs'
   | 'database-maintenance:prune-check-history'
+  | 'database-maintenance:analyze-tables'
+  | 'database-maintenance:optimize-tables'
   | 'system-maintenance:check-application-updates'
   | 'system-maintenance:prune-queue-history';
 
@@ -73,6 +75,8 @@ export const DEFAULT_QUEUE_SCHEDULE_SETTINGS: QueueScheduleSettings = {
   jobs: [
     intervalJob({ key: 'database-maintenance:purge-logs', queue: 'database-maintenance', name: 'purge-logs', label: 'Purge Logs', enabled: true, everySeconds: 86400 }),
     intervalJob({ key: 'database-maintenance:prune-check-history', queue: 'database-maintenance', name: 'prune-check-history', label: 'Prune Check History', enabled: true, everySeconds: 86400 }),
+    intervalJob({ key: 'database-maintenance:analyze-tables', queue: 'database-maintenance', name: 'analyze-tables', label: 'Analyze Tables', enabled: false, everySeconds: 86400 }),
+    intervalJob({ key: 'database-maintenance:optimize-tables', queue: 'database-maintenance', name: 'optimize-tables', label: 'Optimize Tables', enabled: false, everySeconds: 86400 }),
     intervalJob({ key: 'system-maintenance:check-application-updates', queue: 'system-maintenance', name: 'check-application-updates', label: 'Check Application Updates', enabled: true, everySeconds: 86400 }),
     intervalJob({ key: 'system-maintenance:prune-queue-history', queue: 'system-maintenance', name: 'prune-queue-history', label: 'Prune Queue History', enabled: true, everySeconds: 86400 })
   ]

@@ -23,7 +23,7 @@ const intervalScheduleSchema = z.object({
 
 export const queueSchedulesSchema = z.object({
   jobs: z.array(z.object({
-    key: z.enum(['database-maintenance:purge-logs', 'database-maintenance:prune-check-history', 'system-maintenance:check-application-updates', 'system-maintenance:prune-queue-history']),
+    key: z.enum(['database-maintenance:purge-logs', 'database-maintenance:prune-check-history', 'database-maintenance:analyze-tables', 'database-maintenance:optimize-tables', 'system-maintenance:check-application-updates', 'system-maintenance:prune-queue-history']),
     enabled: z.boolean(),
     everySeconds: z.coerce.number().int().min(86_400).max(2_592_000).optional(),
     schedule: intervalScheduleSchema.optional()
