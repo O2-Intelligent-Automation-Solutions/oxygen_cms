@@ -79,7 +79,7 @@ type InstanceImportResult = { dryRun: boolean; created: number; updated: number;
 type LogRetentionSettings = { days: number };
 type SslCertificateWarningSettings = { daysBeforeExpiration: number };
 type LicenseExpirationWarningSettings = { daysBeforeExpiration: number };
-type QueueScheduleJobKey = 'database-maintenance:purge-logs' | 'database-maintenance:prune-check-history' | 'system-maintenance:check-application-updates' | 'system-maintenance:prune-queue-history';
+type QueueScheduleJobKey = 'database-maintenance:purge-logs' | 'database-maintenance:prune-check-history' | 'database-maintenance:analyze-tables' | 'database-maintenance:optimize-tables' | 'system-maintenance:check-application-updates' | 'system-maintenance:prune-queue-history';
 type QueueScheduleJobSettings = { key: QueueScheduleJobKey; queue: QueueStatusItem['name']; name: string; label: string; enabled: boolean; everySeconds: number };
 type QueueScheduleSettings = { jobs: QueueScheduleJobSettings[] };
 type ConnectivityStepDetail = { ok?: boolean; skipped?: boolean; message?: string; httpStatusCode?: number; errorCode?: string; valid?: boolean | null; expiresAt?: string | null; durationMs?: number; address?: string | null; family?: number; host?: string; port?: number };
@@ -906,6 +906,8 @@ export function App() {
   function queueScheduleDescription(job: QueueScheduleJobSettings) {
     if (job.key === 'database-maintenance:purge-logs') return 'Removes CMS activity logs older than the configured retention window.';
     if (job.key === 'database-maintenance:prune-check-history') return 'Prunes old instance health-check history using the same retention window.';
+    if (job.key === 'database-maintenance:analyze-tables') return 'Refreshes MySQL table statistics for allowlisted CMS maintenance tables.';
+    if (job.key === 'database-maintenance:optimize-tables') return 'Runs guarded OPTIMIZE on allowlisted InnoDB tables only when reusable/free space is reported.';
     if (job.key === 'system-maintenance:check-application-updates') return 'Refreshes GitHub release/update metadata shown in Operations.';
     if (job.key === 'system-maintenance:prune-queue-history') return 'Cleans retained BullMQ completed/failed job history to keep Redis tidy.';
     return 'Recurring CMS maintenance job.';
@@ -937,6 +939,15 @@ export function App() {
     if (!t) return;
     const res = await api<{ queueSchedules: QueueScheduleSettings }>('/api/app-settings/queue-schedules', { token: t });
     applyQueueSchedules(res.queueSchedules ?? { jobs: [] });
+  }
+
+  async function loadQueueJobs(t = token) {
+    if (!t || !canManagePoller) return;
+    const [queueJobsRes] = await Promise.all([
+      api<{ queueJobs: SystemQueueJobs }>('/api/system/queue-jobs?limit=1000', { token: t }),
+      loadQueueSchedules(t).catch(() => undefined)
+    ]);
+    setSystemQueueJobs(queueJobsRes.queueJobs);
   }
 
   async function loadAppLogs(t = token, overrides: { type?: AppLogType[]; severity?: AppLogSeverity[]; entityGuid?: string; tenantId?: string } = {}) {
@@ -1318,6 +1329,7 @@ export function App() {
     const refresh = () => {
       if (document.visibilityState === 'hidden') return;
       void loadDatabasePerformance(token).catch((err) => setError(err instanceof Error ? err.message : 'Database performance refresh failed.'));
+      void loadQueueJobs(token).catch((err) => setError(err instanceof Error ? err.message : 'Database queue jobs refresh failed.'));
     };
     refresh();
     const refreshTimer = window.setInterval(refresh, 60000);
@@ -1328,7 +1340,7 @@ export function App() {
       window.removeEventListener('focus', refresh);
       document.removeEventListener('visibilitychange', refresh);
     };
-  }, [token, profile, activeSection, canViewDatabase]);
+  }, [token, profile, activeSection, canViewDatabase, canManagePoller]);
 
   useEffect(() => {
     if (!token || !profile || activeSection !== 'settings-issues' || !canViewIssueTypes) return undefined;
@@ -1884,6 +1896,7 @@ export function App() {
     metadata: queueJobDetail(job),
     raw: job
   })).sort((left, right) => left.sequence - right.sequence), [systemQueueJobs, tenants]);
+  const databaseMaintenanceJobRows = useMemo(() => queueJobRows.filter((row) => row.raw.queue === 'database-maintenance'), [queueJobRows]);
 
 
   const cell = <T extends { raw: ModalEntity }>(edit: (raw: T['raw']) => void, remove?: (raw: T['raw']) => void) => ({ dataItem, tdProps }: GridCustomCellProps) => {
@@ -2731,6 +2744,7 @@ export function App() {
       {isMobileViewport && renderDetailPanel()}
       {!isMobileViewport && databaseDetailModal && <Dialog className="cms-dialog database-detail-dialog" title={`${kpiCards.find((card) => card.panel === databaseDetailModal)?.label || 'Database'} Details`} onClose={() => setDatabaseDetailModal(null)} width={920}>{renderDetailPanel()}<DialogActionsBar><Button className="compact-button" type="button" fillMode="flat" onClick={() => setDatabaseDetailModal(null)}>Close</Button></DialogActionsBar></Dialog>}
       <section className="panel database-performance-panel"><div className="panel-heading"><Settings /><div><p className="eyebrow small">Maintenance actions</p><h3>Database Maintenance</h3></div></div><div className="database-maintenance-grid">{maintenanceActions.map((action) => <button className={`database-maintenance-action ${action.tone || ''}`} type="button" key={action.action} onClick={() => void handleDatabaseMaintenance(action.action)} disabled={databaseMaintenanceAction === action.action || isClearingLogs}><span className="database-maintenance-label">{action.icon}<strong>{action.label}</strong></span><small>{action.detail}</small></button>)}</div></section>
+      {canManagePoller && <section className="panel database-performance-panel database-maintenance-jobs-panel"><div className="panel-heading"><Activity /><div><p className="eyebrow small">Queued maintenance</p><h3>Database Jobs</h3></div><Button className="compact-button" type="button" onClick={() => void loadQueueJobs(token)} disabled={isSystemVersionRefreshing}><RotateCw /> Refresh Jobs</Button></div>{databaseMaintenanceJobRows.length ? <div className="queue-latest-managed-grid database-maintenance-jobs-grid"><ManagedGrid gridKey="database-maintenance-jobs" token={token!} rows={databaseMaintenanceJobRows} columns={queueJobColumnDefs.filter((column) => !['tenant', 'instance', 'instanceGuid', 'queue'].includes(column.key))} loading={isSystemVersionRefreshing && !systemQueueJobs} loadingLabel="Loading database jobs…" actionCell={QueueJobActionCell} actionWidth={120} toolbar={<div className="queue-jobs-toolbar"><strong>Database maintenance queue</strong><span>{formatNumber(databaseMaintenanceJobRows.length)} active, scheduled, or retained database job{databaseMaintenanceJobRows.length === 1 ? '' : 's'}</span></div>} /></div> : <p className="panel-copy small-copy">No database maintenance jobs are active, scheduled, or retained yet. Analyze Tables and Optimize Tables can be queued from Operations Run Now controls.</p>}</section>}
     </div></div>;
   }
 
