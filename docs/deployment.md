@@ -124,7 +124,7 @@ Stopping the stack with `scripts/deploy.sh stop` preserves these volumes.
 
 This deployment baseline now includes GitHub update detection, the CMS Settings → General update notice, and disabled-by-default guarded update runner API endpoints. It does not yet include:
 
-- Recovery guidance and full tagged-update validation remain next. The host-side guarded `scripts/deploy.sh update` command, backend execution/status tracking, Settings UI action buttons, and automatic post-restart schema migration follow-through are present.
+- Full fresh-deployment/tagged-update/backup-restore validation remains next. The host-side guarded `scripts/deploy.sh update` command, backend execution/status tracking, Settings UI action buttons, automatic post-restart schema migration follow-through, and in-CMS recovery guidance are present.
 - Native Jobs dashboard/review surface and remaining database maintenance jobs. Redis/BullMQ configuration, status API, optional Bull Board mount, Settings → General queue visibility, opt-in worker bootstrap/profile wiring, safe instance-check processor, schedule/manual enqueue helpers, automatic startup/CRUD/import schedule reconciliation, and the queued `purge-logs` database-maintenance path are present as the Phase 1.5 foundation.
 
 Bundled HTTPS/certificate automation is intentionally skipped for now in favor of external reverse-proxy/load-balancer TLS termination.
