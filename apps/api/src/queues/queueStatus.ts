@@ -53,6 +53,13 @@ export type QueueJobSummary = {
   failedReason: string | null;
   everySeconds?: number;
   iterationCount?: number;
+  resource?: {
+    phase: 'scheduled' | 'live' | 'retained' | 'unknown';
+    ageSeconds: number | null;
+    waitSeconds: number | null;
+    durationMs: number | null;
+    attemptCost: number;
+  };
   data: {
     task?: string;
     source?: string;
@@ -169,6 +176,38 @@ function nextProcessMillis(job: { state: QueueJobState; timestamp: number | unde
   return job.finishedOn ?? job.processedOn ?? job.timestamp ?? null;
 }
 
+function queueJobPhase(state: QueueJobState): NonNullable<QueueJobSummary['resource']>['phase'] {
+  if (state === 'scheduled') return 'scheduled';
+  if (state === 'active' || state === 'waiting' || state === 'delayed') return 'live';
+  if (state === 'failed' || state === 'completed') return 'retained';
+  return 'unknown';
+}
+
+function secondsBetween(later: number | null | undefined, earlier: number | null | undefined): number | null {
+  if (typeof later !== 'number' || typeof earlier !== 'number') return null;
+  if (!Number.isFinite(later) || !Number.isFinite(earlier) || later < earlier) return null;
+  return Math.round((later - earlier) / 1000);
+}
+
+function durationMs(processedOn: number | undefined, finishedOn: number | undefined): number | null {
+  if (typeof processedOn !== 'number' || typeof finishedOn !== 'number') return null;
+  if (!Number.isFinite(processedOn) || !Number.isFinite(finishedOn) || finishedOn < processedOn) return null;
+  return finishedOn - processedOn;
+}
+
+function resourceMetrics(input: { state: QueueJobState; timestamp?: number; processedOn?: number; finishedOn?: number; nextProcessAt?: number | null; attemptsMade?: number }, now = Date.now()): NonNullable<QueueJobSummary['resource']> {
+  const state = input.state;
+  const ageBase = input.timestamp ?? input.processedOn ?? input.finishedOn ?? null;
+  const waitUntil = state === 'scheduled' || state === 'delayed' ? input.nextProcessAt ?? null : null;
+  return {
+    phase: queueJobPhase(state),
+    ageSeconds: secondsBetween(now, ageBase),
+    waitSeconds: waitUntil ? secondsBetween(waitUntil, now) : null,
+    durationMs: durationMs(input.processedOn, input.finishedOn),
+    attemptCost: Math.max(0, Math.trunc(input.attemptsMade ?? 0))
+  };
+}
+
 function compareQueueJobs(left: QueueJobSummary, right: QueueJobSummary): number {
   const rank = queueStateRank(left.state) - queueStateRank(right.state);
   if (rank !== 0) return rank;
@@ -208,6 +247,7 @@ function schedulerToQueueJob(queue: QueueName, scheduler: BullMqJobSchedulerReco
   const data = safeJobData(scheduler.template?.data);
   const everyMs = typeof scheduler.every === 'number' && Number.isFinite(scheduler.every) ? scheduler.every : null;
   const iterationCount = typeof scheduler.iterationCount === 'number' && Number.isFinite(scheduler.iterationCount) ? scheduler.iterationCount : null;
+  const next = typeof scheduler.next === 'number' && Number.isFinite(scheduler.next) ? scheduler.next : null;
   return {
     id: scheduler.key ?? scheduler.id ?? null,
     queue,
@@ -215,13 +255,14 @@ function schedulerToQueueJob(queue: QueueName, scheduler: BullMqJobSchedulerReco
     state: 'scheduled',
     attemptsMade: 0,
     queueSequence: 0,
-    nextProcessAt: isoFromMillis(scheduler.next),
+    nextProcessAt: isoFromMillis(next ?? undefined),
     timestamp: null,
     processedOn: null,
     finishedOn: null,
     failedReason: null,
     ...(everyMs ? { everySeconds: Math.round(everyMs / 1000) } : {}),
     ...(iterationCount !== null ? { iterationCount } : {}),
+    resource: resourceMetrics({ state: 'scheduled', nextProcessAt: next, attemptsMade: 0 }),
     data: {
       ...data,
       requestedBy: data.requestedBy
@@ -345,6 +386,7 @@ export async function createQueueRuntime(config: AppConfig): Promise<QueueRuntim
               processedOn: isoFromMillis(job.processedOn),
               finishedOn: isoFromMillis(job.finishedOn),
               failedReason: truncate(job.failedReason),
+              resource: resourceMetrics({ state, timestamp: job.timestamp, processedOn: job.processedOn, finishedOn: job.finishedOn, nextProcessAt: nextProcessMillis({ state, timestamp: job.timestamp, processedOn: job.processedOn, finishedOn: job.finishedOn, delay: job.delay }), attemptsMade: job.attemptsMade }),
               data: safeJobData(job.data)
             };
           }));
@@ -377,6 +419,7 @@ export async function createQueueRuntime(config: AppConfig): Promise<QueueRuntim
               processedOn: isoFromMillis(job.processedOn),
               finishedOn: isoFromMillis(job.finishedOn),
               failedReason: truncate(job.failedReason),
+              resource: resourceMetrics({ state, timestamp: job.timestamp, processedOn: job.processedOn, finishedOn: job.finishedOn, nextProcessAt: nextProcessMillis({ state, timestamp: job.timestamp, processedOn: job.processedOn, finishedOn: job.finishedOn, delay: job.delay }), attemptsMade: job.attemptsMade }),
               data: safeJobData(job.data)
             };
           }));

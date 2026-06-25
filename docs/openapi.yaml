@@ -1892,6 +1892,15 @@ components:
         attemptsMade: { type: integer, minimum: 0 }
         everySeconds: { type: integer, minimum: 1, description: "Recurring scheduler cadence in seconds when the row represents a scheduled job. The UI formats this as a friendly label such as Every Day, Every 14 Days, or Every 5 Minutes." }
         iterationCount: { type: integer, minimum: 0, description: BullMQ scheduler iteration count when available. }
+        resource:
+          type: object
+          description: Safe queue timing/resource metrics derived from BullMQ timestamps; no raw payload data is exposed.
+          properties:
+            phase: { type: string, enum: [scheduled, live, retained, unknown] }
+            ageSeconds: { type: [integer, 'null'], minimum: 0 }
+            waitSeconds: { type: [integer, 'null'], minimum: 0 }
+            durationMs: { type: [integer, 'null'], minimum: 0 }
+            attemptCost: { type: integer, minimum: 0 }
         timestamp: { type: [string, 'null'], format: date-time }
         processedOn: { type: [string, 'null'], format: date-time }
         finishedOn: { type: [string, 'null'], format: date-time }

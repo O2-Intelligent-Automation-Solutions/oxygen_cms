@@ -108,8 +108,8 @@ type SystemUpdateStep = { code: 'dry-run' | 'backup' | 'checkout' | 'build' | 'r
 type SystemUpdateStatus = { generatedAt: string; runner: { enabled: boolean; state: 'idle' | 'running' | 'blocked' | 'unavailable'; inProgress: boolean; canRun: boolean; mode: 'host-script'; command: string; dryRunCommand: string; requiresConfirmation: boolean; confirmationVariable: string; currentRef: string | null; targetRef: string | null }; steps: SystemUpdateStep[]; lastRun: { id: string; mode: 'dry-run' | 'update'; targetRef: string; startedAt: string; finishedAt: string | null; state: 'running' | 'completed' | 'failed'; summary: string | null } | null; lastError: string | null };
 type QueueStatusItem = { name: 'instance-checks' | 'database-maintenance' | 'system-maintenance'; description: string; waiting: number; active: number; delayed: number; failed: number; completed: number };
 type SystemQueueStatus = { enabled: boolean; mode: 'disabled' | 'bullmq'; generatedAt: string; bullBoard?: { enabled: boolean; path: string | null }; redis: { configured: boolean; connected: boolean; host: string | null; port: number | null; error: string | null }; queues: QueueStatusItem[] };
-type QueueJobSummary = { id: string | null; queue: QueueStatusItem['name']; name: string; state: 'scheduled' | 'waiting' | 'active' | 'delayed' | 'failed' | 'completed' | 'unknown'; attemptsMade: number; queueSequence: number; nextProcessAt: string | null; timestamp: string | null; processedOn: string | null; finishedOn: string | null; failedReason: string | null; everySeconds?: number; iterationCount?: number; data: { task?: string; source?: string; instanceId?: string; instanceName?: string; tenantId?: string | null; tenantName?: string | null; requestedBy?: string } };
-type QueueJobGridRow = { id: string; sequence: number; job: string; tenant: string; instance: string; instanceGuid: string; queue: string; state: string; attempts: string; nextProcessAt: string; lastActivity: string; metadata: string; raw: QueueJobSummary };
+type QueueJobSummary = { id: string | null; queue: QueueStatusItem['name']; name: string; state: 'scheduled' | 'waiting' | 'active' | 'delayed' | 'failed' | 'completed' | 'unknown'; attemptsMade: number; queueSequence: number; nextProcessAt: string | null; timestamp: string | null; processedOn: string | null; finishedOn: string | null; failedReason: string | null; everySeconds?: number; iterationCount?: number; resource?: { phase: 'scheduled' | 'live' | 'retained' | 'unknown'; ageSeconds: number | null; waitSeconds: number | null; durationMs: number | null; attemptCost: number }; data: { task?: string; source?: string; instanceId?: string; instanceName?: string; tenantId?: string | null; tenantName?: string | null; requestedBy?: string } };
+type QueueJobGridRow = { id: string; sequence: number; job: string; tenant: string; instance: string; instanceGuid: string; queue: string; state: string; resource: string; age: string; wait: string; runtime: string; attempts: string; nextProcessAt: string; lastActivity: string; metadata: string; raw: QueueJobSummary };
 type SystemQueueJobs = { enabled: boolean; mode: 'disabled' | 'bullmq'; generatedAt: string; jobs: QueueJobSummary[] };
 type DatabaseDetailPanel = 'schema' | 'status' | 'storage' | 'tables' | 'connections' | 'queries' | 'cache';
 type DatabaseMaintenanceAction = 'run-retention' | 'purge-logs' | 'compress' | 'defrag' | 'backup' | 'restore';
@@ -388,6 +388,10 @@ const queueJobColumnDefs: ManagedGridColumn<QueueJobGridRow>[] = [
   { key: 'instance', title: 'Instance', width: 220 },
   { key: 'queue', title: 'Queue', width: 170 },
   { key: 'state', title: 'State', width: 130 },
+  { key: 'resource', title: 'Resource', width: 130 },
+  { key: 'age', title: 'Age', width: 120 },
+  { key: 'wait', title: 'Wait', width: 120 },
+  { key: 'runtime', title: 'Runtime', width: 120 },
   { key: 'attempts', title: 'Schedule', width: 180 },
   { key: 'nextProcessAt', title: 'Next Run', width: 190 },
   { key: 'lastActivity', title: 'Last Activity', width: 190, defaultVisible: false },
@@ -1891,6 +1895,10 @@ export function App() {
     instanceGuid: job.data.instanceId ?? '',
     queue: job.queue,
     state: job.state,
+    resource: queueJobResourceLabel(job),
+    age: formatQueueDuration(job.resource?.ageSeconds),
+    wait: formatQueueDuration(job.resource?.waitSeconds),
+    runtime: formatQueueRuntime(job.resource?.durationMs),
     attempts: queueJobAttemptLabel(job),
     nextProcessAt: job.nextProcessAt ? formatDateTime(job.nextProcessAt) : '—',
     lastActivity: formatDateTime(job.finishedOn ?? job.processedOn ?? job.timestamp),
@@ -2545,6 +2553,26 @@ export function App() {
 
   function queueJobInstanceLabel(job: QueueJobSummary) {
     return job.data.instanceName ?? (job.data.instanceId ? `Unknown (${job.data.instanceId.slice(0, 8)}…)` : '—');
+  }
+
+  function formatQueueDuration(seconds: number | null | undefined) {
+    if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 0) return '—';
+    if (seconds < 60) return `${Math.round(seconds)}s`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ${Math.round((seconds % 3600) / 60)}m`;
+    return `${Math.floor(seconds / 86400)}d ${Math.round((seconds % 86400) / 3600)}h`;
+  }
+
+  function formatQueueRuntime(durationMs: number | null | undefined) {
+    if (typeof durationMs !== 'number' || !Number.isFinite(durationMs) || durationMs < 0) return '—';
+    if (durationMs < 1000) return `${Math.round(durationMs)}ms`;
+    return formatQueueDuration(durationMs / 1000);
+  }
+
+  function queueJobResourceLabel(job: QueueJobSummary) {
+    const phase = job.resource?.phase ?? (job.state === 'scheduled' ? 'scheduled' : job.state === 'completed' || job.state === 'failed' ? 'retained' : job.state === 'active' || job.state === 'waiting' || job.state === 'delayed' ? 'live' : 'unknown');
+    const attemptCost = job.resource?.attemptCost ?? job.attemptsMade ?? 0;
+    return attemptCost > 0 ? `${phase} · ${attemptCost} attempt${attemptCost === 1 ? '' : 's'}` : phase;
   }
 
   function queueJobDetail(job: QueueJobSummary) {
