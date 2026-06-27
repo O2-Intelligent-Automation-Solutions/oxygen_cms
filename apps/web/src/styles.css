@@ -6018,18 +6018,43 @@ button.tenant-metric-card:focus-visible {
 }
 
 .queue-latest-managed-grid .dp-head {
-  align-items: center;
-  gap: 12px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: end;
+  gap: 10px;
   padding: 8px 10px;
 }
 
 .queue-latest-managed-grid .queue-jobs-toolbar {
   min-width: 0;
-  margin-right: auto;
-  display: flex;
-  align-items: baseline;
+  margin-right: 0;
+  display: grid;
+  grid-template-columns: minmax(170px, auto) minmax(0, 1fr);
+  align-items: end;
   gap: 10px;
+  width: 100%;
   color: var(--brand-text);
+}
+
+.queue-latest-managed-grid .queue-jobs-toolbar .logs-toolbar-left {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  flex: 0 0 auto;
+}
+
+.queue-latest-managed-grid .queue-jobs-toolbar .grid-toolbar-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(150px, 1fr));
+  align-items: end;
+  justify-content: end;
+  gap: 10px;
+  width: 100%;
+  margin-left: 0;
+}
+
+.queue-latest-managed-grid .queue-jobs-toolbar .logs-filter-control {
+  min-width: 0;
 }
 
 .queue-latest-managed-grid .queue-jobs-toolbar strong {
@@ -7519,6 +7544,16 @@ body.cms-notes-editor-active .k-actions .k-button-solid-primary {
     display: none;
   }
 
+  .queue-latest-managed-grid .queue-jobs-toolbar {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .queue-latest-managed-grid .queue-jobs-toolbar .grid-toolbar-filters {
+    grid-template-columns: repeat(3, minmax(140px, 1fr));
+    justify-content: stretch;
+  }
+
   .queue-table-row {
     grid-template-columns: minmax(0, 1fr) auto;
   }
@@ -7544,5 +7579,29 @@ body.cms-notes-editor-active .k-actions .k-button-solid-primary {
 
   .update-workflow-copy {
     display: grid;
+  }
+}
+
+@media (max-width: 760px) {
+  .queue-latest-managed-grid .dp-head {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .queue-latest-managed-grid .queue-jobs-toolbar {
+    grid-column: 1 / -1;
+  }
+
+  .queue-latest-managed-grid .queue-jobs-toolbar .grid-toolbar-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .queue-latest-managed-grid .column-selector-wrap,
+  .queue-latest-managed-grid .btn-grid-tool.k-button {
+    justify-self: stretch;
+  }
+
+  .queue-latest-managed-grid .column-selector-wrap .btn-grid-tool.k-button,
+  .queue-latest-managed-grid > .kendo-data-panel > .dp-head > .btn-grid-tool.k-button {
+    width: 100%;
   }
 }
