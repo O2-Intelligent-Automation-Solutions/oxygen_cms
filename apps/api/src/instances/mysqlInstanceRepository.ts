@@ -254,17 +254,32 @@ export function createMysqlInstanceRepository(pool: Pool, credentialCipher?: Cre
     return 'down';
   }
 
+  function workflowIssueKey(issue: { workflowTriggerId?: string | null; workflowEventId?: string | null; serviceEventId?: string | null }) {
+    return [issue.workflowTriggerId, issue.workflowEventId, issue.serviceEventId].map((part) => part || 'none').join(':');
+  }
+
+  function activeWorkflowKeys(summary: unknown) {
+    if (!summary || typeof summary !== 'object') return new Set<string>();
+    const activeErrors = (summary as { activeErrors?: unknown }).activeErrors;
+    if (!Array.isArray(activeErrors)) return new Set<string>();
+    return new Set(activeErrors.filter((entry): entry is { workflowTriggerId?: string | null; workflowEventId?: string | null; serviceEventId?: string | null } => Boolean(entry && typeof entry === 'object')).map(workflowIssueKey));
+  }
+
   async function persistConnectivityResult(instanceId: string, result: ConnectivityResult) {
     const availability = availabilityFromConnectivity(result);
     const lastSuccessAt = availability === 'up' ? result.checkedAt : null;
     const lastFailureAt = availability === 'up' ? null : result.checkedAt;
     const tlsConnectionFailed = availability === 'down' && result.connect.ok && !result.ssl.ok && result.ssl.expiresAt === null;
     const sslValid = tlsConnectionFailed ? null : (result.ssl.valid ?? null);
+    const currentWorkflowKeys = activeWorkflowKeys(result.workflows);
+    const previousWorkflow = await one<RowDataPacket & { workflow_summary_json: unknown | null }>('SELECT workflow_summary_json FROM oxygen_instance_status WHERE instance_id = ? LIMIT 1', [instanceId]);
+    const recoveredErrorKeys = Array.from(activeWorkflowKeys(parseJson(previousWorkflow?.workflow_summary_json ?? null))).filter((key) => !currentWorkflowKeys.has(key));
+    const workflowResult = recoveredErrorKeys.length > 0 ? { ...result.workflows, recoveredErrorKeys } : result.workflows;
     await pool.execute(
       `UPDATE oxygen_instance_status
        SET availability_status = ?, ssl_valid = ?, ssl_expires_at = ?, last_checked_at = ?,
            last_success_at = COALESCE(?, last_success_at), last_failure_at = COALESCE(?, last_failure_at),
-           response_time_ms = ?, last_error = ?,
+           response_time_ms = ?, last_error = ?, processing_status = ?, workflow_summary_json = ?,
            license_key = CASE WHEN ? THEN license_key ELSE ? END,
            license_status = CASE WHEN ? THEN license_status ELSE ? END,
            license_json = CASE WHEN ? THEN license_json ELSE ? END,
@@ -279,6 +294,8 @@ export function createMysqlInstanceRepository(pool: Pool, credentialCipher?: Cre
         lastFailureAt ? new Date(lastFailureAt) : null,
         result.responseTimeMs,
         result.ok ? null : result.message,
+        workflowResult.step.skipped ? 'unknown' : workflowResult.activeErrorCount > 0 ? 'error' : 'ok',
+        JSON.stringify(workflowResult),
         result.license.step.skipped ? 1 : 0,
         result.license.key,
         result.license.step.skipped ? 1 : 0,
@@ -302,7 +319,23 @@ export function createMysqlInstanceRepository(pool: Pool, credentialCipher?: Cre
         result.httpStatusCode,
         result.ok ? null : (result.authentication.errorCode ?? result.api.errorCode ?? result.ssl.errorCode ?? result.connect.errorCode ?? result.dns.errorCode ?? 'CONNECTIVITY_ERROR'),
         result.ok ? null : result.message,
-        JSON.stringify({ dns: result.dns, connect: result.connect, ssl: result.ssl, authentication: result.authentication, api: result.api, license: result.license.step })
+        JSON.stringify({ dns: result.dns, connect: result.connect, ssl: result.ssl, authentication: result.authentication, api: result.api, license: result.license.step, workflows: result.workflows.step })
+      ]
+    );
+    await pool.execute(
+      `INSERT INTO oxygen_instance_check_history
+       (instance_id, check_type, status, started_at, finished_at, duration_ms, http_status_code, error_code, error_message, details_json)
+       VALUES (?, 'workflow', ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        instanceId,
+        workflowResult.step.skipped ? 'unknown' : workflowResult.activeErrorCount > 0 ? 'error' : 'ok',
+        new Date(Math.max(0, new Date(result.checkedAt).getTime() - result.durationMs)),
+        new Date(result.checkedAt),
+        workflowResult.step.durationMs ?? result.durationMs,
+        workflowResult.step.httpStatusCode ?? null,
+        workflowResult.step.errorCode ?? null,
+        workflowResult.step.ok ? null : (workflowResult.step.message ?? null),
+        JSON.stringify(workflowResult)
       ]
     );
     await pool.execute(
@@ -443,18 +476,21 @@ export function createMysqlInstanceRepository(pool: Pool, credentialCipher?: Cre
       const rows = await many<InstanceCheckHistoryRow>(
         `SELECT check_type, status, started_at, finished_at, duration_ms, http_status_code, error_code, error_message, details_json
          FROM oxygen_instance_check_history FORCE INDEX (idx_oxygen_instance_check_history_instance_started_id_type)
-         WHERE instance_id = ? AND check_type IN ('connectivity', 'license')
+         WHERE instance_id = ? AND check_type IN ('connectivity', 'license', 'workflow')
          ORDER BY started_at DESC, id DESC
          LIMIT 50`,
         [instanceId]
       );
       const entries = rows.map(mapHistoryEntry);
       const availability = entries.filter((entry) => entry.checkType === 'connectivity').slice(0, 24);
+      const workflowHistory = entries.filter((entry) => entry.checkType === 'workflow').slice(0, 10);
       return {
         instance,
         availability,
         latestConnectivity: availability[0] ?? null,
-        licenseHistory: entries.filter((entry) => entry.checkType === 'license').slice(0, 10)
+        licenseHistory: entries.filter((entry) => entry.checkType === 'license').slice(0, 10),
+        workflowHistory,
+        latestWorkflow: workflowHistory[0] ?? null
       };
     },
 

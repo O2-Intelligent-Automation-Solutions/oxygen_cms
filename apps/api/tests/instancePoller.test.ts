@@ -63,7 +63,8 @@ function connectivityResult(): ConnectivityResult {
     authentication: { ok: true, httpStatusCode: 200 },
     api: { ok: true, httpStatusCode: 200 },
     settingsJson: null,
-    license: { step: { ok: true, httpStatusCode: 200 }, status: 'valid', key: 'KEY-123', payload: { licenseKey: 'KEY-123' } }
+    license: { step: { ok: true, httpStatusCode: 200 }, status: 'valid', key: 'KEY-123', payload: { licenseKey: 'KEY-123' } },
+    workflows: { step: { ok: true, httpStatusCode: 200 }, totalTriggers: 0, activeErrorCount: 0, activeErrors: [] }
   };
 }
 
@@ -80,7 +81,8 @@ function failedConnectivityResult(): ConnectivityResult {
     ssl: { ok: false, skipped: true, message: 'Skipped because DNS failed.' },
     authentication: { ok: false, skipped: true, message: 'Skipped because DNS failed.' },
     api: { ok: false, skipped: true, message: 'Skipped because DNS failed.' },
-    license: { step: { ok: false, skipped: true, message: 'Skipped because DNS failed.' }, status: 'unknown', key: null, payload: null }
+    license: { step: { ok: false, skipped: true, message: 'Skipped because DNS failed.' }, status: 'unknown', key: null, payload: null },
+    workflows: { step: { ok: false, skipped: true, message: 'Skipped because DNS failed.' }, totalTriggers: 0, activeErrorCount: 0, activeErrors: [] }
   };
 }
 
@@ -94,7 +96,7 @@ function repository(instances: OxyGenInstance[], testConnectivity = vi.fn(async 
     getHealthDetails: vi.fn(async (instanceId: string) => {
       const found = instances.find((entry) => entry.id === instanceId);
       if (!found) throw new Error('Instance not found.');
-      return { instance: found, availability: [], latestConnectivity: null, licenseHistory: [] };
+      return { instance: found, availability: [], latestConnectivity: null, licenseHistory: [], workflowHistory: [], latestWorkflow: null };
     }),
     testConnectivity
   };

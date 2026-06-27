@@ -15,7 +15,7 @@ function readBody(request: IncomingMessage) {
   });
 }
 
-async function startMockOxyGenServer(options: { password: string; failAuth?: boolean; forbiddenAuth?: boolean; loginCookieWithoutAccess?: boolean; redirectAfterLogin?: boolean; license?: unknown; licenseDelayMs?: number }) {
+async function startMockOxyGenServer(options: { password: string; failAuth?: boolean; forbiddenAuth?: boolean; loginCookieWithoutAccess?: boolean; redirectAfterLogin?: boolean; license?: unknown; licenseDelayMs?: number; workflowError?: boolean }) {
   const requests: string[] = [];
   const server = createServer(async (request: IncomingMessage, response: ServerResponse) => {
     requests.push(`${request.method ?? 'GET'} ${request.url ?? '/'}`);
@@ -65,6 +65,34 @@ async function startMockOxyGenServer(options: { password: string; failAuth?: boo
       }
       response.statusCode = 401;
       response.end('Missing session');
+      return;
+    }
+
+    if (request.method === 'GET' && request.url?.startsWith('/web-api/BUS/workflows/triggers/grid')) {
+      response.statusCode = 200;
+      response.setHeader('content-type', 'application/json');
+      response.end(JSON.stringify({ Data: options.workflowError ? [{ Id: 7001, WorkflowName: 'Daily Import', Status: 'Recovery', StatusInfo: 'SQL failed', HasErrors: true, TriggerDate: '2026-06-26T12:00:00Z' }] : [] }));
+      return;
+    }
+
+    if (request.method === 'GET' && request.url?.startsWith('/web-api/BUS/workflows/events/grid')) {
+      response.statusCode = 200;
+      response.setHeader('content-type', 'application/json');
+      response.end(JSON.stringify({ Data: [{ Id: 8001, Status: 'Errored', LastError: 'Divide by zero', ServiceIdentifier: 'SQL', ServiceEventId: 9001, JobId: 44 }] }));
+      return;
+    }
+
+    if (request.method === 'GET' && request.url === '/web-api/BUS/workflows/events/8001') {
+      response.statusCode = 200;
+      response.setHeader('content-type', 'application/json');
+      response.end(JSON.stringify({ Id: 8001, Status: 'Errored', LastError: 'Divide by zero', ServiceIdentifier: 'SQL', ServiceEventId: 9001, JobId: 44, StackTrace: 'workflow stack' }));
+      return;
+    }
+
+    if (request.method === 'GET' && request.url === '/web-api/SQL/Events/9001') {
+      response.statusCode = 200;
+      response.setHeader('content-type', 'application/json');
+      response.end(JSON.stringify({ Id: 9001, ErrorMessage: 'SQL job divide by zero', StackTrace: 'sql stack', ProcessingOutputs: '-1,0,2', MappedIndexData: { Outputs: [-1, 0, 2] }, Payload: 'raw payload should not be copied' }));
       return;
     }
 
@@ -123,13 +151,62 @@ describe('OxyGen connectivity checks', () => {
       ssl: { ok: true, valid: null },
       authentication: { ok: true, httpStatusCode: 200 },
       api: { ok: true, httpStatusCode: 200 },
-      license: { status: 'valid', key: 'VALID-LICENSE-123', step: { ok: true, httpStatusCode: 200 } }
+      license: { status: 'valid', key: 'VALID-LICENSE-123', step: { ok: true, httpStatusCode: 200 } },
+      workflows: { activeErrorCount: 0, step: { ok: true, httpStatusCode: 200 } }
     });
     expect(result.durationMs).toBeGreaterThanOrEqual(0);
     expect(result.responseTimeMs).not.toBeNull();
     expect(result.durationMs - (result.responseTimeMs ?? 0)).toBeGreaterThanOrEqual(80);
     expect(result.checkedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-    expect(mock.requests).toEqual(['POST /v2/Auth/Login', 'GET /web-api/BUS/License', 'GET /web-api/global/settings']);
+    expect(mock.requests).toEqual(['POST /v2/Auth/Login', 'GET /web-api/BUS/License', 'GET /web-api/global/settings', expect.stringMatching(/^GET \/web-api\/BUS\/workflows\/triggers\/grid/)]);
+  });
+
+  it('correlates active trigger errors to workflow event and service event details', async () => {
+    const mock = await startMockOxyGenServer({ password: 'RemotePassword!42', workflowError: true });
+
+    const result = await testOxyGenConnectivity({
+      instance: {
+        name: 'Workflow Error Mock',
+        protocol: 'http',
+        host: '127.0.0.1',
+        port: mock.port,
+        apiBaseUrl: mock.baseUrl,
+        username: 'admin'
+      },
+      password: 'RemotePassword!42',
+      timeoutMs: 2000
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 'reachable',
+      message: 'Connectivity test completed with trigger/workflow issue: 1 active trigger error(s) found.',
+      workflows: {
+        activeErrorCount: 1,
+        activeErrors: [{
+          workflowTriggerId: '7001',
+          workflowName: 'Daily Import',
+          triggerStatus: 'Recovery',
+          workflowEventId: '8001',
+          workflowEventLastError: 'Divide by zero',
+          serviceIdentifier: 'SQL',
+          serviceEventId: '9001',
+          serviceErrorMessage: 'SQL job divide by zero',
+          processingOutputs: '-1,0,2',
+          mappedIndexData: { Outputs: [-1, 0, 2] }
+        }]
+      }
+    });
+    expect(JSON.stringify(result.workflows)).not.toContain('raw payload');
+    expect(mock.requests).toEqual([
+      'POST /v2/Auth/Login',
+      'GET /web-api/BUS/License',
+      'GET /web-api/global/settings',
+      expect.stringMatching(/^GET \/web-api\/BUS\/workflows\/triggers\/grid/),
+      expect.stringMatching(/^GET \/web-api\/BUS\/workflows\/events\/grid/),
+      'GET /web-api/BUS/workflows/events/8001',
+      'GET /web-api/SQL/Events/9001'
+    ]);
   });
 
   it('accepts OxyGen login redirects when a session cookie is returned', async () => {
@@ -155,7 +232,7 @@ describe('OxyGen connectivity checks', () => {
       license: { status: 'valid', step: { ok: true, httpStatusCode: 200 } },
       api: { ok: true, httpStatusCode: 200 }
     });
-    expect(mock.requests).toEqual(['POST /v2/Auth/Login', 'GET /web-api/BUS/License', 'GET /web-api/global/settings']);
+    expect(mock.requests).toEqual(['POST /v2/Auth/Login', 'GET /web-api/BUS/License', 'GET /web-api/global/settings', expect.stringMatching(/^GET \/web-api\/BUS\/workflows\/triggers\/grid/)]);
   });
 
   it('classifies OxyGen no-license payloads as missing license errors', async () => {

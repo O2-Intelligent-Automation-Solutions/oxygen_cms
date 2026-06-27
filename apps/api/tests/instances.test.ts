@@ -525,7 +525,9 @@ describe('instance enrollment API', () => {
       },
       availability: [{ checkType: 'connectivity', status: 'up' }],
       latestConnectivity: { checkType: 'connectivity', status: 'up' },
-      licenseHistory: [{ checkType: 'license' }]
+      licenseHistory: [{ checkType: 'license' }],
+      workflowHistory: [{ checkType: 'workflow', status: 'ok' }],
+      latestWorkflow: { checkType: 'workflow', status: 'ok' }
     });
     expect(healthDetails.json().healthDetails.latestConnectivity.detailsJson).toMatchObject({
       authentication: { ok: true, httpStatusCode: 200 },

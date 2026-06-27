@@ -4,7 +4,7 @@ import { connect as tcpConnect } from 'node:net';
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { connect as tlsConnect } from 'node:tls';
-import type { ConnectivityResult, ConnectivityStepResult, InstanceProtocol, LicenseProbeResult, LicenseStatus } from './types.js';
+import type { ConnectivityResult, ConnectivityStepResult, InstanceProtocol, LicenseProbeResult, LicenseStatus, WorkflowProbeResult, WorkflowTriggerIssue } from './types.js';
 
 type ConnectivityInput = {
   instance: {
@@ -296,6 +296,123 @@ async function probeGlobalSettings(input: ConnectivityInput, cookieHeader: strin
 }
 
 
+function skippedWorkflowProbe(message: string): WorkflowProbeResult {
+  return { step: { ok: false, skipped: true, message }, totalTriggers: 0, activeErrorCount: 0, activeErrors: [] };
+}
+
+function recordsFromGrid(payload: unknown): Record<string, unknown>[] {
+  if (Array.isArray(payload)) return payload.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item));
+  if (!payload || typeof payload !== 'object') return [];
+  const record = payload as Record<string, unknown>;
+  for (const key of ['Data', 'data', 'Items', 'items', 'Results', 'results']) {
+    const value = record[key];
+    if (Array.isArray(value)) return recordsFromGrid(value);
+  }
+  return [];
+}
+
+function recordString(record: Record<string, unknown> | null | undefined, names: string[]): string | null {
+  if (!record) return null;
+  for (const name of names) {
+    const value = record[name];
+    if (value === null || value === undefined) continue;
+    const text = String(value).trim();
+    if (text) return text.length > 4000 ? `${text.slice(0, 4000)}…` : text;
+  }
+  return null;
+}
+
+function recordBool(record: Record<string, unknown>, names: string[]) {
+  for (const name of names) {
+    const value = record[name];
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value !== 0;
+    if (typeof value === 'string') return ['true', '1', 'yes'].includes(value.toLowerCase());
+  }
+  return false;
+}
+
+function isErroredStatus(status: string | null) {
+  const normalized = status?.trim().toLowerCase() ?? '';
+  return normalized === 'errored' || normalized === 'error' || normalized === 'recovery' || normalized === 'failed';
+}
+
+async function getJsonProbe(input: ConnectivityInput, cookieHeader: string, path: string): Promise<{ response: ProbeResponse; payload: unknown | null }> {
+  const response = await requestProbe(joinUrl(input.instance.apiBaseUrl, path), { method: 'GET', headers: { cookie: cookieHeader }, timeoutMs: input.timeoutMs ?? 5000 });
+  return { response, payload: response.status >= 200 && response.status < 400 ? parseJsonBody(response.body) : null };
+}
+
+async function serviceEventDetail(input: ConnectivityInput, cookieHeader: string, eventDetail: Record<string, unknown>, triggerId: string, workflowEventId: string): Promise<Record<string, unknown> | null> {
+  const serviceIdentifier = recordString(eventDetail, ['ServiceIdentifier', 'serviceIdentifier']);
+  const serviceEventId = recordString(eventDetail, ['ServiceEventId', 'serviceEventId']);
+  if (!serviceIdentifier) return null;
+  if (serviceEventId) {
+    const detail = await getJsonProbe(input, cookieHeader, `/web-api/${encodeURIComponent(serviceIdentifier)}/Events/${encodeURIComponent(serviceEventId)}`);
+    if (detail.response.status >= 200 && detail.response.status < 400 && detail.payload && typeof detail.payload === 'object' && !Array.isArray(detail.payload)) return detail.payload as Record<string, unknown>;
+  }
+  const jobId = recordString(eventDetail, ['JobId', 'jobId']);
+  const filter = `((ParentId~isnull~null~or~ParentId~eq~0)~and~WorkflowEventId~eq~${workflowEventId}~and~WorkflowTriggerId~eq~${triggerId}${jobId ? `~and~JobId~eq~${jobId}` : ''})`;
+  const grid = await getJsonProbe(input, cookieHeader, `/web-api/${encodeURIComponent(serviceIdentifier)}/Events/Grid?${new URLSearchParams({ filter }).toString()}`);
+  const row = recordsFromGrid(grid.payload)[0];
+  const gridServiceEventId = row ? recordString(row, ['Id', 'ServiceEventId', 'serviceEventId']) : null;
+  if (!gridServiceEventId) return row ?? null;
+  const detail = await getJsonProbe(input, cookieHeader, `/web-api/${encodeURIComponent(serviceIdentifier)}/Events/${encodeURIComponent(gridServiceEventId)}`);
+  return detail.payload && typeof detail.payload === 'object' && !Array.isArray(detail.payload) ? detail.payload as Record<string, unknown> : row ?? null;
+}
+
+async function probeWorkflowTriggers(input: ConnectivityInput, cookieHeader: string): Promise<WorkflowProbeResult> {
+  if (!cookieHeader) return skippedWorkflowProbe('Trigger probe skipped because authentication did not return a session cookie.');
+  const startedAt = Date.now();
+  try {
+    const triggerFilter = "(IsChild~neq~true~and~(Status~eq~'Active'~or~Status~eq~'Pending'~or~Status~eq~'Errored'~or~Status~eq~'Recovery'))";
+    const triggersResponse = await getJsonProbe(input, cookieHeader, `/web-api/BUS/workflows/triggers/grid?${new URLSearchParams({ filter: triggerFilter }).toString()}`);
+    const triggers = recordsFromGrid(triggersResponse.payload);
+    const candidates = triggers.filter((trigger) => isErroredStatus(recordString(trigger, ['Status', 'status'])) || recordBool(trigger, ['HasErrors', 'hasErrors']));
+    const activeErrors: WorkflowTriggerIssue[] = [];
+    for (const trigger of candidates.slice(0, 10)) {
+      const triggerId = recordString(trigger, ['Id', 'WorkflowTriggerId', 'workflowTriggerId']) ?? '';
+      if (!triggerId) continue;
+      const events = await getJsonProbe(input, cookieHeader, `/web-api/BUS/workflows/events/grid?${new URLSearchParams({ filter: `WorkflowTriggerId~eq~${triggerId}`, sort: 'Id-asc' }).toString()}`);
+      const eventRows = recordsFromGrid(events.payload);
+      const eventRow = eventRows.find((event) => isErroredStatus(recordString(event, ['Status', 'status'])) || Boolean(recordString(event, ['LastError', 'lastError']))) ?? eventRows[0] ?? null;
+      const workflowEventId = recordString(eventRow, ['Id', 'WorkflowEventId', 'workflowEventId']);
+      const eventDetailProbe = workflowEventId ? await getJsonProbe(input, cookieHeader, `/web-api/BUS/workflows/events/${encodeURIComponent(workflowEventId)}`) : null;
+      const eventDetail = eventDetailProbe?.payload && typeof eventDetailProbe.payload === 'object' && !Array.isArray(eventDetailProbe.payload) ? eventDetailProbe.payload as Record<string, unknown> : eventRow;
+      const serviceDetail = workflowEventId && eventDetail ? await serviceEventDetail(input, cookieHeader, eventDetail, triggerId, workflowEventId) : null;
+      activeErrors.push({
+        workflowTriggerId: triggerId,
+        workflowName: recordString(trigger, ['WorkflowName', 'workflowName', 'Name', 'name']),
+        triggerStatus: recordString(trigger, ['Status', 'status']),
+        statusInfo: recordString(trigger, ['StatusInfo', 'statusInfo']),
+        triggerDate: recordString(trigger, ['TriggerDate', 'triggerDate']),
+        workflowEventId,
+        workflowEventStatus: recordString(eventDetail, ['Status', 'status']),
+        workflowEventLastError: recordString(eventDetail, ['LastError', 'lastError']),
+        serviceIdentifier: recordString(eventDetail, ['ServiceIdentifier', 'serviceIdentifier']),
+        serviceEventId: recordString(eventDetail, ['ServiceEventId', 'serviceEventId']) ?? recordString(serviceDetail, ['Id', 'ServiceEventId', 'serviceEventId']),
+        serviceErrorMessage: recordString(serviceDetail, ['ErrorMessage', 'errorMessage']),
+        serviceStackTrace: recordString(serviceDetail, ['StackTrace', 'stackTrace']),
+        processingOutputs: recordString(serviceDetail, ['ProcessingOutputs', 'processingOutputs']),
+        mappedIndexData: serviceDetail ? (serviceDetail.MappedIndexData ?? serviceDetail.mappedIndexData ?? null) : null
+      });
+    }
+    return {
+      step: {
+        ok: activeErrors.length === 0,
+        httpStatusCode: triggersResponse.response.status,
+        durationMs: Date.now() - startedAt,
+        message: activeErrors.length ? `${activeErrors.length} active trigger error(s) found.` : 'Trigger/workflow probe succeeded with no active errors.',
+        errorCode: activeErrors.length ? 'WORKFLOW_TRIGGER_ERRORS' : undefined
+      },
+      totalTriggers: triggers.length,
+      activeErrorCount: activeErrors.length,
+      activeErrors
+    };
+  } catch (error) {
+    return { step: { ok: false, durationMs: Date.now() - startedAt, message: messageFromError(error), errorCode: codeFromError(error) }, totalTriggers: 0, activeErrorCount: 0, activeErrors: [] };
+  }
+}
+
 function skippedLicense(message: string): LicenseProbeResult {
   return { step: { ok: false, skipped: true, message }, status: 'unknown', key: null, payload: null };
 }
@@ -422,7 +539,8 @@ export async function testOxyGenConnectivity(input: ConnectivityInput): Promise<
       authentication,
       api: { ok: false, skipped: true, message: 'Settings probe skipped because DNS resolution failed.' },
       settingsJson: null,
-      license: skippedLicense('License probe skipped because DNS resolution failed.')
+      license: skippedLicense('License probe skipped because DNS resolution failed.'),
+      workflows: skippedWorkflowProbe('Trigger probe skipped because DNS resolution failed.')
     };
   }
 
@@ -444,7 +562,8 @@ export async function testOxyGenConnectivity(input: ConnectivityInput): Promise<
       authentication,
       api: { ok: false, skipped: true, message: 'Settings probe skipped due to connection failure.' },
       settingsJson: null,
-      license: skippedLicense('License probe skipped due to connection failure.')
+      license: skippedLicense('License probe skipped due to connection failure.'),
+      workflows: skippedWorkflowProbe('Trigger probe skipped due to connection failure.')
     };
   }
 
@@ -466,7 +585,8 @@ export async function testOxyGenConnectivity(input: ConnectivityInput): Promise<
       authentication,
       api: { ok: false, skipped: true, message: 'Settings probe skipped because TLS connection failed.' },
       settingsJson: null,
-      license: skippedLicense('License probe skipped because TLS connection failed.')
+      license: skippedLicense('License probe skipped because TLS connection failed.'),
+      workflows: skippedWorkflowProbe('Trigger probe skipped because TLS connection failed.')
     };
   }
 
@@ -486,7 +606,8 @@ export async function testOxyGenConnectivity(input: ConnectivityInput): Promise<
       authentication: authentication.step,
       api: { ok: false, skipped: true, message: 'Settings probe skipped because authentication failed.' },
       settingsJson: null,
-      license: skippedLicense('License probe skipped because authentication failed.')
+      license: skippedLicense('License probe skipped because authentication failed.'),
+      workflows: skippedWorkflowProbe('Trigger probe skipped because authentication failed.')
     };
   }
 
@@ -494,12 +615,18 @@ export async function testOxyGenConnectivity(input: ConnectivityInput): Promise<
   const api = license.step.ok || license.step.skipped
     ? await probeGlobalSettings(input, authentication.cookieHeader)
     : { step: { ok: false, skipped: true, message: 'Settings probe skipped because the license probe failed.' } as ConnectivityStepResult, response: null, payload: null };
+  const workflows = api.step.ok ? await probeWorkflowTriggers(input, authentication.cookieHeader) : skippedWorkflowProbe(api.step.skipped ? 'Trigger probe skipped because an earlier probe failed.' : 'Trigger probe skipped because the settings probe failed.');
   const blockedByLicense = !license.step.skipped && !license.step.ok;
-  const ok = api.step.ok && (license.step.skipped || license.step.ok);
+  const blockedByWorkflow = !workflows.step.skipped && !workflows.step.ok;
+  const ok = api.step.ok && (license.step.skipped || license.step.ok) && workflows.step.ok;
   return {
     ok,
-    status: blockedByLicense ? 'reachable' : api.step.ok ? 'reachable' : 'unreachable',
-    message: blockedByLicense ? `Connectivity test completed with license issue: ${license.step.message ?? 'License probe failed.'}` : ok ? 'Connectivity test passed.' : api.step.message ?? 'Settings probe failed.',
+    status: blockedByLicense || blockedByWorkflow ? 'reachable' : api.step.ok ? 'reachable' : 'unreachable',
+    message: blockedByLicense
+      ? `Connectivity test completed with license issue: ${license.step.message ?? 'License probe failed.'}`
+      : blockedByWorkflow
+        ? `Connectivity test completed with trigger/workflow issue: ${workflows.step.message ?? 'Trigger probe failed.'}`
+        : ok ? 'Connectivity test passed.' : api.step.message ?? 'Settings probe failed.',
     checkedAt,
     durationMs: Date.now() - startedAt,
     responseTimeMs: connectionResponseTime(dns, connect, ssl, authentication.step),
@@ -510,6 +637,7 @@ export async function testOxyGenConnectivity(input: ConnectivityInput): Promise<
     authentication: authentication.step,
     api: api.step,
     settingsJson: api.payload,
-    license
+    license,
+    workflows
   };
 }

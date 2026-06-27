@@ -121,7 +121,9 @@ async function appendConnectivityLog(app: FastifyInstance, repository: AppLogRep
       ssl: result.ssl,
       authentication: result.authentication,
       api: result.api,
-      license: result.license.step
+      license: result.license.step,
+      workflows: result.workflows.step,
+      workflowActiveErrorCount: result.workflows.activeErrorCount
     }
   }).catch((error) => app.log.warn({ error }, 'Failed to persist manual connectivity log'));
 }

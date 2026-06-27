@@ -81,11 +81,26 @@ export function createInMemoryInstanceRepository(): InstanceRepository {
     return safe;
   }
 
+  function workflowIssueKey(issue: { workflowTriggerId?: string | null; workflowEventId?: string | null; serviceEventId?: string | null }) {
+    return [issue.workflowTriggerId, issue.workflowEventId, issue.serviceEventId].map((part) => part || 'none').join(':');
+  }
+
+  function activeWorkflowKeys(summary: unknown) {
+    if (!summary || typeof summary !== 'object') return new Set<string>();
+    const activeErrors = (summary as { activeErrors?: unknown }).activeErrors;
+    if (!Array.isArray(activeErrors)) return new Set<string>();
+    return new Set(activeErrors.filter((entry): entry is { workflowTriggerId?: string | null; workflowEventId?: string | null; serviceEventId?: string | null } => Boolean(entry && typeof entry === 'object')).map(workflowIssueKey));
+  }
+
   function appendConnectivityHistory(instanceId: string, result: ConnectivityResult) {
     const checkedAt = new Date(result.checkedAt);
     const startedAt = new Date(Math.max(0, checkedAt.getTime() - result.durationMs)).toISOString();
     const availability = result.status === 'reachable' ? 'up' : result.status === 'auth-error' ? 'auth-error' : result.status === 'ssl-error' ? 'ssl-error' : 'down';
     const entries = history.get(instanceId) ?? [];
+    const currentWorkflowKeys = activeWorkflowKeys(result.workflows);
+    const previousWorkflow = instances.get(instanceId)?.workflowSummaryJson ?? null;
+    const recoveredErrorKeys = Array.from(activeWorkflowKeys(previousWorkflow)).filter((key) => !currentWorkflowKeys.has(key));
+    const workflowResult = recoveredErrorKeys.length > 0 ? { ...result.workflows, recoveredErrorKeys } : result.workflows;
     entries.unshift({
       checkType: 'connectivity',
       status: availability,
@@ -95,7 +110,18 @@ export function createInMemoryInstanceRepository(): InstanceRepository {
       httpStatusCode: result.httpStatusCode,
       errorCode: result.ok ? null : (result.authentication.errorCode ?? result.api.errorCode ?? result.ssl.errorCode ?? result.connect.errorCode ?? result.dns.errorCode ?? 'CONNECTIVITY_ERROR'),
       errorMessage: result.ok ? null : result.message,
-      detailsJson: { dns: result.dns, connect: result.connect, ssl: result.ssl, authentication: result.authentication, api: result.api, license: result.license.step }
+      detailsJson: { dns: result.dns, connect: result.connect, ssl: result.ssl, authentication: result.authentication, api: result.api, license: result.license.step, workflows: result.workflows.step }
+    });
+    entries.unshift({
+      checkType: 'workflow',
+      status: workflowResult.step.skipped ? 'unknown' : workflowResult.activeErrorCount > 0 ? 'error' : 'ok',
+      startedAt,
+      finishedAt: result.checkedAt,
+      durationMs: workflowResult.step.durationMs ?? result.durationMs,
+      httpStatusCode: workflowResult.step.httpStatusCode ?? null,
+      errorCode: workflowResult.step.errorCode ?? null,
+      errorMessage: workflowResult.step.ok ? null : (workflowResult.step.message ?? null),
+      detailsJson: workflowResult
     });
     entries.unshift({
       checkType: 'license',
@@ -109,6 +135,7 @@ export function createInMemoryInstanceRepository(): InstanceRepository {
       detailsJson: { step: result.license.step, status: result.license.status, keyPresent: Boolean(result.license.key), payload: result.license.payload }
     });
     history.set(instanceId, entries.slice(0, 50));
+    return workflowResult;
   }
 
   return {
@@ -190,17 +217,21 @@ export function createInMemoryInstanceRepository(): InstanceRepository {
       if (!instance) throw new Error('Instance not found.');
       const entries = history.get(instanceId) ?? [];
       const availability = entries.filter((entry) => entry.checkType === 'connectivity').slice(0, 24);
+      const workflowHistory = entries.filter((entry) => entry.checkType === 'workflow').slice(0, 10);
       return {
         instance: publicInstance(instance),
         availability,
         latestConnectivity: availability[0] ?? null,
-        licenseHistory: entries.filter((entry) => entry.checkType === 'license').slice(0, 10)
+        licenseHistory: entries.filter((entry) => entry.checkType === 'license').slice(0, 10),
+        workflowHistory,
+        latestWorkflow: workflowHistory[0] ?? null
       };
     },
     async testConnectivity(instanceId: string) {
       const instance = instances.get(instanceId);
       if (!instance) throw new Error('Instance not found.');
       const result = await testOxyGenConnectivity({ instance, password: instance.passwordSecret });
+      const workflowResult = appendConnectivityHistory(instanceId, result);
       instance.status = result.status === 'reachable' ? 'up' : result.status === 'auth-error' ? 'auth-error' : result.status === 'ssl-error' ? 'ssl-error' : 'down';
       instance.lastCheckedAt = result.checkedAt;
       instance.responseTimeMs = result.responseTimeMs;
@@ -213,10 +244,11 @@ export function createInMemoryInstanceRepository(): InstanceRepository {
         instance.licenseJson = result.license.payload;
       }
       instance.settingsJson = result.settingsJson;
+      instance.workflowSummaryJson = workflowResult;
+      instance.processingStatus = workflowResult.step.skipped ? 'unknown' : workflowResult.activeErrorCount > 0 ? 'error' : 'ok';
       if (instance.status === 'up') instance.lastSuccessAt = result.checkedAt;
       else instance.lastFailureAt = result.checkedAt;
       instance.updatedAt = nowIso();
-      appendConnectivityHistory(instanceId, result);
       return result;
     }
   };

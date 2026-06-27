@@ -104,6 +104,31 @@ export type LicenseProbeResult = {
   payload: unknown | null;
 };
 
+export type WorkflowTriggerIssue = {
+  workflowTriggerId: string;
+  workflowName: string | null;
+  triggerStatus: string | null;
+  statusInfo: string | null;
+  triggerDate: string | null;
+  workflowEventId: string | null;
+  workflowEventStatus: string | null;
+  workflowEventLastError: string | null;
+  serviceIdentifier: string | null;
+  serviceEventId: string | null;
+  serviceErrorMessage: string | null;
+  serviceStackTrace: string | null;
+  processingOutputs: string | null;
+  mappedIndexData: unknown | null;
+};
+
+export type WorkflowProbeResult = {
+  step: ConnectivityStepResult;
+  totalTriggers: number;
+  activeErrorCount: number;
+  activeErrors: WorkflowTriggerIssue[];
+  recoveredErrorKeys?: string[];
+};
+
 export type ConnectivityResult = {
   ok: boolean;
   status: 'reachable' | 'unreachable' | 'auth-error' | 'ssl-error';
@@ -119,6 +144,7 @@ export type ConnectivityResult = {
   api: ConnectivityStepResult;
   settingsJson: unknown | null;
   license: LicenseProbeResult;
+  workflows: WorkflowProbeResult;
 };
 
 export type InstanceCheckHistoryEntry = {
@@ -138,6 +164,8 @@ export type InstanceHealthDetails = {
   availability: InstanceCheckHistoryEntry[];
   latestConnectivity: InstanceCheckHistoryEntry | null;
   licenseHistory: InstanceCheckHistoryEntry[];
+  workflowHistory: InstanceCheckHistoryEntry[];
+  latestWorkflow: InstanceCheckHistoryEntry | null;
 };
 
 export interface InstanceRepository {

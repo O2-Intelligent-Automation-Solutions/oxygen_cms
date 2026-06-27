@@ -34,7 +34,8 @@ function failedDnsConnectivity(): ConnectivityResult {
     authentication: { ok: false },
     api: { ok: false },
     settingsJson: null,
-    license: { step: { ok: false }, status: 'unknown', key: null, payload: null }
+    license: { step: { ok: false }, status: 'unknown', key: null, payload: null },
+    workflows: { step: { ok: false, skipped: true }, totalTriggers: 0, activeErrorCount: 0, activeErrors: [] }
   };
 }
 

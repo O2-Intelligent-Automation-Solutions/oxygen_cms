@@ -74,7 +74,7 @@ function createFakeInstanceRepository(instances: OxyGenInstance[]): InstanceRepo
         errorMessage: found.licenseStatus === 'valid' ? null : 'License issue.',
         detailsJson: { status: found.licenseStatus, keyPresent: Boolean(found.licenseKey), payload: found.licenseJson }
       }] : [];
-      return { instance: found, availability: [], latestConnectivity: null, licenseHistory };
+      return { instance: found, availability: [], latestConnectivity: null, licenseHistory, workflowHistory: [], latestWorkflow: null };
     },
     async testConnectivity() { throw new Error('not used'); },
     async listInstances(scope) {

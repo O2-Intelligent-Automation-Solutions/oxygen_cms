@@ -1821,9 +1821,42 @@ components:
         status: { $ref: '#/components/schemas/LicenseStatus' }
         key: { type: [string, 'null'] }
         payload: {}
+    WorkflowTriggerIssue:
+      type: object
+      description: Sanitized active trigger/workflow error correlated through Workflow Trigger, Workflow Event, and Service Event details. Raw payloads, outgoing payloads, credentials, and arbitrary service request bodies are not returned.
+      required: [workflowTriggerId, workflowName, triggerStatus, statusInfo, triggerDate, workflowEventId, workflowEventStatus, workflowEventLastError, serviceIdentifier, serviceEventId, serviceErrorMessage, serviceStackTrace, processingOutputs, mappedIndexData]
+      properties:
+        workflowTriggerId: { type: string }
+        workflowName: { type: [string, 'null'] }
+        triggerStatus: { type: [string, 'null'] }
+        statusInfo: { type: [string, 'null'] }
+        triggerDate: { type: [string, 'null'] }
+        workflowEventId: { type: [string, 'null'] }
+        workflowEventStatus: { type: [string, 'null'] }
+        workflowEventLastError: { type: [string, 'null'] }
+        serviceIdentifier: { type: [string, 'null'] }
+        serviceEventId: { type: [string, 'null'] }
+        serviceErrorMessage: { type: [string, 'null'] }
+        serviceStackTrace: { type: [string, 'null'] }
+        processingOutputs: { type: [string, 'null'] }
+        mappedIndexData: {}
+    WorkflowProbeResult:
+      type: object
+      required: [step, totalTriggers, activeErrorCount, activeErrors]
+      properties:
+        step: { $ref: '#/components/schemas/ConnectivityStepResult' }
+        totalTriggers: { type: integer, minimum: 0 }
+        activeErrorCount: { type: integer, minimum: 0 }
+        activeErrors:
+          type: array
+          items: { $ref: '#/components/schemas/WorkflowTriggerIssue' }
+        recoveredErrorKeys:
+          type: array
+          description: Stable trigger/event/service correlation keys that were active in the prior summary but are no longer active in the current probe.
+          items: { type: string }
     ConnectivityResult:
       type: object
-      required: [ok, status, message, checkedAt, durationMs, responseTimeMs, httpStatusCode, dns, connect, ssl, authentication, api, settingsJson, license]
+      required: [ok, status, message, checkedAt, durationMs, responseTimeMs, httpStatusCode, dns, connect, ssl, authentication, api, settingsJson, license, workflows]
       properties:
         ok: { type: boolean }
         status: { type: string, enum: [reachable, unreachable, auth-error, ssl-error] }
@@ -1839,6 +1872,7 @@ components:
         api: { $ref: '#/components/schemas/ConnectivityStepResult' }
         settingsJson: { description: Raw JSON payload returned by the Settings phase (`GET /web-api/global/settings`) when collected; null when Settings was skipped or failed before a JSON payload was available. }
         license: { $ref: '#/components/schemas/LicenseProbeResult' }
+        workflows: { $ref: '#/components/schemas/WorkflowProbeResult' }
     InstancePollerSummary:
       type: object
       required: [checked, skipped, failed]

@@ -223,9 +223,13 @@ describeMysql('MySQL instance repository', () => {
         expect((mockStatusRows as Array<{ last_checked_at: Date | null; last_success_at: Date | null; response_time_ms: number | null }>)[0]?.last_success_at).toBeInstanceOf(Date);
         expect((mockStatusRows as Array<{ last_checked_at: Date | null; last_success_at: Date | null; response_time_ms: number | null }>)[0]?.response_time_ms).toBeGreaterThanOrEqual(0);
 
-        const [historyRows] = await pool.query('SELECT check_type, status, http_status_code, error_code, error_message, details_json FROM oxygen_instance_check_history WHERE instance_id = ? ORDER BY id DESC LIMIT 1', [mockInstance.id]);
-        expect(historyRows).toMatchObject([{ check_type: 'connectivity', status: 'up', http_status_code: 200, error_code: null, error_message: null }]);
-        expect((historyRows as Array<{ details_json: unknown }>)[0]?.details_json).toBeTruthy();
+        const [historyRows] = await pool.query('SELECT check_type, status, http_status_code, error_code, error_message, details_json FROM oxygen_instance_check_history WHERE instance_id = ? ORDER BY id DESC LIMIT 3', [mockInstance.id]);
+        expect(historyRows).toEqual(expect.arrayContaining([
+          expect.objectContaining({ check_type: 'connectivity', status: 'up', http_status_code: 200, error_code: null, error_message: null }),
+          expect.objectContaining({ check_type: 'workflow', status: 'ok', error_code: null, error_message: null }),
+          expect.objectContaining({ check_type: 'license' })
+        ]));
+        expect((historyRows as Array<{ details_json: unknown }>).every((entry) => Boolean(entry.details_json))).toBe(true);
       } finally {
         await new Promise<void>((resolve, reject) => mockOxyGen.server.close((error) => error ? reject(error) : resolve()));
       }

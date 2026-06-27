@@ -2718,6 +2718,51 @@ label:not(.column-checkbox-label):not(.switch-field):has(> input[type="checkbox"
   white-space: nowrap;
 }
 
+.workflow-trigger-summary {
+  display: grid;
+  gap: 12px;
+  margin: 14px 0;
+}
+
+.workflow-trigger-count,
+.workflow-trigger-card {
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.62);
+  padding: 12px;
+}
+
+.workflow-trigger-count {
+  display: grid;
+  gap: 4px;
+}
+
+.workflow-trigger-count.ok strong { color: var(--brand-success); }
+.workflow-trigger-count.issue strong { color: var(--brand-danger); }
+.workflow-trigger-count.unknown strong { color: var(--brand-muted); }
+
+.workflow-trigger-list {
+  display: grid;
+  gap: 12px;
+}
+
+.workflow-trigger-card header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.workflow-trigger-card pre {
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.workflow-trigger-detail-list {
+  grid-template-columns: minmax(140px, 0.24fr) minmax(0, 1fr);
+}
+
 .settings-summary {
   display: grid;
   gap: 8px;

@@ -65,6 +65,7 @@ function connectivity(overrides: Partial<ConnectivityResult> = {}): Connectivity
     api: okStep,
     settingsJson: { sample: true },
     license: { step: okStep, status: 'valid', key: 'LIC-123', payload: { status: 'valid' } },
+    workflows: { step: okStep, totalTriggers: 0, activeErrorCount: 0, activeErrors: [] },
     ...overrides
   };
 }
