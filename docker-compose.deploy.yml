@@ -92,8 +92,14 @@ services:
       BULLMQ_ENABLED: ${BULLMQ_ENABLED:-true}
       REDIS_HOST: ${REDIS_HOST:-redis}
       REDIS_PORT: ${REDIS_PORT:-6379}
+      CMS_BACKUP_JOBS_ENABLED: ${CMS_BACKUP_JOBS_ENABLED:-false}
+      CMS_BACKUP_DIR: ${CMS_BACKUP_DIR:-deploy/backups}
+      CMS_BACKUP_RETENTION_DAYS: ${CMS_BACKUP_RETENTION_DAYS:-30}
+      CMS_BACKUP_MAX_ARTIFACTS: ${CMS_BACKUP_MAX_ARTIFACTS:-25}
+      CMS_BACKUP_INCLUDE_APP_DATA: ${CMS_BACKUP_INCLUDE_APP_DATA:-true}
     volumes:
       - oxygen-cms-app-data:/app/apps/api/data
+      - ./deploy/backups:/app/deploy/backups
     depends_on:
       mysql:
         condition: service_healthy

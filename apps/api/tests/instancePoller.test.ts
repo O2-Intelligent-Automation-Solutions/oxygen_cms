@@ -152,7 +152,7 @@ describe('background instance poller', () => {
     const summary = await poller.pollDueInstances();
 
     expect(summary).toEqual({ checked: 0, skipped: 1, failed: 0 });
-    const { logs, total } = await appLogRepository.list({ type: ['Service'] });
+    const { logs, total } = await appLogRepository.list({ type: ['Service'], severity: ['Verbose'] });
     expect(total).toBe(1);
     expect(logs[0]).toMatchObject({ severity: 'Verbose', message: 'Background poller completed: 0 checked, 1 skipped, 0 failed' });
   });
@@ -170,7 +170,7 @@ describe('background instance poller', () => {
     await poller.pollDueInstances();
     await poller.pollDueInstances();
 
-    const { logs } = await appLogRepository.list({ type: ['Connection'], entityGuid: 'instance-1' });
+    const { logs } = await appLogRepository.list({ type: ['Connection'], severity: ['Verbose', 'Error', 'Logging'], entityGuid: 'instance-1' });
     const messages = logs.map((log) => `${log.severity}:${log.message}`);
     expect(messages.filter((message) => message.startsWith('Verbose:'))).toHaveLength(3);
     expect(messages.filter((message) => message.includes('connectivity failed'))).toHaveLength(1);

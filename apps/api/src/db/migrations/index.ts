@@ -605,6 +605,11 @@ ON DUPLICATE KEY UPDATE
   sort_order = VALUES(sort_order),
   enabled = VALUES(enabled);`;
 
+
+const jobPermissionsSql = `INSERT IGNORE INTO role_permissions (role_id, permission_key)
+SELECT id, 'jobs.view' FROM roles WHERE name = 'SystemAdmin'
+UNION ALL SELECT id, 'jobs.manage' FROM roles WHERE name = 'SystemAdmin';`;
+
 const sslExpiringSoonIssueTypeSql = `INSERT INTO discovered_issue_types (id, code, label, description, category_id, severity_id, match_kind, match_value, sort_order) VALUES
   ('ssl-expiring-soon', 'SSL_EXPIRING_SOON', 'SSL certificate expiring soon', 'Remote HTTPS certificate is valid but within the global expiration warning threshold.', 'ssl', 'warning', 'ssl-expiring-soon', NULL, 125)
 ON DUPLICATE KEY UPDATE
@@ -743,5 +748,11 @@ export const schemaMigrations: SchemaMigration[] = [
     name: 'ssl expiring soon issue type',
     checksum: 'bed21d29aee398b6bbce1afdca389ad03f6a15fdddd7e90edf74ad2766396c0f',
     upSql: sslExpiringSoonIssueTypeSql
+  },
+  {
+    version: '0.20',
+    name: 'queue job permissions',
+    checksum: '7308402be9fd8b384c80e020d1dffae160a96768591fb6b0b32db8136ec3a671',
+    upSql: jobPermissionsSql
   }
 ];

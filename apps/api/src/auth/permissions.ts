@@ -22,6 +22,8 @@ export const PERMISSIONS = [
   { key: 'settings.manage', label: 'Manage settings', description: 'Update CMS-wide labels and application settings.', scope: 'global' },
   { key: 'settings.database.view', label: 'View database status', description: 'View database and schema status.', scope: 'global' },
   { key: 'settings.database.maintain', label: 'Maintain database', description: 'Run database maintenance and destructive operations.', scope: 'global' },
+  { key: 'jobs.view', label: 'View jobs', description: 'View sanitized queue job, scheduler, and worker status details.', scope: 'global' },
+  { key: 'jobs.manage', label: 'Manage jobs', description: 'Run, pause, resume, and administer queue jobs and recurring schedulers.', scope: 'global' },
   { key: 'system.poller.manage', label: 'Manage poller', description: 'Pause, resume, and run the background poller.', scope: 'global' },
   { key: 'system.version.view', label: 'View version', description: 'View CMS release and update information.', scope: 'tenant' },
   { key: 'issueTypes.view', label: 'View issue types', description: 'View issue classification catalog and affected instance summaries.', scope: 'tenant' },

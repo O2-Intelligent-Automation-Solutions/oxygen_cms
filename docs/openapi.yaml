@@ -6,7 +6,7 @@ info:
   description: |
     API contract for OxyGen Central Management Server Phase 1.
 
-    Current CMS schema version: 0.19.
+    Current CMS schema version: 0.20.
 
     Phase 1 APIs cover first-run setup, local authentication/RBAC, tenant/user/group/role administration,
     manual OxyGen instance enrollment, dashboard background poller status/controls, application logs, grid preferences, application settings,
@@ -182,7 +182,7 @@ paths:
                 properties:
                   ok: { type: boolean, const: true }
                   database: { type: string }
-                  targetSchemaVersion: { type: string, example: '0.19' }
+                  targetSchemaVersion: { type: string, example: '0.20' }
                   appliedVersions:
                     type: array
                     items: { type: string }
@@ -682,7 +682,7 @@ paths:
     get:
       tags: [System]
       summary: Get BullMQ queue foundation status
-      description: SystemAdmin only. Returns disabled-mode queue definitions when BullMQ is off, or Redis/BullMQ connectivity and queue counts when enabled. Bull Board, when enabled, is mounted separately at the configured admin path behind the same SystemAdmin permission.
+      description: Requires `jobs.view`. Returns disabled-mode queue definitions when BullMQ is off, or Redis/BullMQ connectivity and queue counts when enabled. Bull Board, when enabled, is mounted separately at the configured admin path behind the same CMS auth/RBAC guard.
       responses:
         '200':
           description: Queue orchestration status.
@@ -699,13 +699,43 @@ paths:
     get:
       tags: [System]
       summary: Get sanitized BullMQ job summaries
-      description: SystemAdmin only. Returns native CMS queue visibility with active, ready, scheduled, retained failed, and completed job summaries from named queues. Raw BullMQ payloads are reduced to safe public metadata only; recurring maintenance schedules can be run now without changing enabled/paused state.
+      description: Requires `jobs.view`. Returns native CMS queue visibility with active, ready, scheduled, retained failed, and completed job summaries from named queues. Raw BullMQ payloads are reduced to safe public metadata only; recurring maintenance schedules can be run now without changing enabled/paused state.
       parameters:
         - in: query
           name: limit
           required: false
-          schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
-          description: Maximum number of latest jobs to return across queues.
+          schema: { type: integer, minimum: 1, maximum: 1000, default: 25 }
+          description: Maximum number of latest jobs to return across queues before optional filters are applied.
+        - in: query
+          name: queue
+          required: false
+          schema: { type: string, enum: [instance-checks, database-maintenance, system-maintenance] }
+          description: Optional queue-name filter. May be repeated by clients that support repeated query parameters.
+        - in: query
+          name: state
+          required: false
+          schema: { type: string, enum: [scheduled, waiting, active, delayed, failed, completed, unknown] }
+          description: Optional BullMQ/native state filter. May be repeated by clients that support repeated query parameters.
+        - in: query
+          name: jobType
+          required: false
+          schema: { type: string }
+          description: Optional job name/task filter, for example `backup-database` or `manual-instance-check`.
+        - in: query
+          name: tenantId
+          required: false
+          schema: { type: string }
+          description: Optional enriched Tenant id filter.
+        - in: query
+          name: instanceId
+          required: false
+          schema: { type: string }
+          description: Optional enriched instance id filter.
+        - in: query
+          name: requester
+          required: false
+          schema: { type: string }
+          description: Optional case-insensitive requested-by substring filter.
       responses:
         '200':
           description: Sanitized latest queue jobs.
@@ -722,7 +752,7 @@ paths:
     post:
       tags: [System]
       summary: Pause a recurring queue schedule
-      description: SystemAdmin only. Persists the selected recurring maintenance scheduler as disabled without deleting historical BullMQ job data. Instance scheduler keys use the `instance-check:{instanceId}` form and map to the instance enabled flag.
+      description: Requires `jobs.manage`. Persists the selected recurring maintenance scheduler as disabled without deleting historical BullMQ job data. Instance scheduler keys use the `instance-check:{instanceId}` form and map to the instance enabled flag.
       parameters:
         - in: path
           name: key
@@ -747,7 +777,7 @@ paths:
     post:
       tags: [System]
       summary: Resume a recurring queue schedule
-      description: SystemAdmin only. Persists the selected recurring maintenance scheduler as enabled and reconciles BullMQ scheduler state. Instance scheduler keys use the `instance-check:{instanceId}` form and map to the instance enabled flag.
+      description: Requires `jobs.manage`. Persists the selected recurring maintenance scheduler as enabled and reconciles BullMQ scheduler state. Instance scheduler keys use the `instance-check:{instanceId}` form and map to the instance enabled flag.
       parameters:
         - in: path
           name: key
@@ -772,7 +802,7 @@ paths:
     post:
       tags: [System]
       summary: Queue a one-off run for a scheduled job
-      description: SystemAdmin only. Adds an immediate one-off job for the selected maintenance or instance scheduler without changing the recurring enabled/paused state.
+      description: Requires `jobs.manage`. Adds an immediate one-off job for the selected maintenance or instance scheduler without changing the recurring enabled/paused state.
       parameters:
         - in: path
           name: key
@@ -1923,6 +1953,9 @@ components:
         source: { type: string }
         instanceId: { type: string }
         requestedBy: { type: string }
+        instanceName: { type: string }
+        tenantId: { type: [string, 'null'] }
+        tenantName: { type: [string, 'null'] }
       additionalProperties: false
     SystemVersionSnapshot:
       type: object

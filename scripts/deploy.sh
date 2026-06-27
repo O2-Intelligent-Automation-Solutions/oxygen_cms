@@ -18,12 +18,20 @@ Usage:
   scripts/deploy.sh init       Create deploy/.env with generated secrets
   scripts/deploy.sh check      Verify Docker/Compose and env prerequisites
   scripts/deploy.sh build      Build the production CMS image
-  scripts/deploy.sh start      Start the CMS stack
+  scripts/deploy.sh start      Start the CMS app/MySQL/Redis stack
+  scripts/deploy.sh start-workers
+                              Start app plus the BullMQ worker profile with BULLMQ enabled
   scripts/deploy.sh stop       Stop the CMS stack
+  scripts/deploy.sh stop-workers
+                              Stop only the BullMQ worker service
   scripts/deploy.sh restart    Restart the CMS stack
+  scripts/deploy.sh restart-workers
+                              Restart the app and BullMQ worker profile with BULLMQ enabled
   scripts/deploy.sh status     Show container status
   scripts/deploy.sh logs       Follow app logs
   scripts/deploy.sh logs mysql Follow MySQL logs
+  scripts/deploy.sh logs worker
+                              Follow BullMQ worker logs
   scripts/deploy.sh backup     Backup MySQL data and CMS app data
   scripts/deploy.sh restore-db <backup.sql.gz>
                               Restore a database backup; requires CONFIRM_RESTORE=YES
@@ -288,6 +296,16 @@ CMS_HTTP_PORT=8080
 CMS_BASE_URL=http://127.0.0.1:8080
 CMS_APP_CONTAINER_NAME=oxygen-cms-prod-app
 CMS_MYSQL_CONTAINER_NAME=oxygen-cms-prod-mysql
+CMS_REDIS_CONTAINER_NAME=oxygen-cms-prod-redis
+CMS_WORKER_CONTAINER_NAME=oxygen-cms-prod-worker
+
+# BullMQ/Redis worker orchestration is opt-in. Use `scripts/deploy.sh start-workers`
+# when ready to replace the MVP in-process poller with durable queue workers.
+BULLMQ_ENABLED=false
+REDIS_HOST=redis
+REDIS_PORT=6379
+BULL_BOARD_ENABLED=false
+BULL_BOARD_PATH=/admin/queues
 
 MYSQL_DATABASE=O2IAS_CMS
 MYSQL_USER=oxygen_cms
@@ -323,16 +341,36 @@ case "$cmd" in
     "${COMPOSE[@]}" up -d --build
     "${COMPOSE[@]}" ps
     ;;
+  start-workers|workers-up)
+    require_docker
+    require_env
+    BULLMQ_ENABLED=true "${COMPOSE[@]}" --profile workers up -d --build app worker
+    BULLMQ_ENABLED=true "${COMPOSE[@]}" --profile workers ps
+    printf 'BullMQ worker profile is running. Verify Settings > Operations shows BullMQ/Redis connected.\n'
+    ;;
   stop|down)
     require_docker
     require_env
     "${COMPOSE[@]}" down
+    ;;
+  stop-workers|workers-down)
+    require_docker
+    require_env
+    "${COMPOSE[@]}" --profile workers stop worker
+    "${COMPOSE[@]}" --profile workers ps
     ;;
   restart)
     require_docker
     require_env
     "${COMPOSE[@]}" restart
     "${COMPOSE[@]}" ps
+    ;;
+  restart-workers|workers-restart)
+    require_docker
+    require_env
+    BULLMQ_ENABLED=true "${COMPOSE[@]}" --profile workers up -d --build app worker
+    BULLMQ_ENABLED=true "${COMPOSE[@]}" --profile workers restart app worker
+    BULLMQ_ENABLED=true "${COMPOSE[@]}" --profile workers ps
     ;;
   status|ps)
     require_docker

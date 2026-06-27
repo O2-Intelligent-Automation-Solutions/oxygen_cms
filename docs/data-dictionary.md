@@ -8,7 +8,7 @@ This documentation has been migrated to the GitHub Wiki:
 
 ### Schema version
 
-Current CMS schema version: `0.19`.
+Current CMS schema version: `0.20`.
 
 ### `role_permissions`
 
@@ -133,9 +133,9 @@ Bull Board can be mounted at the configured admin path when enabled, but it is p
 
 ### `GET /api/system/queue-jobs` and queue actions
 
-`GET /api/system/queue-jobs` returns sanitized queue job summaries for native CMS visibility. Rows include queue/name/state, safe metadata (`task`, `source`, `instanceId`, `requestedBy`), timestamps, retained failure summary, scheduler cadence/next-run metadata where available, safe resource metrics (`phase`, `ageSeconds`, `waitSeconds`, `durationMs`, `attemptCost`), sanitized database-maintenance result summaries (table/warning/artifact counts and short text), and enriched Tenant/Instance context for instance-check jobs. Operations exposes Run Now plus Pause/Resume actions for recurring maintenance and instance scheduler rows. Run Now enqueues a one-off job and does not change recurring enabled/paused state.
+`GET /api/system/queue-jobs` requires `jobs.view` and returns sanitized queue job summaries for native CMS visibility. It accepts optional queue, state, job type, Tenant, instance, and requester filters for native dashboard drill-downs. Rows include queue/name/state, safe metadata (`task`, `source`, `instanceId`, `requestedBy`), timestamps, retained failure summary, scheduler cadence/next-run metadata where available, safe resource metrics (`phase`, `ageSeconds`, `waitSeconds`, `durationMs`, `attemptCost`), sanitized database-maintenance result summaries (table/warning/artifact counts and short text), and enriched Tenant/Instance context for instance-check jobs. Operations exposes Run Now plus Pause/Resume actions for recurring maintenance and instance scheduler rows. Run Now enqueues a one-off job and does not change recurring enabled/paused state.
 
-`POST /api/system/queue-jobs/{key}/pause` and `/resume` persist recurring maintenance enabled state through `application_settings.queueSchedules`; instance keys use `instance-check:{instanceId}` and map to the instance enabled flag. `POST /api/system/queue-jobs/{key}/run-now` queues an immediate one-off job for maintenance or instance schedulers.
+`POST /api/system/queue-jobs/{key}/pause` and `/resume` require `jobs.manage` and persist recurring maintenance enabled state through `application_settings.queueSchedules`; instance keys use `instance-check:{instanceId}` and map to the instance enabled flag. `POST /api/system/queue-jobs/{key}/run-now` queues an immediate one-off job for maintenance or instance schedulers.
 
 ### `GET /api/system/version`
 

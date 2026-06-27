@@ -8,6 +8,8 @@ The baseline stack runs:
 
 - `app` — the production OxyGen CMS image built from this repository. The API serves `/api/*` and the built React app from the same container.
 - `mysql` — MySQL 8.4 with persistent Docker volume storage.
+- `redis` — Redis 7 with append-only persistence for BullMQ execution state.
+- `worker` — optional BullMQ worker service under the Compose `workers` profile.
 
 Redis is included as the Phase 1.5 queue foundation service. BullMQ and Bull Board are installed but disabled by default for the API (`BULLMQ_ENABLED=false`, `BULL_BOARD_ENABLED=false`) so the MVP in-process poller remains the active execution path until worker scheduling is explicitly enabled. Optional worker services are present under the Compose `workers` profile and use the `start:worker`/`dev:worker` entrypoints.
 
@@ -40,10 +42,14 @@ Change `CMS_HTTP_PORT` in `deploy/.env` if port `8080` is not appropriate.
 scripts/deploy.sh init       # Create deploy/.env with generated secrets
 scripts/deploy.sh check      # Validate Docker/Compose and Compose config
 scripts/deploy.sh build      # Build the production image
-scripts/deploy.sh start      # Build and start app + MySQL
+scripts/deploy.sh start      # Build and start app + MySQL + Redis with BullMQ disabled by default
+scripts/deploy.sh start-workers
+                           # Build/start app + worker profile with BULLMQ_ENABLED=true
 scripts/deploy.sh status     # Show containers
 scripts/deploy.sh logs       # Follow app logs
 scripts/deploy.sh logs mysql # Follow MySQL logs
+scripts/deploy.sh logs worker
+                           # Follow BullMQ worker logs
 scripts/deploy.sh backup     # Create timestamped MySQL/app-data backup
 scripts/deploy.sh pre-update # Validate stack and create a safety backup before update
 scripts/deploy.sh update --dry-run main
@@ -51,6 +57,10 @@ scripts/deploy.sh update --dry-run main
 CONFIRM_UPDATE=YES scripts/deploy.sh update main
                              # Backup, checkout target, rebuild, restart, health-check, and apply schema migrations
 scripts/deploy.sh restart    # Restart services
+scripts/deploy.sh restart-workers
+                           # Restart app + worker profile with BULLMQ enabled
+scripts/deploy.sh stop-workers
+                           # Stop only the BullMQ worker
 scripts/deploy.sh stop       # Stop services, preserving volumes
 ```
 
@@ -103,7 +113,7 @@ Always take a fresh backup before restore/update operations.
 
 ## Queued backup job design
 
-Milestone 8C adds backend configuration and the first guarded worker runner for queued CMS database backups. The runner is not exposed as a Run Now UI action yet. When a future queue control enqueues `database-maintenance:backup-database`, artifact creation remains disabled unless the deployment explicitly opts in. The storage target defaults to the same local artifact root used by `scripts/deploy.sh backup`:
+Milestone 8C adds backend configuration, native Run Now metadata/control, and the first guarded worker runner for queued CMS database backups. When a queue control enqueues `database-maintenance:backup-database`, artifact creation remains disabled unless the deployment explicitly opts in. The production worker receives the backup environment variables and mounts `./deploy/backups` at `/app/deploy/backups`, so the default `deploy/backups` target resolves to the same host-side artifact root used by `scripts/deploy.sh backup`:
 
 | Environment variable | Default | Purpose |
 | --- | --- | --- |
@@ -123,7 +133,7 @@ Safety gates for the queued job implementation:
 6. Enforce retention cleanup only after a successful backup; cleanup deletes only timestamp-shaped artifact directories under the configured backup root and never deletes the current run.
 7. Package the API data directory as `app-data.tar.gz` when `CMS_BACKUP_INCLUDE_APP_DATA=true`; if the app-data source is unavailable, write a manifest warning rather than adding secrets or arbitrary paths to the job payload.
 
-The first queued runner slice is intentionally worker-only. `scripts/deploy.sh backup` remains the primary operator-facing backup command until Run Now controls are reviewed.
+The queued runner slice remains intentionally guarded and worker-only. `scripts/deploy.sh backup` remains the primary host/operator backup command for recovery runbooks; the native Run Now control is available only when worker backup jobs are explicitly enabled.
 
 ## Queued restore job design
 
@@ -159,6 +169,9 @@ The Compose stack uses named volumes:
 
 - `oxygen-cms-mysql` for MySQL data.
 - `oxygen-cms-app-data` for CMS setup/settings state.
+- `oxygen-cms-redis` for Redis/BullMQ execution state.
+
+The deployment worker also bind-mounts `./deploy/backups` to `/app/deploy/backups` so queued backup artifacts are retained on the host beside script-created backups. MySQL remains the CMS product source of truth; Redis/BullMQ state is operational execution state that is preserved across normal restarts but intentionally excluded from `scripts/deploy.sh backup` unless a future runbook adds Redis-specific export/restore.
 
 Stopping the stack with `scripts/deploy.sh stop` preserves these volumes.
 

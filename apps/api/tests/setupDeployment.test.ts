@@ -125,7 +125,7 @@ describe('setup deployment capabilities', () => {
       async provision(input) { return { settings: input.settings, createdDatabase: true, createdUser: true }; },
       async applySchema(settings) {
         calls.push(`schema:${settings.host}:${settings.database}:${settings.user}`);
-        return { appliedVersions: ['0.19'], targetSchemaVersion: '0.19' };
+        return { appliedVersions: ['0.20'], targetSchemaVersion: '0.20' };
       }
     };
 
@@ -152,7 +152,7 @@ describe('setup deployment capabilities', () => {
 
     const schema = await app.inject({ method: 'POST', url: '/api/setup/database/apply-schema' });
     expect(schema.statusCode).toBe(200);
-    expect(schema.json()).toMatchObject({ ok: true, database: 'O2IAS_CMS', appliedVersions: ['0.19'] });
+    expect(schema.json()).toMatchObject({ ok: true, database: 'O2IAS_CMS', appliedVersions: ['0.20'] });
     expect(calls).toEqual(['schema:mysql:O2IAS_CMS:root']);
 
     await app.close();

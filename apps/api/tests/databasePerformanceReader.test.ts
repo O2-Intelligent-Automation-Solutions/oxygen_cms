@@ -57,7 +57,7 @@ describe('database performance reader', () => {
 
     const snapshot = await createDatabasePerformanceReader(store(false)).readSnapshot();
 
-    expect(snapshot.schema).toEqual({ currentVersion: '0.13', targetVersion: '0.19', current: false, upgradeAvailable: true });
+    expect(snapshot.schema).toEqual({ currentVersion: '0.13', targetVersion: '0.20', current: false, upgradeAvailable: true });
     expect(snapshot.queryDigestStatus).toEqual({ available: false, state: 'unavailable', reason: 'performance schema denied' });
     expect(snapshot.queryDigests).toEqual([]);
     expect(destroyMock).toHaveBeenCalledTimes(1);

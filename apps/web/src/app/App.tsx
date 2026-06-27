@@ -143,6 +143,8 @@ const PERMISSION_CATALOG: PermissionCatalogItem[] = [
   { key: 'settings.manage', label: 'Manage app settings', description: 'Update CMS application settings and administrative configuration.', group: 'Settings' },
   { key: 'settings.database.view', label: 'View database performance', description: 'View database schema, storage, query digest, and server-performance diagnostics.', group: 'Settings' },
   { key: 'settings.database.maintain', label: 'Maintain database/schema', description: 'Run database maintenance and schema-related administrative actions.', group: 'Settings' },
+  { key: 'jobs.view', label: 'View queue jobs', description: 'View sanitized queue job, scheduler, and worker status details.', group: 'System' },
+  { key: 'jobs.manage', label: 'Manage queue jobs', description: 'Run, pause, resume, and administer queue jobs and recurring schedulers.', group: 'System' },
   { key: 'system.poller.manage', label: 'Manage background poller', description: 'Start, pause, resume, and inspect the background instance polling service.', group: 'System' },
   { key: 'system.version.view', label: 'View CMS version/update status', description: 'View installed CMS version, source revision, and available update status.', group: 'System' },
   { key: 'issueTypes.view', label: 'View issue type catalog', description: 'View the system issue type catalog, severities, matching rules, and affected instance evidence.', group: 'System' },
@@ -550,6 +552,10 @@ export function App() {
   const [systemUpdateStatus, setSystemUpdateStatus] = useState<SystemUpdateStatus | null>(null);
   const [systemQueueStatus, setSystemQueueStatus] = useState<SystemQueueStatus | null>(null);
   const [systemQueueJobs, setSystemQueueJobs] = useState<SystemQueueJobs | null>(null);
+  const [queueJobQueueFilter, setQueueJobQueueFilter] = useState<string[]>([]);
+  const [queueJobStateFilter, setQueueJobStateFilter] = useState<string[]>([]);
+  const [queueJobTypeFilter, setQueueJobTypeFilter] = useState<string[]>([]);
+  const [selectedQueueJob, setSelectedQueueJob] = useState<QueueJobSummary | null>(null);
   const [isSystemVersionRefreshing, setIsSystemVersionRefreshing] = useState(false);
   const [updateRunnerAction, setUpdateRunnerAction] = useState<'dry-run' | 'update' | null>(null);
   const [updateTargetRef, setUpdateTargetRef] = useState('');
@@ -627,9 +633,11 @@ export function App() {
   const canViewDatabase = hasPermission('settings.database.view') || hasPermission('settings.database.maintain');
   const canMaintainDatabase = hasPermission('settings.database.maintain');
   const canManagePoller = hasPermission('system.poller.manage');
+  const canViewJobs = hasPermission('jobs.view') || canManagePoller;
+  const canManageJobs = hasPermission('jobs.manage') || canManagePoller;
   const canViewVersion = hasPermission('system.version.view');
   const canViewIssueTypes = hasPermission('issueTypes.view');
-  const canUseSettings = canManageSettings || canViewLogs || canViewDatabase || canViewIssueTypes || canViewVersion || canManagePoller;
+  const canUseSettings = canManageSettings || canViewLogs || canViewDatabase || canViewIssueTypes || canViewVersion || canViewJobs;
   const tenantLabel = appLabels.tenant || 'Tenant';
   const tenantLabelPlural = `${tenantLabel}s`;
   const tenantLabelLower = tenantLabel.toLowerCase();
@@ -948,7 +956,7 @@ export function App() {
   }
 
   async function loadQueueJobs(t = token) {
-    if (!t || !canManagePoller) return;
+    if (!t || !canViewJobs) return;
     const [queueJobsRes] = await Promise.all([
       api<{ queueJobs: SystemQueueJobs }>('/api/system/queue-jobs?limit=1000', { token: t }),
       loadQueueSchedules(t).catch(() => undefined)
@@ -1015,15 +1023,15 @@ export function App() {
       const [versionRes, statusRes, queueRes, queueJobsRes] = await Promise.all([
         api<{ version: SystemVersionSnapshot }>('/api/system/version', { token: t }),
         api<{ updateStatus: SystemUpdateStatus }>('/api/system/update-status', { token: t }),
-        canManagePoller ? api<{ queues: SystemQueueStatus }>('/api/system/queues', { token: t }).catch(() => null) : Promise.resolve(null),
-        canManagePoller ? api<{ queueJobs: SystemQueueJobs }>('/api/system/queue-jobs?limit=1000', { token: t }).catch(() => null) : Promise.resolve(null)
+        canViewJobs ? api<{ queues: SystemQueueStatus }>('/api/system/queues', { token: t }).catch(() => null) : Promise.resolve(null),
+        canViewJobs ? api<{ queueJobs: SystemQueueJobs }>('/api/system/queue-jobs?limit=1000', { token: t }).catch(() => null) : Promise.resolve(null)
       ]);
       setSystemVersion(versionRes.version);
       setSystemUpdateStatus(statusRes.updateStatus);
       if (!updateTargetRef && statusRes.updateStatus.runner.targetRef) setUpdateTargetRef(statusRes.updateStatus.runner.targetRef);
       if (queueRes) setSystemQueueStatus(queueRes.queues);
       if (queueJobsRes) setSystemQueueJobs(queueJobsRes.queueJobs);
-      if (canManagePoller) await loadQueueSchedules(t).catch(() => undefined);
+      if (canViewJobs) await loadQueueSchedules(t).catch(() => undefined);
       if (mode === 'manual') {
         const queueNote = queueRes ? ` Queue mode: ${queueRes.queues.mode}.` : '';
         showStatus((versionRes.version.update.error ? 'Version/update readiness refreshed; update source is currently unavailable.' : 'Version/update readiness refreshed.') + queueNote, versionRes.version.update.error ? 'warning' : 'success');
@@ -1366,7 +1374,7 @@ export function App() {
   }, [token, profile, activeSection, canViewIssueTypes]);
 
   useEffect(() => {
-    if (!token || !profile || activeSection !== 'settings-operations' || (!canViewVersion && !canManagePoller)) return undefined;
+    if (!token || !profile || activeSection !== 'settings-operations' || (!canViewVersion && !canViewJobs)) return undefined;
     const refresh = () => {
       if (document.visibilityState === 'hidden') return;
       void loadSystemVersion(token).catch((err) => setError(err instanceof Error ? err.message : 'Operations status refresh failed.'));
@@ -1907,7 +1915,15 @@ export function App() {
     metadata: queueJobDetail(job),
     raw: job
   })).sort((left, right) => left.sequence - right.sequence), [systemQueueJobs, tenants]);
-  const databaseMaintenanceJobRows = useMemo(() => queueJobRows.filter((row) => row.raw.queue === 'database-maintenance'), [queueJobRows]);
+  const queueJobQueueOptions = useMemo(() => Array.from(new Set(queueJobRows.map((row) => row.raw.queue))).sort(), [queueJobRows]);
+  const queueJobStateOptions = useMemo(() => Array.from(new Set(queueJobRows.map((row) => row.raw.state))).sort(), [queueJobRows]);
+  const queueJobTypeOptions = useMemo(() => Array.from(new Set(queueJobRows.map((row) => row.raw.name))).sort(), [queueJobRows]);
+  const filteredQueueJobRows = useMemo(() => queueJobRows.filter((row) =>
+    (queueJobQueueFilter.length === 0 || queueJobQueueFilter.includes(row.raw.queue)) &&
+    (queueJobStateFilter.length === 0 || queueJobStateFilter.includes(row.raw.state)) &&
+    (queueJobTypeFilter.length === 0 || queueJobTypeFilter.includes(row.raw.name))
+  ), [queueJobRows, queueJobQueueFilter, queueJobStateFilter, queueJobTypeFilter]);
+  const databaseMaintenanceJobRows = useMemo(() => filteredQueueJobRows.filter((row) => row.raw.queue === 'database-maintenance'), [filteredQueueJobRows]);
 
 
   const cell = <T extends { raw: ModalEntity }>(edit: (raw: T['raw']) => void, remove?: (raw: T['raw']) => void) => ({ dataItem, tdProps }: GridCustomCellProps) => {
@@ -1928,12 +1944,13 @@ export function App() {
   function QueueJobActionCell({ dataItem, tdProps }: GridCustomCellProps) {
     const row = dataItem as QueueJobGridRow;
     const key = queueActionKeyForRow(row);
-    if (!key) return <td {...tdProps} className="k-command-cell"><span className="muted-table-text">—</span></td>;
+    if (!key) return <td {...tdProps} className="k-command-cell queue-actions-cell"><Button className="btn-icon-info" type="button" fillMode="flat" title="View details" onClick={() => setSelectedQueueJob(row.raw)}><Eye /></Button></td>;
     const enabled = queueScheduleEnabled(key);
     const busy = queueActionKey?.startsWith(`${key}:`);
     return <td {...tdProps} className="k-command-cell queue-actions-cell">
-      <Button className="btn-icon-info" type="button" fillMode="flat" title="Run now" disabled={busy} onClick={() => void handleQueueJobAction(key, 'run-now')}><RotateCw /></Button>
-      <Button className={enabled ? 'btn-icon-warning' : 'btn-icon-info'} type="button" fillMode="flat" title={enabled ? 'Pause recurring job' : 'Resume recurring job'} disabled={busy || row.raw.state === 'active'} onClick={() => void handleQueueJobAction(key, enabled ? 'pause' : 'resume')}>{enabled ? <Pause /> : <Play />}</Button>
+      <Button className="btn-icon-info" type="button" fillMode="flat" title="View details" onClick={() => setSelectedQueueJob(row.raw)}><Eye /></Button>
+      {canManageJobs && <Button className="btn-icon-info" type="button" fillMode="flat" title="Run now" disabled={busy} onClick={() => void handleQueueJobAction(key, 'run-now')}><RotateCw /></Button>}
+      {canManageJobs && <Button className={enabled ? 'btn-icon-warning' : 'btn-icon-info'} type="button" fillMode="flat" title={enabled ? 'Pause recurring job' : 'Resume recurring job'} disabled={busy || row.raw.state === 'active'} onClick={() => void handleQueueJobAction(key, enabled ? 'pause' : 'resume')}>{enabled ? <Pause /> : <Play />}</Button>}
     </td>;
   }
   function RoleActionCell({ dataItem, tdProps }: GridCustomCellProps) {
@@ -2647,7 +2664,7 @@ export function App() {
       {snapshot?.redis.error && <p className="panel-copy version-update-message warning">Redis/BullMQ status is unavailable: {snapshot.redis.error}</p>}
       {!snapshot?.enabled && <p className="panel-copy">BullMQ is installed but disabled until `BULLMQ_ENABLED=true` and Redis settings are configured. The existing background poller continues to run for MVP safety.</p>}
       {snapshot && <section className="queue-compact-table" aria-label="Queue counts"><div className="queue-table-head"><span>Queue</span><span>State</span><span>Ready</span><span>Running</span><span>Scheduled</span><span>Failed Retained</span><span>Completed Retained</span></div>{snapshot.queues.map((queue) => <article className="queue-table-row" key={queue.name}><div><strong>{queue.name}</strong><small>{queue.description}</small></div><span className={`queue-state-label ${queue.active > 0 ? 'enabled' : queue.waiting > 0 ? 'enabled' : queue.delayed > 0 ? 'scheduled' : queue.failed > 0 ? 'paused' : 'unknown'}`}>{queue.active > 0 ? 'active' : queue.waiting > 0 ? 'ready' : queue.delayed > 0 ? 'scheduled' : queue.failed > 0 ? 'history' : 'idle'}</span><span>{formatNumber(queue.waiting)}</span><span>{formatNumber(queue.active)}</span><span>{formatNumber(queue.delayed)}</span><span>{formatNumber(queue.failed)}</span><span>{formatNumber(queue.completed)}</span></article>)}</section>}
-      {queueJobRows.length ? <section className="queue-latest-jobs queue-latest-managed-grid" aria-label="Latest queue jobs"><ManagedGrid gridKey="system-queue-jobs-sequence" token={token!} rows={queueJobRows} columns={queueJobColumnDefs} loading={isSystemVersionRefreshing && !systemQueueJobs} loadingLabel="Loading latest queue jobs…" actionCell={QueueJobActionCell} actionWidth={120} toolbar={<div className="queue-jobs-toolbar"><strong>Active / Scheduled Jobs</strong><span>{formatNumber(queueJobRows.length)} jobs, active first then sorted by next run</span></div>} /></section> : snapshot?.mode === 'bullmq' && <p className="panel-copy small-copy">No recent queue jobs returned from the sanitized CMS job view yet.</p>}
+      {queueJobRows.length ? <section className="queue-latest-jobs queue-latest-managed-grid" aria-label="Latest queue jobs"><ManagedGrid gridKey="system-queue-jobs-sequence" token={token!} rows={filteredQueueJobRows} columns={queueJobColumnDefs} loading={isSystemVersionRefreshing && !systemQueueJobs} loadingLabel="Loading latest queue jobs…" actionCell={QueueJobActionCell} actionWidth={canManageJobs ? 150 : 70} toolbar={<div className="logs-toolbar queue-jobs-toolbar"><div className="logs-toolbar-left"><strong>Active / Scheduled Jobs</strong><span>{formatNumber(filteredQueueJobRows.length)} of {formatNumber(queueJobRows.length)} jobs</span></div><div className="logs-filter-bar grid-toolbar-filters"><LogMultiSelectFilter label="Queue" allLabel="All queues" options={queueJobQueueOptions} selected={queueJobQueueFilter} onChange={setQueueJobQueueFilter} /><LogMultiSelectFilter label="State" allLabel="All states" options={queueJobStateOptions} selected={queueJobStateFilter} onChange={setQueueJobStateFilter} /><LogMultiSelectFilter label="Job" allLabel="All jobs" options={queueJobTypeOptions} selected={queueJobTypeFilter} onChange={setQueueJobTypeFilter} /></div></div>} /></section> : snapshot?.mode === 'bullmq' && <p className="panel-copy small-copy">No recent queue jobs returned from the sanitized CMS job view yet.</p>}
     </article>;
   }
 
@@ -2682,8 +2699,8 @@ export function App() {
         <Button className="compact-button dashboard-refresh-button" type="button" onClick={() => void loadSystemVersion(token, 'manual')} disabled={isSystemVersionRefreshing}><RotateCw className={isSystemVersionRefreshing ? 'spin-icon' : ''} /> Refresh</Button>
       </section>
       {canViewVersion && renderVersionUpdatePanel()}
-      {canManagePoller && renderQueueOrchestrationPanel()}
-      {!canViewVersion && !canManagePoller && <article className="panel settings-panel"><p className="panel-copy">No operational resources are available for your current permissions.</p></article>}
+      {canViewJobs && renderQueueOrchestrationPanel()}
+      {!canViewVersion && !canViewJobs && <article className="panel settings-panel"><p className="panel-copy">No operational resources are available for your current permissions.</p></article>}
     </div>;
   }
 
@@ -2799,7 +2816,7 @@ export function App() {
       {isMobileViewport && renderDetailPanel()}
       {!isMobileViewport && databaseDetailModal && <Dialog className="cms-dialog database-detail-dialog" title={`${kpiCards.find((card) => card.panel === databaseDetailModal)?.label || 'Database'} Details`} onClose={() => setDatabaseDetailModal(null)} width={920}>{renderDetailPanel()}<DialogActionsBar><Button className="compact-button" type="button" fillMode="flat" onClick={() => setDatabaseDetailModal(null)}>Close</Button></DialogActionsBar></Dialog>}
       <section className="panel database-performance-panel"><div className="panel-heading"><Settings /><div><p className="eyebrow small">Maintenance actions</p><h3>Database Maintenance</h3></div></div><div className="database-maintenance-grid">{maintenanceActions.map((action) => <button className={`database-maintenance-action ${action.tone || ''}`} type="button" key={action.action} onClick={() => void handleDatabaseMaintenance(action.action)} disabled={databaseMaintenanceAction === action.action || isClearingLogs}><span className="database-maintenance-label">{action.icon}<strong>{action.label}</strong></span><small>{action.detail}</small></button>)}</div></section>
-      {canManagePoller && <section className="panel database-performance-panel database-maintenance-jobs-panel"><div className="panel-heading"><Activity /><div><p className="eyebrow small">Queued maintenance</p><h3>Database Jobs</h3></div><Button className="compact-button" type="button" onClick={() => void loadQueueJobs(token)} disabled={isSystemVersionRefreshing}><RotateCw /> Refresh Jobs</Button></div>{databaseMaintenanceJobRows.length ? <div className="queue-latest-managed-grid database-maintenance-jobs-grid"><ManagedGrid gridKey="database-maintenance-jobs" token={token!} rows={databaseMaintenanceJobRows} columns={queueJobColumnDefs.filter((column) => !['tenant', 'instance', 'instanceGuid', 'queue'].includes(column.key))} loading={isSystemVersionRefreshing && !systemQueueJobs} loadingLabel="Loading database jobs…" actionCell={QueueJobActionCell} actionWidth={120} toolbar={<div className="queue-jobs-toolbar"><strong>Database maintenance queue</strong><span>{formatNumber(databaseMaintenanceJobRows.length)} active, scheduled, or retained database job{databaseMaintenanceJobRows.length === 1 ? '' : 's'}</span></div>} /></div> : <p className="panel-copy small-copy">No database maintenance jobs are active, scheduled, or retained yet. Analyze Tables and Optimize Tables can be queued from Operations Run Now controls.</p>}</section>}
+      {canViewJobs && <section className="panel database-performance-panel database-maintenance-jobs-panel"><div className="panel-heading"><Activity /><div><p className="eyebrow small">Queued maintenance</p><h3>Database Jobs</h3></div><Button className="compact-button" type="button" onClick={() => void loadQueueJobs(token)} disabled={isSystemVersionRefreshing}><RotateCw /> Refresh Jobs</Button></div>{databaseMaintenanceJobRows.length ? <div className="queue-latest-managed-grid database-maintenance-jobs-grid"><ManagedGrid gridKey="database-maintenance-jobs" token={token!} rows={databaseMaintenanceJobRows} columns={queueJobColumnDefs.filter((column) => !['tenant', 'instance', 'instanceGuid', 'queue'].includes(column.key))} loading={isSystemVersionRefreshing && !systemQueueJobs} loadingLabel="Loading database jobs…" actionCell={QueueJobActionCell} actionWidth={canManageJobs ? 150 : 70} toolbar={<div className="queue-jobs-toolbar"><strong>Database maintenance queue</strong><span>{formatNumber(databaseMaintenanceJobRows.length)} active, scheduled, or retained database job{databaseMaintenanceJobRows.length === 1 ? '' : 's'}</span></div>} /></div> : <p className="panel-copy small-copy">No database maintenance jobs are active, scheduled, or retained yet. Analyze Tables and Optimize Tables can be queued from Operations Run Now controls.</p>}</section>}
     </div></div>;
   }
 
@@ -2993,12 +3010,14 @@ export function App() {
           {canViewInstances && <button type="button" className={activeSection === 'instances' ? 'active' : ''} onClick={() => { nav('instances'); loadInstances(); }}><Server /><span>Instances</span></button>}
           {canManageInstances && <button type="button" className="primary" onClick={openCreateInstanceModal}><Plus /><span>Enroll</span></button>}
           {canManageSecurity && <button type="button" className={activeSection === 'users' || activeSection === 'user-groups' || activeSection === 'roles' ? 'active' : ''} onClick={() => nav(canManageUsers ? 'users' : canManageGroups ? 'user-groups' : 'roles')}><ShieldCheck /><span>Security</span></button>}
-          {canUseSettings && <button type="button" className={activeSection.startsWith('settings-') ? 'active' : ''} onClick={() => nav(canManageSettings ? 'settings-general' : canViewVersion || canManagePoller ? 'settings-operations' : canViewLogs ? 'settings-logs' : canViewDatabase ? 'settings-database' : 'settings-issues')}><Settings /><span>Settings</span></button>}
+          {canUseSettings && <button type="button" className={activeSection.startsWith('settings-') ? 'active' : ''} onClick={() => nav(canManageSettings ? 'settings-general' : canViewVersion || canViewJobs ? 'settings-operations' : canViewLogs ? 'settings-logs' : canViewDatabase ? 'settings-database' : 'settings-issues')}><Settings /><span>Settings</span></button>}
         </>}
       </nav>}
 
 
       {renderIssueCatalogDialog()}
+
+      {selectedQueueJob && <Dialog className="cms-dialog database-detail-dialog" title={`Queue Job: ${selectedQueueJob.name}`} onClose={() => setSelectedQueueJob(null)} width={760}><div className="detail-grid"><div><span>Queue</span><strong>{selectedQueueJob.queue}</strong></div><div><span>State</span><strong>{selectedQueueJob.state}</strong></div><div><span>Tenant</span><strong>{selectedQueueJob.data.tenantName ?? (selectedQueueJob.data.tenantId ? tenantName(selectedQueueJob.data.tenantId) : 'Global')}</strong></div><div><span>Instance</span><strong>{queueJobInstanceLabel(selectedQueueJob)}</strong></div><div><span>Next Run</span><strong>{selectedQueueJob.nextProcessAt ? formatDateTime(selectedQueueJob.nextProcessAt) : '—'}</strong></div><div><span>Runtime</span><strong>{formatQueueRuntime(selectedQueueJob.resource?.durationMs)}</strong></div><div><span>Attempts</span><strong>{queueJobAttemptLabel(selectedQueueJob)}</strong></div><div><span>Requested By</span><strong>{selectedQueueJob.data.requestedBy ?? '—'}</strong></div></div><p className="panel-copy"><strong>Result:</strong> {selectedQueueJob.result?.summary ?? '—'}</p><p className="panel-copy"><strong>Failure:</strong> {selectedQueueJob.failedReason ?? '—'}</p><pre className="json-block">{queueJobDetail(selectedQueueJob)}</pre><DialogActionsBar><Button className="compact-button" type="button" fillMode="flat" onClick={() => setSelectedQueueJob(null)}>Close</Button></DialogActionsBar></Dialog>}
 
       {renderRowActionMenu()}
 

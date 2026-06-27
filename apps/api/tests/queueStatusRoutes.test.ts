@@ -88,7 +88,36 @@ describe('queue status API', () => {
     await app.close();
   });
 
-  it('requires system poller management permission for native queue job summaries', async () => {
+  it('filters native queue job summaries by queue, state, job type, Tenant, instance, and requester', async () => {
+    const queueStatusProvider: QueueRuntime = {
+      async readStatus() {
+        return { enabled: true, mode: 'bullmq', generatedAt: '2026-06-16T00:00:00.000Z', redis: { configured: true, connected: true, host: '127.0.0.1', port: 6379, error: null }, bullBoard: { enabled: false, path: null }, queues: [] };
+      },
+      async readJobs() {
+        return {
+          enabled: true,
+          mode: 'bullmq',
+          generatedAt: '2026-06-16T00:00:00.000Z',
+          jobs: [
+            { id: 'job-1', queue: 'database-maintenance' as const, name: 'backup-database', state: 'completed' as const, attemptsMade: 1, queueSequence: 1, nextProcessAt: null, timestamp: '2026-06-16T00:00:00.000Z', processedOn: null, finishedOn: null, failedReason: null, data: { task: 'backup-database', requestedBy: 'Admin User' } },
+            { id: 'job-2', queue: 'instance-checks' as const, name: 'manual-instance-check', state: 'waiting' as const, attemptsMade: 0, queueSequence: 2, nextProcessAt: null, timestamp: '2026-06-16T00:00:00.000Z', processedOn: null, finishedOn: null, failedReason: null, data: { instanceId: 'instance-1', source: 'manual', requestedBy: 'Operator' } }
+          ]
+        };
+      }
+    };
+    const { app, token, authRepository, instanceRepository } = await bootApp(queueStatusProvider);
+    const tenant = await authRepository.createTenant({ name: 'Central Tenant', description: null });
+    await instanceRepository.createInstance({ id: 'instance-1', name: 'Alpha Dispatch', description: null, tenantId: tenant.id, host: 'alpha.example.com', username: 'admin', password: 'RemotePassword!42' });
+
+    const response = await app.inject({ method: 'GET', url: `/api/system/queue-jobs?queue=instance-checks&state=waiting&jobType=manual-instance-check&tenantId=${tenant.id}&instanceId=instance-1&requester=oper`, headers: { authorization: `Bearer ${token}` } });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().queueJobs.jobs).toHaveLength(1);
+    expect(response.json().queueJobs.jobs[0]).toMatchObject({ id: 'job-2', queue: 'instance-checks', state: 'waiting', data: { instanceId: 'instance-1', tenantId: tenant.id, tenantName: 'Central Tenant', requestedBy: 'Operator' } });
+    await app.close();
+  });
+
+  it('requires queue job view permission for native queue job summaries', async () => {
     const { app } = await bootApp();
 
     const response = await app.inject({ method: 'GET', url: '/api/system/queue-jobs' });

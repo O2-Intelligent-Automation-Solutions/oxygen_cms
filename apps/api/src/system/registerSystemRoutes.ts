@@ -5,7 +5,7 @@ import type { AppSettingsRepository, QueueScheduleJobKey, QueueScheduleSettings 
 import type { AuthProfile, AuthRepository } from '../auth/types.js';
 import type { InstancePoller } from '../instances/instancePoller.js';
 import type { InstanceRepository } from '../instances/types.js';
-import type { QueueJobsSnapshot, QueueStatusProvider } from '../queues/queueStatus.js';
+import type { QueueJobState, QueueJobSummary, QueueJobsSnapshot, QueueName, QueueStatusProvider } from '../queues/queueStatus.js';
 import type { DatabasePerformanceReader } from './databasePerformance.js';
 import type { IssueCatalogReader, IssueCatalogSnapshot } from './issueCatalog.js';
 import type { UpdateStatusProvider } from './updateStatus.js';
@@ -49,6 +49,40 @@ function filterIssueCatalogForProfile(snapshot: IssueCatalogSnapshot, profile: A
   return { ...snapshot, issueTypes };
 }
 
+type QueueJobsQuery = {
+  limit?: string | number;
+  queue?: string | string[];
+  state?: string | string[];
+  jobType?: string | string[];
+  tenantId?: string;
+  instanceId?: string;
+  requester?: string;
+};
+
+function queryValues(value: string | string[] | undefined) {
+  if (Array.isArray(value)) return value.map((item) => item.trim()).filter(Boolean);
+  return typeof value === 'string' && value.trim() ? [value.trim()] : [];
+}
+
+function filterQueueJobs(snapshot: QueueJobsSnapshot, query: QueueJobsQuery): QueueJobsSnapshot {
+  const queues = new Set(queryValues(query.queue) as QueueName[]);
+  const states = new Set(queryValues(query.state) as QueueJobState[]);
+  const jobTypes = new Set(queryValues(query.jobType));
+  const tenantId = query.tenantId?.trim();
+  const instanceId = query.instanceId?.trim();
+  const requester = query.requester?.trim().toLowerCase();
+  const matches = (job: QueueJobSummary) => {
+    if (queues.size && !queues.has(job.queue)) return false;
+    if (states.size && !states.has(job.state)) return false;
+    if (jobTypes.size && !jobTypes.has(job.name) && !(job.data.task && jobTypes.has(job.data.task))) return false;
+    if (tenantId && (job.data.tenantId ?? '') !== tenantId) return false;
+    if (instanceId && (job.data.instanceId ?? '') !== instanceId) return false;
+    if (requester && !(job.data.requestedBy ?? '').toLowerCase().includes(requester)) return false;
+    return true;
+  };
+  return { ...snapshot, jobs: snapshot.jobs.filter(matches) };
+}
+
 function enrichQueueJobsWithInstances(snapshot: QueueJobsSnapshot, instances: Array<{ id: string; name: string; tenantId: string | null }>, tenants: Array<{ id: string; name: string }>): QueueJobsSnapshot {
   const instancesById = new Map(instances.map((instance) => [instance.id, instance]));
   const tenantNamesById = new Map(tenants.map((tenant) => [tenant.id, tenant.name]));
@@ -65,6 +99,8 @@ function enrichQueueJobsWithInstances(snapshot: QueueJobsSnapshot, instances: Ar
 export async function registerSystemRoutes(app: FastifyInstance, authRepository: AuthRepository, poller: InstancePoller | null, instanceRepository: InstanceRepository, appSettingsRepository: AppSettingsRepository, databasePerformanceReader: DatabasePerformanceReader, issueCatalogReader: IssueCatalogReader, updateChecker: UpdateChecker, updateStatusProvider: UpdateStatusProvider, queueStatusProvider: QueueStatusProvider, onInstanceSchedulesChanged?: () => Promise<void>) {
   const requireSignedIn = requireAuth(authRepository);
   const pollerPreHandler = [requireSignedIn, requirePermission('system.poller.manage')];
+  const jobsViewPreHandler = [requireSignedIn, requirePermission('jobs.view')];
+  const jobsManagePreHandler = [requireSignedIn, requirePermission('jobs.manage')];
   const databasePreHandler = [requireSignedIn, requirePermission('settings.database.view')];
   const issueTypesPreHandler = [requireSignedIn, requirePermission('issueTypes.view')];
   const versionPreHandler = [requireSignedIn, requirePermission('system.version.view')];
@@ -85,14 +121,14 @@ export async function registerSystemRoutes(app: FastifyInstance, authRepository:
   }
 
   app.get('/api/system/poller', { preHandler: pollerPreHandler }, async () => ({ poller: status() }));
-  app.get('/api/system/queues', { preHandler: pollerPreHandler }, async () => ({ queues: await queueStatusProvider.readStatus() }));
-  app.get('/api/system/queue-jobs', { preHandler: pollerPreHandler }, async (request) => {
-    const query = request.query as { limit?: string | number };
+  app.get('/api/system/queues', { preHandler: jobsViewPreHandler }, async () => ({ queues: await queueStatusProvider.readStatus() }));
+  app.get('/api/system/queue-jobs', { preHandler: jobsViewPreHandler }, async (request) => {
+    const query = request.query as QueueJobsQuery;
     const limit = typeof query.limit === 'number' ? query.limit : Number(query.limit ?? 25);
     const queueJobs = queueStatusProvider.readJobs ? await queueStatusProvider.readJobs(limit) : { enabled: false, mode: 'disabled' as const, generatedAt: new Date().toISOString(), jobs: [] };
     const instances = await instanceRepository.listInstances({ includeAll: true, includeArchived: true });
     const tenants = await authRepository.listTenants();
-    return { queueJobs: enrichQueueJobsWithInstances(queueJobs, instances, tenants) };
+    return { queueJobs: filterQueueJobs(enrichQueueJobsWithInstances(queueJobs, instances, tenants), query) };
   });
 
   function decodeQueueJobKey(request: FastifyRequest) {
@@ -140,21 +176,21 @@ export async function registerSystemRoutes(app: FastifyInstance, authRepository:
     return queueSchedules;
   }
 
-  app.post('/api/system/queue-jobs/:key/pause', { preHandler: pollerPreHandler }, async (request, reply) => {
+  app.post('/api/system/queue-jobs/:key/pause', { preHandler: jobsManagePreHandler }, async (request, reply) => {
     const key = decodeQueueJobKey(request);
     const queueSchedules = await persistQueueScheduleEnabled(key, false);
     if (!queueSchedules) return reply.code(404).send({ error: 'Queue job schedule not found.' });
     return { queueSchedules };
   });
 
-  app.post('/api/system/queue-jobs/:key/resume', { preHandler: pollerPreHandler }, async (request, reply) => {
+  app.post('/api/system/queue-jobs/:key/resume', { preHandler: jobsManagePreHandler }, async (request, reply) => {
     const key = decodeQueueJobKey(request);
     const queueSchedules = await persistQueueScheduleEnabled(key, true);
     if (!queueSchedules) return reply.code(404).send({ error: 'Queue job schedule not found.' });
     return { queueSchedules };
   });
 
-  app.post('/api/system/queue-jobs/:key/run-now', { preHandler: pollerPreHandler }, async (request, reply) => {
+  app.post('/api/system/queue-jobs/:key/run-now', { preHandler: jobsManagePreHandler }, async (request, reply) => {
     const key = decodeQueueJobKey(request);
     if (key.startsWith('instance-check:')) {
       const instance = await instanceRepository.getInstance(key.slice('instance-check:'.length));
