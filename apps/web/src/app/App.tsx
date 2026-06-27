@@ -120,7 +120,7 @@ type LogPurgeResult = ActivityTableMaintenanceResult;
 type ActivityRetentionRunResult = ActivityTableMaintenanceResult & { retention: LogRetentionSettings };
 type DatabaseMode = 'managed-mysql' | 'local-mysql' | 'existing-mysql';
 type DbWizardStep = 'mode' | 'connection' | 'credentials' | 'review';
-type NavSection = 'dashboard' | 'organizations' | 'instances' | 'instance-dashboard' | 'users' | 'user-groups' | 'roles' | 'settings-general' | 'settings-operations' | 'settings-logs' | 'settings-database' | 'settings-issues' | 'settings-advanced';
+type NavSection = 'dashboard' | 'organizations' | 'instances' | 'instance-dashboard' | 'users' | 'user-groups' | 'roles' | 'settings-general' | 'settings-queue' | 'settings-update' | 'settings-logs' | 'settings-database' | 'settings-issues' | 'settings-advanced';
 type ModalKind = 'user' | 'group' | 'role' | 'tenant' | 'instance';
 type ModalEntity = UserProfile | Group | Role | Tenant | OxyGenInstance;
 type ModalState = { kind: ModalKind; data?: ModalEntity } | null;
@@ -168,7 +168,8 @@ function cmsPathFor(section: NavSection, instanceId?: string) {
   if (section === 'users') return '/Users';
   if (section === 'user-groups') return '/Groups';
   if (section === 'roles') return '/Roles';
-  if (section === 'settings-operations') return '/Settings/Operations';
+  if (section === 'settings-queue') return '/Settings/Queue';
+  if (section === 'settings-update') return '/Settings/Updates';
   if (section === 'settings-logs') return instanceId ? `/Logs/Entity/${instanceId}` : '/Logs';
   if (section === 'settings-database') return '/Settings/Database';
   if (section === 'settings-issues') return '/Settings/Issue-Types';
@@ -187,7 +188,7 @@ function sectionFromPath(pathname: string): { section: NavSection; entityId?: st
   if (first === 'groups' || first === 'user-groups') return { section: 'user-groups' };
   if (first === 'roles') return { section: 'roles' };
   if (first === 'logs') return parts[1]?.toLowerCase() === 'entity' && parts[2] ? { section: 'settings-logs', entityId: parts[2] } : { section: 'settings-logs' };
-  if (first === 'settings') return parts[1]?.toLowerCase() === 'advanced' ? { section: 'settings-advanced' } : ['operations', 'system'].includes(parts[1]?.toLowerCase() || '') ? { section: 'settings-operations' } : parts[1]?.toLowerCase() === 'logs' ? { section: 'settings-logs' } : parts[1]?.toLowerCase() === 'database' ? { section: 'settings-database' } : ['issue-types', 'issues'].includes(parts[1]?.toLowerCase() || '') ? { section: 'settings-issues' } : { section: 'settings-general' };
+  if (first === 'settings') return parts[1]?.toLowerCase() === 'advanced' ? { section: 'settings-advanced' } : ['operations', 'system', 'queue', 'queues'].includes(parts[1]?.toLowerCase() || '') ? { section: 'settings-queue' } : ['update', 'updates'].includes(parts[1]?.toLowerCase() || '') ? { section: 'settings-update' } : parts[1]?.toLowerCase() === 'logs' ? { section: 'settings-logs' } : parts[1]?.toLowerCase() === 'database' ? { section: 'settings-database' } : ['issue-types', 'issues'].includes(parts[1]?.toLowerCase() || '') ? { section: 'settings-issues' } : { section: 'settings-general' };
   return { section: 'dashboard' };
 }
 
@@ -967,6 +968,27 @@ export function App() {
     setSystemQueueJobs(queueJobsRes.queueJobs);
   }
 
+  async function loadQueueStatus(t = token, mode: DashboardRefreshMode = 'quiet') {
+    if (!t || !canViewJobs) return;
+    if (mode === 'manual') clearStatus();
+    setIsSystemVersionRefreshing(true);
+    try {
+      const [queueRes, queueJobsRes] = await Promise.all([
+        api<{ queues: SystemQueueStatus }>('/api/system/queues', { token: t }),
+        api<{ queueJobs: SystemQueueJobs }>('/api/system/queue-jobs?limit=1000', { token: t })
+      ]);
+      setSystemQueueStatus(queueRes.queues);
+      setSystemQueueJobs(queueJobsRes.queueJobs);
+      await loadQueueSchedules(t).catch(() => undefined);
+      if (mode === 'manual') showStatus(`Queue status refreshed. Queue mode: ${queueRes.queues.mode}.`);
+    } catch (err) {
+      if (mode === 'manual') setError(err instanceof Error ? err.message : 'Queue status refresh failed.');
+      else throw err;
+    } finally {
+      setIsSystemVersionRefreshing(false);
+    }
+  }
+
   async function loadAppLogs(t = token, overrides: { type?: AppLogType[]; severity?: AppLogSeverity[]; entityGuid?: string; tenantId?: string } = {}) {
     if (!t) return;
     setIsLogsRefreshing(true);
@@ -1023,21 +1045,15 @@ export function App() {
     if (mode === 'manual') clearStatus();
     setIsSystemVersionRefreshing(true);
     try {
-      const [versionRes, statusRes, queueRes, queueJobsRes] = await Promise.all([
+      const [versionRes, statusRes] = await Promise.all([
         api<{ version: SystemVersionSnapshot }>('/api/system/version', { token: t }),
-        api<{ updateStatus: SystemUpdateStatus }>('/api/system/update-status', { token: t }),
-        canViewJobs ? api<{ queues: SystemQueueStatus }>('/api/system/queues', { token: t }).catch(() => null) : Promise.resolve(null),
-        canViewJobs ? api<{ queueJobs: SystemQueueJobs }>('/api/system/queue-jobs?limit=1000', { token: t }).catch(() => null) : Promise.resolve(null)
+        api<{ updateStatus: SystemUpdateStatus }>('/api/system/update-status', { token: t })
       ]);
       setSystemVersion(versionRes.version);
       setSystemUpdateStatus(statusRes.updateStatus);
       if (!updateTargetRef && statusRes.updateStatus.runner.targetRef) setUpdateTargetRef(statusRes.updateStatus.runner.targetRef);
-      if (queueRes) setSystemQueueStatus(queueRes.queues);
-      if (queueJobsRes) setSystemQueueJobs(queueJobsRes.queueJobs);
-      if (canViewJobs) await loadQueueSchedules(t).catch(() => undefined);
       if (mode === 'manual') {
-        const queueNote = queueRes ? ` Queue mode: ${queueRes.queues.mode}.` : '';
-        showStatus((versionRes.version.update.error ? 'Version/update readiness refreshed; update source is currently unavailable.' : 'Version/update readiness refreshed.') + queueNote, versionRes.version.update.error ? 'warning' : 'success');
+        showStatus(versionRes.version.update.error ? 'Version/update readiness refreshed; update source is currently unavailable.' : 'Version/update readiness refreshed.', versionRes.version.update.error ? 'warning' : 'success');
       }
     } catch (err) {
       if (mode === 'manual') setError(err instanceof Error ? err.message : 'Version refresh failed.');
@@ -1377,10 +1393,10 @@ export function App() {
   }, [token, profile, activeSection, canViewIssueTypes]);
 
   useEffect(() => {
-    if (!token || !profile || activeSection !== 'settings-operations' || (!canViewVersion && !canViewJobs)) return undefined;
+    if (!token || !profile || activeSection !== 'settings-queue' || !canViewJobs) return undefined;
     const refresh = () => {
       if (document.visibilityState === 'hidden') return;
-      void loadSystemVersion(token).catch((err) => setError(err instanceof Error ? err.message : 'Operations status refresh failed.'));
+      void loadQueueStatus(token).catch((err) => setError(err instanceof Error ? err.message : 'Queue status refresh failed.'));
     };
     refresh();
     const refreshTimer = window.setInterval(refresh, 60000);
@@ -1391,7 +1407,24 @@ export function App() {
       window.removeEventListener('focus', refresh);
       document.removeEventListener('visibilitychange', refresh);
     };
-  }, [token, profile, activeSection, canViewVersion, canManagePoller]);
+  }, [token, profile, activeSection, canViewJobs]);
+
+  useEffect(() => {
+    if (!token || !profile || activeSection !== 'settings-update' || !canViewVersion) return undefined;
+    const refresh = () => {
+      if (document.visibilityState === 'hidden') return;
+      void loadSystemVersion(token).catch((err) => setError(err instanceof Error ? err.message : 'Update status refresh failed.'));
+    };
+    refresh();
+    const refreshTimer = window.setInterval(refresh, 60000);
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      window.clearInterval(refreshTimer);
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, [token, profile, activeSection, canViewVersion]);
 
   useEffect(() => {
     document.body.classList.toggle('cms-notes-editor-active', healthModal === 'notes');
@@ -1844,7 +1877,7 @@ export function App() {
     if (!isDrawerExpanded && !isMobileViewport) {
       if (key === 'organizations') { if (canViewInstances) { nav('instances'); void loadInstances(); } else if (canViewTenants) nav('organizations'); return; }
       if (key === 'security') { nav(canManageUsers ? 'users' : canManageGroups ? 'user-groups' : 'roles'); return; }
-      nav(canManageSettings || canViewVersion ? 'settings-general' : canViewLogs ? 'settings-logs' : canViewDatabase ? 'settings-database' : canViewIssueTypes ? 'settings-issues' : 'dashboard');
+      nav(canManageSettings ? 'settings-general' : canViewJobs ? 'settings-queue' : canViewVersion ? 'settings-update' : canViewLogs ? 'settings-logs' : canViewDatabase ? 'settings-database' : canViewIssueTypes ? 'settings-issues' : 'dashboard');
       return;
     }
     toggleAccordion(key);
@@ -2587,7 +2620,7 @@ export function App() {
     const latest = latestUpdateLabel(update);
     const updateTargetPlaceholder = status?.runner.targetRef || latest.targetPlaceholder || 'main';
     return <article className={`panel settings-panel version-update-panel ${tone}`}>
-      <div className="panel-heading"><Download /><div><p className="eyebrow small">Application updates</p><h3>OxyGen CMS Version & Update Readiness</h3></div></div>
+      <div className="panel-heading"><Download /><div><p className="eyebrow small">Application updates</p><h3>OxyGen CMS Version & Update Readiness</h3><small className="dashboard-refresh-stamp">Application version, GitHub update readiness, and guarded host-side update controls live here.</small></div></div>
       <section className={`version-update-summary ${tone}`}>
         <div><span>Current</span><strong>{current?.version ?? 'Unknown'}</strong><small>{current?.commit ? `Build ${current.commit.slice(0, 12)}` : 'Build commit not stamped'}</small></div>
         <div><span>{latest.heading}</span><strong>{latest.value}</strong><small>{latest.detail}</small></div>
@@ -2613,7 +2646,7 @@ export function App() {
     const message = update.source === 'github-branch'
       ? `The GitHub default branch has a newer commit (${label}) than this running build.`
       : `${label} is available from GitHub. Current version: ${systemVersion.current.version}.`;
-    return <section className="version-update-notice" role="status"><div><strong>OxyGen CMS update available</strong><span>{message}</span></div><Button className="compact-button" type="button" onClick={() => nav('settings-general')}><Download /> View Update</Button></section>;
+    return <section className="version-update-notice" role="status"><div><strong>OxyGen CMS update available</strong><span>{message}</span></div><Button className="compact-button" type="button" onClick={() => nav('settings-update')}><Download /> View Update</Button></section>;
   }
 
 
@@ -2684,7 +2717,7 @@ export function App() {
     const tone = queueHealthTone(snapshot);
     return <article className={`panel settings-panel queue-orchestration-panel ${tone}`}>
       {isSystemVersionRefreshing && !snapshot && <LoadingOverlay label="Loading queue status…" />}
-      <div className="panel-heading queue-panel-heading"><Activity /><div><p className="eyebrow small">Phase 1.5 queue foundation</p><h3>BullMQ / Redis Orchestration</h3></div><div className="queue-heading-actions"><Button className="compact-button" type="button" onClick={() => void loadSystemVersion(token, 'manual')} disabled={isSystemVersionRefreshing}><RotateCw className={isSystemVersionRefreshing ? 'spin-icon' : ''} /> Refresh</Button></div></div>
+      <div className="panel-heading queue-panel-heading"><Activity /><div><p className="eyebrow small">System Operations</p><h3>BullMQ / Redis Orchestration</h3><small className="dashboard-refresh-stamp">BullMQ/Redis orchestration, scheduled work, retained history, and queue actions live here.</small></div><div className="queue-heading-actions"><Button className="compact-button" type="button" onClick={() => void loadQueueStatus(token, 'manual')} disabled={isSystemVersionRefreshing}><RotateCw className={isSystemVersionRefreshing ? 'spin-icon' : ''} /> Refresh</Button></div></div>
       <section className={`version-update-summary queue-summary ${tone}`}>
         <div><span>Mode</span><strong>{snapshot?.mode === 'bullmq' ? 'BullMQ' : snapshot ? 'Disabled' : 'Checking'}</strong><small>{snapshot?.enabled ? 'Durable queue mode enabled' : snapshot ? 'In-process poller active' : 'Loading runtime state'}</small></div>
         <div><span>Redis</span><strong>{snapshot?.redis.connected ? 'Connected' : snapshot?.redis.configured ? 'Configured' : 'Not configured'}</strong><small>{snapshot?.redis.host ? `${snapshot.redis.host}:${snapshot.redis.port}` : snapshot ? 'Set REDIS_HOST to enable' : 'Checking Redis'}</small></div>
@@ -2721,16 +2754,17 @@ export function App() {
   }
 
 
-  function renderSettingsOperations() {
+  function renderSettingsQueue() {
     return <div className="settings-operations-stack">
-      {isSystemVersionRefreshing && !systemVersion && <LoadingOverlay label="Loading operations status…" />}
-      <section className="tenant-dashboard-hero compact settings-operations-hero">
-        <div><p className="eyebrow small">System operations</p><h3>Runtime, Queues, and Updates</h3><small className="dashboard-refresh-stamp">Application update readiness and background queue orchestration are grouped here so General stays focused on editable settings.</small></div>
-        <Button className="compact-button dashboard-refresh-button" type="button" onClick={() => void loadSystemVersion(token, 'manual')} disabled={isSystemVersionRefreshing}><RotateCw className={isSystemVersionRefreshing ? 'spin-icon' : ''} /> Refresh</Button>
-      </section>
-      {canViewVersion && renderVersionUpdatePanel()}
-      {canViewJobs && renderQueueOrchestrationPanel()}
-      {!canViewVersion && !canViewJobs && <article className="panel settings-panel"><p className="panel-copy">No operational resources are available for your current permissions.</p></article>}
+      {isSystemVersionRefreshing && !systemQueueStatus && <LoadingOverlay label="Loading queue status…" />}
+      {canViewJobs ? renderQueueOrchestrationPanel() : <article className="panel settings-panel"><p className="panel-copy">Queue resources are not available for your current permissions.</p></article>}
+    </div>;
+  }
+
+  function renderSettingsUpdate() {
+    return <div className="settings-operations-stack">
+      {isSystemVersionRefreshing && !systemVersion && <LoadingOverlay label="Loading update readiness…" />}
+      {canViewVersion ? renderVersionUpdatePanel() : <article className="panel settings-panel"><p className="panel-copy">Update readiness is not available for your current permissions.</p></article>}
     </div>;
   }
 
@@ -2860,7 +2894,8 @@ export function App() {
       case 'user-groups': return { eyebrow: 'Security', heading: 'User Groups' };
       case 'roles': return { eyebrow: 'Security', heading: 'Roles' };
       case 'settings-general': return { eyebrow: 'Settings', heading: 'General Settings' };
-      case 'settings-operations': return { eyebrow: 'Settings', heading: 'Operations' };
+      case 'settings-queue': return { eyebrow: 'Settings', heading: 'Queue' };
+      case 'settings-update': return { eyebrow: 'Settings', heading: 'Updates' };
       case 'settings-logs': return { eyebrow: 'Settings', heading: 'Logs' };
       case 'settings-database': return { eyebrow: 'Settings', heading: 'Database' };
       case 'settings-issues': return { eyebrow: 'Settings', heading: 'Issue Types' };
@@ -3015,9 +3050,9 @@ export function App() {
 
       {profile && isMobileViewport && isMobileDrawerOpen && <button className="mobile-drawer-backdrop" type="button" aria-label="Close navigation" onClick={() => setIsMobileDrawerOpen(false)} />}
 
-      {profile && (<div className={`admin-layout ${isDrawerExpanded ? 'drawer-expanded' : 'drawer-collapsed'} ${isMobileDrawerOpen ? 'mobile-drawer-open' : ''}`}><aside className={`admin-sidebar ${isDrawerExpanded ? 'expanded' : 'collapsed'} ${isMobileDrawerOpen ? 'mobile-open' : ''}`}><button className="mobile-drawer-close" type="button" onClick={() => setIsMobileDrawerOpen(false)} aria-label="Close navigation"><X /></button><button className="sidebar-toggle" type="button" onClick={() => setIsDrawerExpanded((v) => !v)} aria-label={isDrawerExpanded ? 'Collapse navigation' : 'Expand navigation'}>{isDrawerExpanded ? <ChevronLeft /> : <ChevronRight />}</button><div className="sidebar-user"><UserCircle /><div><span className="su-name">{profile.user.displayName}</span><span className="su-role">{displayRoleName(profile.roles[0])}</span></div></div><nav className="sidebar-nav"><button className={`nav-link${activeSection === 'dashboard' ? ' active' : ''}`} onClick={() => nav('dashboard')}><LayoutDashboard /><span>Dashboard</span></button>{(canViewTenants || canViewInstances) && <div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => handleSidebarParentClick('organizations')}><Server /><span>Organizations</span>{openAccordions.has('organizations') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('organizations') && (<div className="nav-accordion-children">{canViewTenants && <button className={`nav-link child${activeSection === 'organizations' ? ' active' : ''}`} onClick={() => nav('organizations')}><span>{tenantLabelPlural}</span></button>}{canViewInstances && <button className={`nav-link child${activeSection === 'instances' ? ' active' : ''}`} onClick={() => { nav('instances'); loadInstances(); }}><span>Instances</span></button>}</div>)}</div>}{canManageSecurity && <div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => handleSidebarParentClick('security')}><ShieldCheck /><span>Security</span>{openAccordions.has('security') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('security') && (<div className="nav-accordion-children">{canManageUsers && <button className={`nav-link child${activeSection === 'users' ? ' active' : ''}`} onClick={() => nav('users')}><span>Users</span></button>}{canManageGroups && <button className={`nav-link child${activeSection === 'user-groups' ? ' active' : ''}`} onClick={() => nav('user-groups')}><span>User Groups</span></button>}{canManageRoles && <button className={`nav-link child${activeSection === 'roles' ? ' active' : ''}`} onClick={() => nav('roles')}><span>Roles</span></button>}</div>)}</div>}{canUseSettings && <div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => handleSidebarParentClick('settings')}><Settings /><span>Settings</span>{openAccordions.has('settings') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('settings') && (<div className="nav-accordion-children">{canManageSettings && <button className={`nav-link child${activeSection === 'settings-general' ? ' active' : ''}`} onClick={() => nav('settings-general')}><span>Application</span></button>}{(canViewVersion || canManagePoller) && <button className={`nav-link child${activeSection === 'settings-operations' ? ' active' : ''}`} onClick={() => nav('settings-operations')}><span>Operations</span></button>}{canViewLogs && <button className={`nav-link child${activeSection === 'settings-logs' ? ' active' : ''}`} onClick={() => nav('settings-logs')}><span>Logs</span></button>}{canViewDatabase && <button className={`nav-link child${activeSection === 'settings-database' ? ' active' : ''}`} onClick={() => nav('settings-database')}><span>Database</span></button>}{canViewIssueTypes && <button className={`nav-link child${activeSection === 'settings-issues' ? ' active' : ''}`} onClick={() => nav('settings-issues')}><span>Issue Types</span></button>}{canManageSettings && <button className={`nav-link child${activeSection === 'settings-advanced' ? ' active' : ''}`} onClick={() => nav('settings-advanced', false, 'Advanced Settings')}><span>Advanced</span></button>}</div>)}</div>}</nav><button className="sidebar-logout" onClick={handleLogout}><LogOut /><span>Sign out</span></button></aside>
+      {profile && (<div className={`admin-layout ${isDrawerExpanded ? 'drawer-expanded' : 'drawer-collapsed'} ${isMobileDrawerOpen ? 'mobile-drawer-open' : ''}`}><aside className={`admin-sidebar ${isDrawerExpanded ? 'expanded' : 'collapsed'} ${isMobileDrawerOpen ? 'mobile-open' : ''}`}><button className="mobile-drawer-close" type="button" onClick={() => setIsMobileDrawerOpen(false)} aria-label="Close navigation"><X /></button><button className="sidebar-toggle" type="button" onClick={() => setIsDrawerExpanded((v) => !v)} aria-label={isDrawerExpanded ? 'Collapse navigation' : 'Expand navigation'}>{isDrawerExpanded ? <ChevronLeft /> : <ChevronRight />}</button><div className="sidebar-user"><UserCircle /><div><span className="su-name">{profile.user.displayName}</span><span className="su-role">{displayRoleName(profile.roles[0])}</span></div></div><nav className="sidebar-nav"><button className={`nav-link${activeSection === 'dashboard' ? ' active' : ''}`} onClick={() => nav('dashboard')}><LayoutDashboard /><span>Dashboard</span></button>{(canViewTenants || canViewInstances) && <div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => handleSidebarParentClick('organizations')}><Server /><span>Organizations</span>{openAccordions.has('organizations') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('organizations') && (<div className="nav-accordion-children">{canViewTenants && <button className={`nav-link child${activeSection === 'organizations' ? ' active' : ''}`} onClick={() => nav('organizations')}><span>{tenantLabelPlural}</span></button>}{canViewInstances && <button className={`nav-link child${activeSection === 'instances' ? ' active' : ''}`} onClick={() => { nav('instances'); loadInstances(); }}><span>Instances</span></button>}</div>)}</div>}{canManageSecurity && <div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => handleSidebarParentClick('security')}><ShieldCheck /><span>Security</span>{openAccordions.has('security') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('security') && (<div className="nav-accordion-children">{canManageUsers && <button className={`nav-link child${activeSection === 'users' ? ' active' : ''}`} onClick={() => nav('users')}><span>Users</span></button>}{canManageGroups && <button className={`nav-link child${activeSection === 'user-groups' ? ' active' : ''}`} onClick={() => nav('user-groups')}><span>User Groups</span></button>}{canManageRoles && <button className={`nav-link child${activeSection === 'roles' ? ' active' : ''}`} onClick={() => nav('roles')}><span>Roles</span></button>}</div>)}</div>}{canUseSettings && <div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => handleSidebarParentClick('settings')}><Settings /><span>Settings</span>{openAccordions.has('settings') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('settings') && (<div className="nav-accordion-children">{canManageSettings && <button className={`nav-link child${activeSection === 'settings-general' ? ' active' : ''}`} onClick={() => nav('settings-general')}><span>Application</span></button>}{canViewJobs && <button className={`nav-link child${activeSection === 'settings-queue' ? ' active' : ''}`} onClick={() => nav('settings-queue')}><span>Queue</span></button>}{canViewVersion && <button className={`nav-link child${activeSection === 'settings-update' ? ' active' : ''}`} onClick={() => nav('settings-update')}><span>Updates</span></button>}{canViewLogs && <button className={`nav-link child${activeSection === 'settings-logs' ? ' active' : ''}`} onClick={() => nav('settings-logs')}><span>Logs</span></button>}{canViewDatabase && <button className={`nav-link child${activeSection === 'settings-database' ? ' active' : ''}`} onClick={() => nav('settings-database')}><span>Database</span></button>}{canViewIssueTypes && <button className={`nav-link child${activeSection === 'settings-issues' ? ' active' : ''}`} onClick={() => nav('settings-issues')}><span>Issue Types</span></button>}{canManageSettings && <button className={`nav-link child${activeSection === 'settings-advanced' ? ' active' : ''}`} onClick={() => nav('settings-advanced', false, 'Advanced Settings')}><span>Advanced</span></button>}</div>)}</div>}</nav><button className="sidebar-logout" onClick={handleLogout}><LogOut /><span>Sign out</span></button></aside>
         <section className={`admin-content ${gridSection ? 'grid-section' : ''} ${settingsSection ? 'settings-section' : ''}`}>{activeSection !== 'dashboard' && <div className="page-header"><p className="eyebrow small">{sectionMeta.eyebrow}</p><h2>{sectionMeta.heading}</h2></div>}
-          {activeSection !== 'settings-general' && activeSection !== 'settings-operations' && renderUpdateNotice()}
+          {activeSection !== 'settings-general' && activeSection !== 'settings-update' && renderUpdateNotice()}
           {activeSection === 'dashboard' && renderDashboard()}
           {activeSection === 'organizations' && canViewTenants && <ManagedGrid gridKey="tenants" token={token!} rows={tenantRows} loading={isAdminDataRefreshing} loadingLabel="Loading Tenants…" columns={tenantColumnDefs} actionCell={TenantActionCell} mobileActions={(row) => <TenantActionMenu tenant={row.raw} mobile />} toolbar={canManageTenants ? <Button className="btn-create" onClick={openCreateTenantModal} type="button" themeColor="primary"><Plus /> Create “{tenantLabel}”</Button> : null} />}
           {activeSection === 'instances' && canViewInstances && <ManagedGrid gridKey="instances" token={token!} rows={visibleInstanceRows} loading={isAdminDataRefreshing || isDashboardRefreshing} loadingLabel="Loading Instances…" columns={labeledInstanceColumnDefs} actionCell={InstanceActionCell} actionWidth={58} mobileActions={mobileInstanceActions} toolbar={canImportExportInstances || canManageInstances ? renderInstanceToolbar() : null} />}
@@ -3026,7 +3061,7 @@ export function App() {
           {activeSection === 'user-groups' && canManageGroups && <ManagedGrid gridKey="user-groups" token={token!} rows={groupRows} loading={isAdminDataRefreshing} loadingLabel="Loading User Groups…" columns={labeledGroupColumnDefs} actionCell={GroupActionCell} mobileActions={(row) => <MobileStandardActions onEdit={() => openEditGroupModal(row.raw)} onDelete={() => deleteItem('group', row.raw.id, `group ${row.raw.name}`)} />} toolbar={<Button className="btn-create" onClick={openCreateGroupModal} type="button" themeColor="primary"><Plus /> Create &quot;Group&quot;</Button>} />}
           {activeSection === 'users' && canManageUsers && <ManagedGrid gridKey="users" token={token!} rows={userRows} loading={isAdminDataRefreshing} loadingLabel="Loading Users…" columns={labeledUserColumnDefs} actionCell={UserActionCell} mobileActions={(row) => <MobileStandardActions onEdit={() => openEditUserModal(row.raw)} onDelete={() => deleteItem('user', row.raw.user.id, `user ${row.raw.user.email}`)} />} toolbar={<Button className="btn-create" onClick={openCreateUserModal} type="button" themeColor="primary"><Plus /> Create &quot;User&quot;</Button>} />}
           {activeSection === 'roles' && canManageRoles && <ManagedGrid gridKey="roles" token={token!} rows={roleRows} loading={isAdminDataRefreshing} loadingLabel="Loading Roles…" columns={labeledRoleColumnDefs} actionCell={RoleActionCell} mobileActions={(row) => row.raw.isSystem ? <MobileStandardActions protectedOnly onEdit={() => setMessage(`${row.raw.name} is a protected global role and cannot be modified/deleted.`)} /> : <MobileStandardActions onEdit={() => openEditRoleModal(row.raw)} onDelete={() => deleteItem('role', row.raw.id, `role ${row.raw.name}`)} />} toolbar={<Button className="btn-create" onClick={openCreateRoleModal} type="button" themeColor="primary"><Plus /> Create &quot;Role&quot;</Button>} />}
-          {activeSection === 'settings-general' && renderSettingsGeneral()}{activeSection === 'settings-operations' && renderSettingsOperations()}{activeSection === 'settings-logs' && canViewLogs && renderSettingsLogs()}{activeSection === 'settings-database' && canViewDatabase && renderDatabasePerformance()}{activeSection === 'settings-issues' && canViewIssueTypes && renderIssueCatalog()}{activeSection === 'settings-advanced' && canManageSettings && <article className="panel"><p className="panel-copy">Advanced settings: Not Implemented.</p></article>}
+          {activeSection === 'settings-general' && renderSettingsGeneral()}{activeSection === 'settings-queue' && renderSettingsQueue()}{activeSection === 'settings-update' && renderSettingsUpdate()}{activeSection === 'settings-logs' && canViewLogs && renderSettingsLogs()}{activeSection === 'settings-database' && canViewDatabase && renderDatabasePerformance()}{activeSection === 'settings-issues' && canViewIssueTypes && renderIssueCatalog()}{activeSection === 'settings-advanced' && canManageSettings && <article className="panel"><p className="panel-copy">Advanced settings: Not Implemented.</p></article>}
         </section></div>)}
 
       {profile && !modal && !healthModal && <nav className="mobile-bottom-bar" aria-label="Mobile actions">
@@ -3040,7 +3075,7 @@ export function App() {
           {canViewInstances && <button type="button" className={activeSection === 'instances' ? 'active' : ''} onClick={() => { nav('instances'); loadInstances(); }}><Server /><span>Instances</span></button>}
           {canManageInstances && <button type="button" className="primary" onClick={openCreateInstanceModal}><Plus /><span>Enroll</span></button>}
           {canManageSecurity && <button type="button" className={activeSection === 'users' || activeSection === 'user-groups' || activeSection === 'roles' ? 'active' : ''} onClick={() => nav(canManageUsers ? 'users' : canManageGroups ? 'user-groups' : 'roles')}><ShieldCheck /><span>Security</span></button>}
-          {canUseSettings && <button type="button" className={activeSection.startsWith('settings-') ? 'active' : ''} onClick={() => nav(canManageSettings ? 'settings-general' : canViewVersion || canViewJobs ? 'settings-operations' : canViewLogs ? 'settings-logs' : canViewDatabase ? 'settings-database' : 'settings-issues')}><Settings /><span>Settings</span></button>}
+          {canUseSettings && <button type="button" className={activeSection.startsWith('settings-') ? 'active' : ''} onClick={() => nav(canManageSettings ? 'settings-general' : canViewJobs ? 'settings-queue' : canViewVersion ? 'settings-update' : canViewLogs ? 'settings-logs' : canViewDatabase ? 'settings-database' : 'settings-issues')}><Settings /><span>Settings</span></button>}
         </>}
       </nav>}
 
