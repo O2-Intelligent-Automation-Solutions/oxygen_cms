@@ -73,9 +73,9 @@ type InstancePollerSummary = { checked: number; skipped: number; failed: number 
 type InstancePollerStatus = { state: 'running' | 'paused' | 'stopped'; isRunning: boolean; isPaused: boolean; tickIntervalMs: number; inFlight: number; lastRunAt: string | null; nextRunAt: string | null; lastSummary: InstancePollerSummary | null; lastError: string | null };
 type AppLogType = 'Audit' | 'Service' | 'CRUD' | 'Connection' | 'Security' | 'UI';
 type AppLogSeverity = 'Critical' | 'Error' | 'Warning' | 'Logging' | 'Verbose';
-type AppLogDetails = { apiCall?: string; method?: string; url?: string; responseCode?: number; statusCode?: number; entityGuid?: string | null; tenantId?: string | null } & Record<string, unknown>;
+type AppLogDetails = { apiCall?: string; method?: string; url?: string; responseCode?: number; statusCode?: number; entityGuid?: string | null; tenantId?: string | null; entityDescription?: string | null; entityName?: string | null; instanceName?: string | null; name?: string | null } & Record<string, unknown>;
 type AppLogEntry = { id: string; type: AppLogType; severity: AppLogSeverity; source: string; userName: string | null; entityGuid: string | null; tenantId: TenantId; message: string; details: unknown | null; createdAt: string };
-type AppLogGridRow = { id: string; createdAt: string; type: AppLogType; severity: AppLogSeverity; tenant: string; source: string; userName: string; entityGuid: string; message: string; apiCall: string; responseCode: string; raw: AppLogEntry };
+type AppLogGridRow = { id: string; createdAt: string; type: AppLogType; severity: AppLogSeverity; tenant: string; source: string; userName: string; entityGuid: string; entityDescription: string; message: string; apiCall: string; responseCode: string; raw: AppLogEntry };
 type InstanceImportRowResult = { rowNumber: number; instanceGuid: string | null; name: string | null; action: 'create' | 'update' | 'skip' | 'error'; errors: string[]; warnings: string[] };
 type InstanceImportResult = { dryRun: boolean; created: number; updated: number; failed: number; rows: InstanceImportRowResult[] };
 type LogRetentionSettings = { days: number };
@@ -371,6 +371,7 @@ const appLogColumnDefs: ManagedGridColumn<AppLogGridRow>[] = [
   { key: 'severity', title: 'Severity', width: 130 },
   { key: 'userName', title: 'User Name', width: 190 },
   { key: 'entityGuid', title: 'Entity GUID', width: 360 },
+  { key: 'entityDescription', title: 'Entity Description', width: 240 },
   { key: 'message', title: 'Message', width: 520 },
   { key: 'source', title: 'Source', width: 160, defaultVisible: false },
   { key: 'apiCall', title: 'API Call', width: 260, defaultVisible: false },
@@ -1859,10 +1860,20 @@ export function App() {
   const roleRows = useMemo<RoleGridRow[]>(() => roles.map((role) => ({ id: role.id, name: role.name, description: role.description || '', tenant: tenantName(role.tenantId), system: role.isSystem ? 'Yes' : 'No', raw: role })), [roles, tenants]);
   const tenantRows = useMemo<TenantGridRow[]>(() => tenants.map((tenant) => ({ id: tenant.id, name: tenant.name, description: tenant.description || '', raw: tenant })), [tenants]);
   const instanceRows = useMemo<InstanceGridRow[]>(() => instances.filter((instance) => !showArchivedInstances || instance.archived).map((instance) => ({ id: instance.id, name: instance.name, tenant: tenantName(instance.tenantId), host: instance.host, status: instance.status, ssl: sslStatusLabel(instance), license: licenseStatusLabel(instance), processing: instance.processingStatus, enabled: instance.isEnabled ? 'Yes' : 'No', checkLicense: instance.checkLicense ? 'Yes' : 'No', archived: instance.archived ? 'Yes' : 'No', metadata: instance.metadata ? 'Yes' : 'No', notes: instance.notes ? 'Yes' : 'No', description: instance.description || '', protocol: instance.protocol.toUpperCase(), port: String(instance.port ?? ''), hostname: instance.hostname, baseUrl: instance.baseUrl, apiBaseUrl: instance.apiBaseUrl, username: instance.username, pollingInterval: `${instance.pollingIntervalSeconds}s`, sslExpiresAt: instance.sslExpiresAt || '', lastCheckedAt: instance.lastCheckedAt || '', uptime24h: instance.uptimePercent24h === null ? '' : `${instance.uptimePercent24h}%`, emmQueue: instance.emmQueueStatus, sms: instance.smsStatus, hangfire: instance.hangfireStatus, licenseKey: instance.licenseKey || '', lastError: instance.lastError || '', raw: instance })), [instances, tenants, showArchivedInstances]);
+  const appLogEntityDescriptions = useMemo(() => {
+    const descriptions = new Map<string, string>();
+    instances.forEach((instance) => descriptions.set(instance.id, instance.name));
+    tenants.forEach((tenant) => descriptions.set(tenant.id, tenant.name));
+    users.forEach((entry) => descriptions.set(entry.user.id, entry.user.displayName || entry.user.email));
+    groups.forEach((group) => descriptions.set(group.id, group.name));
+    roles.forEach((role) => descriptions.set(role.id, role.name));
+    return descriptions;
+  }, [groups, instances, roles, tenants, users]);
   const appLogRows = useMemo<AppLogGridRow[]>(() => appLogs.map((entry) => {
     const details = appLogDetails(entry.details);
     const apiCall = stringDetail(details.apiCall) || [stringDetail(details.method), stringDetail(details.url)].filter(Boolean).join(' ');
     const responseCode = responseCodeDetail(details.responseCode) || responseCodeDetail(details.statusCode);
+    const entityGuid = entry.entityGuid || stringDetail(details.entityGuid);
     return {
       id: entry.id,
       createdAt: formatDateTime(entry.createdAt),
@@ -1871,13 +1882,14 @@ export function App() {
       tenant: tenantName(entry.tenantId ?? (stringDetail(details.tenantId) || null)),
       source: entry.source,
       userName: entry.userName === 'anonymous' ? 'Anonymous' : entry.userName || 'OxyGen CMS',
-      entityGuid: entry.entityGuid || stringDetail(details.entityGuid) || '—',
+      entityGuid: entityGuid || '—',
+      entityDescription: stringDetail(details.entityDescription) || stringDetail(details.entityName) || stringDetail(details.instanceName) || stringDetail(details.name) || (entityGuid ? appLogEntityDescriptions.get(entityGuid) : '') || '—',
       message: entry.message,
       apiCall: apiCall || '—',
       responseCode: responseCode || '—',
       raw: entry
     };
-  }), [appLogs, tenants]);
+  }), [appLogEntityDescriptions, appLogs, tenants]);
   const issueCatalogRows = useMemo<IssueCatalogGridRow[]>(() => (issueCatalog?.issueTypes ?? []).map((issueType) => ({
     id: issueType.id,
     category: issueType.category.name,
