@@ -10,10 +10,11 @@ Date: 2026-06-28
 - Added the CMS-native Service Events grid as a read-only follow-on slice.
 - Workflow event selection now drives a lazy, server-paged service-event grid filtered by `WorkflowEventId`, scoped to the selected `ServiceIdentifier`, and defaulted to parent service rows only.
 - Parent service-event rows can expand child service events on demand through the typed CMS child route.
+- Added a read-only Event Details panel that fetches a selected service event detail on demand, groups common fields, provides an Advanced toggle for remaining fields, and makes error text copyable.
 
 ## Still pending
 
-- Milestone 5: Event details/files/messages/advanced-mode panel.
+- Milestone 5 fast-follow: file downloads and EMM/WHE message viewers behind typed CMS endpoints with audit-safe raw-content handling.
 - Milestone 6+: mutating recovery/cancel/restore/download/message actions and granular action RBAC/audit.
 
 ## Validation from this stage
@@ -23,4 +24,4 @@ Date: 2026-06-28
 - `npm --workspace @oxygen-cms/web run build`
 - `npm run typecheck`
 - `git diff --check`
-- `node /tmp/hermes-verify-processing-workflow-event.mjs`
+- `node /tmp/hermes-verify-processing-event-details.mjs`

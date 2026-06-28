@@ -1001,6 +1001,62 @@ button.secondary {
   background: rgba(125, 160, 188, 0.18);
 }
 
+.processing-details-panel {
+  position: relative;
+  display: grid;
+  gap: 0;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0;
+}
+
+.processing-details-body {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+}
+
+.processing-detail-group {
+  border: 1px solid rgba(125, 160, 188, 0.18);
+  border-radius: 12px;
+  background: rgba(3, 12, 22, 0.40);
+  padding: 12px;
+}
+
+.processing-detail-group.error {
+  border-color: rgba(248, 113, 113, 0.34);
+  background: rgba(248, 113, 113, 0.06);
+}
+
+.processing-detail-group header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.processing-detail-group pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: inherit;
+  font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
+  font-size: 0.72rem;
+}
+
+.processing-switch-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.processing-switch-filter input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--brand-primary);
+}
+
 .processing-selected-detail {
   margin: 0;
 }

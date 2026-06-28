@@ -6,6 +6,7 @@ import { getTriggerSchema, recordValue } from './api';
 import { TriggerGrid } from './TriggerGrid';
 import { WorkflowEventGrid } from './WorkflowEventGrid';
 import { ServiceEventGrid } from './ServiceEventGrid';
+import { EventDetailsPanel } from './EventDetailsPanel';
 import { serviceEventIdField, serviceEventStatusField, triggerIdField, triggerStatusField, workflowEventIdField, workflowEventStatusField } from './schemaColumns';
 
 type ProcessingErrorsPageProps = {
@@ -60,6 +61,7 @@ export function ProcessingErrorsPage({ instance, token, onBackToInstance }: Proc
     setSelectedWorkflowEvent(event);
     setSelectedServiceEvent(null);
   }, []);
+  const selectedServiceIdentifier = selectedWorkflowEvent ? String(recordValue(selectedWorkflowEvent, 'ServiceIdentifier') ?? '') || null : null;
 
   return <section className="processing-errors-page native-processing-errors" aria-label="Processing Errors">
     <header className="processing-errors-page-head native-processing-head">
@@ -91,6 +93,8 @@ export function ProcessingErrorsPage({ instance, token, onBackToInstance }: Proc
     <WorkflowEventGrid instanceId={instance.id} token={token} triggerSchema={schema} selectedTrigger={selectedTrigger} selectedWorkflowEvent={selectedWorkflowEvent} onSelectedWorkflowEventChange={handleSelectedWorkflowEventChange} />
 
     <ServiceEventGrid instanceId={instance.id} token={token} selectedWorkflowEvent={selectedWorkflowEvent} selectedServiceEvent={selectedServiceEvent} onSelectedServiceEventChange={setSelectedServiceEvent} />
+
+    <EventDetailsPanel instanceId={instance.id} token={token} serviceIdentifier={selectedServiceIdentifier} selectedServiceEvent={selectedServiceEvent} />
 
     <aside className="panel processing-selected-panel" aria-label="Selected trigger read-only context">
       <div><p className="eyebrow small">Selected Trigger</p><h3>{selectedTrigger ? `Trigger ${String(recordValue(selectedTrigger, triggerIdField(schema)) ?? 'unknown')}` : 'No trigger selected'}</h3></div>

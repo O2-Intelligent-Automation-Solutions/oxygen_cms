@@ -150,6 +150,10 @@ export async function getChildServiceEventGrid(instanceId: string, serviceIdenti
   return fetchJson<ProcessingGridResponse>(`/api/instances/${encodeURIComponent(instanceId)}/processing/service-events/${encodeURIComponent(serviceIdentifier)}/${encodeURIComponent(String(eventId))}/children?${dataSourceQuery}`, token, signal);
 }
 
+export async function getServiceEventDetail(instanceId: string, serviceIdentifier: string, eventId: string | number, token: string, signal?: AbortSignal) {
+  return fetchJson<ProcessingGridRecord>(`/api/instances/${encodeURIComponent(instanceId)}/processing/service-events/${encodeURIComponent(serviceIdentifier)}/${encodeURIComponent(String(eventId))}`, token, signal);
+}
+
 export function recordValue(record: ProcessingGridRecord, field: string) {
   return record[field] ?? record[field.charAt(0).toLowerCase() + field.slice(1)] ?? null;
 }
