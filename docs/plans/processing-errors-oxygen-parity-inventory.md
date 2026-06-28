@@ -274,8 +274,12 @@ The Milestone 0 plan explicitly lists `QueueEntry` and `ProcessingState` entitie
 | Queue actions hook | `/home/administrator/oxygen_frontend/apps/oxygen/src/entities/QueueEntry/hooks/useQueueActions.ts` | Shared queue reset/cancel confirmation behavior. |
 | Queue types | `/home/administrator/oxygen_frontend/apps/oxygen/src/entities/QueueEntry/QueueEntry.interface.ts` | Queue entry, detailed entry, message, attachment shapes. |
 | Processing state API | `/home/administrator/oxygen_frontend/apps/oxygen/src/entities/ProcessingState/ProcessingState.api.ts` | Fetches processing state map. |
+| Processing state service | `/home/administrator/oxygen_frontend/apps/oxygen/src/entities/ProcessingState/services/ProcessingState/ProcessingState.service.ts` | Fetches, pauses, and resumes trigger/queue processing state. |
 | Processing state constants | `/home/administrator/oxygen_frontend/apps/oxygen/src/entities/ProcessingState/ProcessingState.constants.ts` | Processing status enum and active status list. |
-| Processing state UI | `/home/administrator/oxygen_frontend/apps/oxygen/src/entities/ProcessingState/ui/ProcessingState/ProcessingState.tsx` | Pause/resume state UI used by Processing toolbars. |
+| Processing state UI | `/home/administrator/oxygen_frontend/apps/oxygen/src/entities/ProcessingState/ui/ProcessingState/ProcessingState.tsx` | Pause/resume and auto-resume state UI used by Processing toolbars. |
+| Pause/resume UI | `/home/administrator/oxygen_frontend/apps/oxygen/src/entities/ProcessingState/ui/PauseResume/PauseResume.tsx` | Toolbar pause/resume action, confirmation, invalid-license disablement, and auto-resume timestamp label. |
+| Auto-resume UI | `/home/administrator/oxygen_frontend/apps/oxygen/src/entities/ProcessingState/ui/AutoResume/AutoResume.tsx` | Auto-resume settings shortcut and countdown while processing is paused. |
+| Resume settings dialog | `/home/administrator/oxygen_frontend/apps/oxygen/src/entities/ProcessingState/ui/ResumeSettings/ResumeSettings.tsx` | Pause settings dialog with minutes/hours/days/specific/never modes, acknowledgement, notes, and date validation. |
 | Trigger dialog entry points | `/home/administrator/oxygen_frontend/apps/oxygen/src/widgets/Header/ui/NavbarStatus/NavbarStatus.tsx`, `/home/administrator/oxygen_frontend/apps/oxygen/src/widgets/Chart/Module/ModuleToolbar/ModuleTools/JobTriggers/JobTriggers.tsx` | Opens workflow trigger dialog from nav/module tools. |
 | Queue dialog entry point | `/home/administrator/oxygen_frontend/apps/oxygen/src/widgets/Chart/Module/ModuleToolbar/ModuleTools/Queue/Queue.tsx` | Opens queue dialog from module tools. |
 
@@ -288,6 +292,9 @@ Observed queue behavior:
 - Search keys: `Status`, `WorkflowTriggerId`, `JobId`, `WorkflowId`.
 - `JobName` is hidden when filtering by JobId; `WorkflowName` is hidden when filtering by WorkflowId.
 - Queue processing toolbar queries processing state for the selected service.
+- Trigger processing state uses base path `/web-api/bus/workflows/triggers`; queue processing state uses `/web-api/{ServiceIdentifier}/Queue`.
+- Pause opens a settings dialog and posts `AutoResumeDate`, `AckWarning`, and `Notes`; resume opens a confirmation and posts no body.
+- Pause/resume is disabled when the OxyGen license is invalid. Auto-resume settings remain available only while processing is paused.
 - Row actions:
   - `Reset`: confirmation warning that workflow continues from that module forward; may reprocess steps; enabled only when `IsResetable` and license valid.
   - `Cancel`: confirmation; enabled only when `IsCancelable` and license valid.
@@ -349,6 +356,12 @@ All paths below are OxyGen frontend remote paths as identified from the read-onl
 | Queue bulk reset | PUT | `/web-api/{ServiceIdentifier}/Queue/Reset?...DataSourceRequest` | `entities/QueueEntry/QueueEntry.api.ts`, `Queue/Actions/Actions.tsx` | current table state with `skip: 0`, `take: total` | number reset count | filter-scoped bulk reset |
 | Queue message update | PATCH | `/web-api/{ServiceIdentifier}/Queue/{id}` | `entities/QueueEntry/QueueEntry.api.ts`, `JobEventMessage/JobEventMessage.tsx` | `MessageDetails` JSON payload | untyped response | edits/saves queue entry message |
 | Processing states | GET | `/api/Bus/Processing/State` | `entities/ProcessingState/ProcessingState.api.ts` | none | `Record<string, boolean>` keyed by service | none |
+| Trigger processing state | GET | `/web-api/bus/workflows/triggers/State` | `ProcessingState.service.ts`, `Triggers/Processing/Processing.tsx` | none | `IProcessingState` | none |
+| Pause trigger processing | POST | `/web-api/bus/workflows/triggers/Pause` | `ProcessingState.service.ts`, `PauseResume.tsx`, `ResumeSettings.tsx` | JSON body: `AutoResumeDate`, `AckWarning`, `Notes` | `IProcessingState` | pauses new workflow trigger processing |
+| Resume trigger processing | POST | `/web-api/bus/workflows/triggers/Resume` | `ProcessingState.service.ts`, `PauseResume.tsx` | no body | `IProcessingState` | resumes workflow trigger processing |
+| Queue processing state | GET | `/web-api/{ServiceIdentifier}/Queue/State` | `ProcessingState.service.ts`, `Queue/Processing/Processing.tsx` | service identifier path segment | `IProcessingState` | none |
+| Pause queue processing | POST | `/web-api/{ServiceIdentifier}/Queue/Pause` | `ProcessingState.service.ts`, `Queue/Processing/Processing.tsx`, `ResumeSettings.tsx` | JSON body: `AutoResumeDate`, `AckWarning`, `Notes` | `IProcessingState` | pauses selected service queue processing |
+| Resume queue processing | POST | `/web-api/{ServiceIdentifier}/Queue/Resume` | `ProcessingState.service.ts`, `Queue/Processing/Processing.tsx` | no body | `IProcessingState` | resumes selected service queue processing |
 
 ### CMS typed endpoint plan
 
@@ -386,6 +399,12 @@ Suggested typed CMS endpoints for Milestones 1, 5, and 6. Exact names can evolve
 | `/api/instances/:instanceId/processing/queue/:serviceIdentifier/cancel-preview` | POST | grid total/count preview | `processing.queue.cancelBulk` |
 | `/api/instances/:instanceId/processing/queue/:serviceIdentifier/cancel` | PUT/POST | `PUT /web-api/{ServiceIdentifier}/Queue/Cancel` after preview/confirmation | `processing.queue.cancelBulk` |
 | `/api/instances/:instanceId/processing/states` | GET | `GET /api/Bus/Processing/State` | `processing.errors.view` |
+| `/api/instances/:instanceId/processing/triggers/state` | GET | `GET /web-api/bus/workflows/triggers/State` | `processing.processingState.view` |
+| `/api/instances/:instanceId/processing/triggers/pause` | POST | `POST /web-api/bus/workflows/triggers/Pause` | `processing.processingState.manage` |
+| `/api/instances/:instanceId/processing/triggers/resume` | POST | `POST /web-api/bus/workflows/triggers/Resume` | `processing.processingState.manage` |
+| `/api/instances/:instanceId/processing/queue/:serviceIdentifier/state` | GET | `GET /web-api/{ServiceIdentifier}/Queue/State` | `processing.processingState.view` or `processing.queue.view` |
+| `/api/instances/:instanceId/processing/queue/:serviceIdentifier/pause` | POST | `POST /web-api/{ServiceIdentifier}/Queue/Pause` | `processing.processingState.manage` |
+| `/api/instances/:instanceId/processing/queue/:serviceIdentifier/resume` | POST | `POST /web-api/{ServiceIdentifier}/Queue/Resume` | `processing.processingState.manage` |
 
 CMS implementation notes:
 
@@ -438,6 +457,7 @@ Status meanings for this inventory:
 | Queue row reset/cancel | `ActionsCell.tsx`, `useQueueActions.ts` | Confirmation + per-entry enable flags + RBAC/audit. | Identified; needs CMS action routes if queue included |
 | Queue bulk reset/cancel | `Queue/Actions.tsx`, `QueueEntry.api.ts` | Preview + guardrails before forwarding `take=total`; never unbounded. | Identified; needs guardrails if queue included |
 | Processing state labels | `ProcessingState.api.ts`, `ProcessingState.constants.ts`, `ProcessingState.tsx` | Surface state without blocking grids; poll/refetch safely; map statuses consistently. | Identified; needs CMS UX decision |
+| Processing state pause/resume | `ProcessingState.service.ts`, `PauseResume.tsx`, `AutoResume.tsx`, `ResumeSettings.tsx` | If editable processing state is included, wrap trigger and queue Pause/Resume endpoints with RBAC, audit, auto-resume confirmation, and invalid-license handling. | Identified; likely follow-on guarded action slice |
 
 ## Action and RBAC matrix
 
@@ -471,6 +491,11 @@ The OxyGen frontend mostly relies on UI disabled states and license checks. CMS 
 | Reset all queue entries | `Queue/Actions.tsx` | `PUT /web-api/{ServiceIdentifier}/Queue/Reset?...` | no total zero; invalid license disabled | `processing.queue.resetBulk` | yes | required preview, filter scope, hard max/typed confirmation |
 | Cancel all queue entries | `Queue/Actions.tsx` | `PUT /web-api/{ServiceIdentifier}/Queue/Cancel?...` | no total zero; invalid license disabled | `processing.queue.cancelBulk` | yes | required preview, filter scope, hard max/typed confirmation |
 | View processing state | `ProcessingState.api.ts` | `GET /api/Bus/Processing/State` | refetch interval 30s | `processing.errors.view` | no | low-frequency polling |
+| View trigger/queue processing state | `ProcessingState.service.ts` | `GET /web-api/bus/workflows/triggers/State`, `GET /web-api/{ServiceIdentifier}/Queue/State` | fetched by trigger/queue toolbar | `processing.processingState.view` | no | low-frequency/on-entry only |
+| Pause trigger processing | `PauseResume.tsx`, `ResumeSettings.tsx` | `POST /web-api/bus/workflows/triggers/Pause` | invalid license disabled; requires acknowledge if no auto-resume | `processing.processingState.manage` | yes | single state mutation; confirm auto-resume/never scope |
+| Resume trigger processing | `PauseResume.tsx` | `POST /web-api/bus/workflows/triggers/Resume` | invalid license disabled; confirmation dialog | `processing.processingState.manage` | yes | single state mutation |
+| Pause queue processing | `Queue/Processing/Processing.tsx`, `ResumeSettings.tsx` | `POST /web-api/{ServiceIdentifier}/Queue/Pause` | invalid license disabled; requires acknowledge if no auto-resume | `processing.processingState.manage` | yes | single service state mutation |
+| Resume queue processing | `Queue/Processing/Processing.tsx` | `POST /web-api/{ServiceIdentifier}/Queue/Resume` | invalid license disabled; confirmation dialog | `processing.processingState.manage` | yes | single service state mutation |
 
 Initial permission catalog recommendation:
 
@@ -494,6 +519,8 @@ processing.queue.cancel
 processing.queue.resetBulk
 processing.queue.cancelBulk
 processing.queue.messages.edit
+processing.processingState.view
+processing.processingState.manage
 processing.actions.audit.view
 ```
 
@@ -613,6 +640,7 @@ These should be resolved during Milestones 1-6, but none block starting the type
 - [x] Inventory service event grid/components/actions/endpoints/types.
 - [x] Inventory event details/files/message components/endpoints/types.
 - [x] Inventory queue/message/processing-state adjacent Processing endpoints and actions.
+- [x] Inventory processing state pause/resume/auto-resume endpoints and controls.
 - [x] Include exact source paths.
 - [x] Include endpoint method/path matrix.
 - [x] Include action/RBAC matrix.
