@@ -27,6 +27,7 @@ export const PERMISSIONS = [
   { key: 'system.poller.manage', label: 'Manage poller', description: 'Pause, resume, and run the background poller.', scope: 'global' },
   { key: 'system.version.view', label: 'View version', description: 'View CMS release and update information.', scope: 'tenant' },
   { key: 'issueTypes.view', label: 'View issue types', description: 'View issue classification catalog and affected instance summaries.', scope: 'tenant' },
+  { key: 'processing.errors.view', label: 'View Processing Errors', description: 'View server-paged OxyGen Processing trigger, workflow event, and service event data for accessible instances.', scope: 'tenant' },
   { key: 'gridPreferences.manage', label: 'Manage own grid preferences', description: 'Save personal grid layout preferences.', scope: 'self' }
 ] as const satisfies readonly PermissionDefinition[];
 
@@ -46,6 +47,7 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     'logs.view',
     'system.version.view',
     'issueTypes.view',
+    'processing.errors.view',
     'gridPreferences.manage'
   ],
   Operator: [
@@ -55,6 +57,7 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     'logs.view',
     'system.version.view',
     'issueTypes.view',
+    'processing.errors.view',
     'gridPreferences.manage'
   ],
   Viewer: [
@@ -62,6 +65,7 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     'instances.view',
     'system.version.view',
     'issueTypes.view',
+    'processing.errors.view',
     'gridPreferences.manage'
   ]
 };

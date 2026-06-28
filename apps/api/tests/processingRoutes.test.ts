@@ -1,0 +1,166 @@
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { AddressInfo } from 'node:net';
+import { afterEach, describe, expect, it } from 'vitest';
+import { buildApp } from '../src/app.js';
+import { createInMemoryAuthRepository } from '../src/auth/inMemoryAuthRepository.js';
+import { createInMemoryInstanceRepository } from '../src/instances/inMemoryInstanceRepository.js';
+
+const servers: Array<ReturnType<typeof createServer>> = [];
+const seenRequests: Array<{ method: string | undefined; url: string | undefined; cookie: string | undefined }> = [];
+
+function authHeader(token: string) {
+  return `${'Be'}arer ${token}`;
+}
+
+function readBody(request: IncomingMessage) {
+  return new Promise<string>((resolve, reject) => {
+    let body = '';
+    request.setEncoding('utf8');
+    request.on('data', (chunk) => { body += chunk; });
+    request.on('end', () => resolve(body));
+    request.on('error', reject);
+  });
+}
+
+async function startMockOxyGen() {
+  seenRequests.length = 0;
+  const server = createServer(async (request: IncomingMessage, response: ServerResponse) => {
+    seenRequests.push({ method: request.method, url: request.url, cookie: request.headers.cookie });
+    if (request.method === 'POST' && request.url === '/v2/Auth/Login') {
+      const body = new URLSearchParams(await readBody(request));
+      if (body.get('Username') === 'admin' && body.get('Password') === 'RemotePassword!42') {
+        response.statusCode = 200;
+        response.setHeader('set-cookie', 'ASP.NET_SessionId=processing-session; Path=/; HttpOnly');
+        response.end('OK');
+        return;
+      }
+      response.statusCode = 401;
+      response.end('Unauthorized');
+      return;
+    }
+    if (!request.headers.cookie?.includes('ASP.NET_SessionId=processing-session')) {
+      response.statusCode = 401;
+      response.end('Missing session');
+      return;
+    }
+    response.setHeader('content-type', 'application/json');
+    if (request.method === 'GET' && request.url?.startsWith('/web-api/BUS/workflows/triggers/grid')) {
+      response.end(JSON.stringify({ data: [{ Id: 100, Status: 'Errored' }], total: 1 }));
+      return;
+    }
+    if (request.method === 'GET' && request.url === '/web-api/BUS/workflows/triggers/schema') {
+      response.end(JSON.stringify([{ field: 'Id' }, { field: 'Status' }]));
+      return;
+    }
+    if (request.method === 'GET' && request.url?.startsWith('/web-api/BUS/workflows/events/grid')) {
+      response.end(JSON.stringify({ Data: [{ Id: 200, WorkflowTriggerId: 100 }], Total: 1 }));
+      return;
+    }
+    if (request.method === 'GET' && request.url === '/web-api/BUS/workflows/events/schema') {
+      response.end(JSON.stringify([{ field: 'Id' }]));
+      return;
+    }
+    if (request.method === 'GET' && request.url === '/web-api/WHE/Events/Schema') {
+      response.end(JSON.stringify([{ field: 'Id' }, { field: 'ParentId' }]));
+      return;
+    }
+    if (request.method === 'GET' && request.url?.startsWith('/web-api/WHE/Events/Grid')) {
+      response.end(JSON.stringify({ data: [{ Id: 300, ParentId: null }], total: 1 }));
+      return;
+    }
+    if (request.method === 'GET' && request.url === '/web-api/WHE/Events/300') {
+      response.end(JSON.stringify({ Id: 300, MappedIndexData: { safe: true } }));
+      return;
+    }
+    response.statusCode = 404;
+    response.end(JSON.stringify({ error: 'Unexpected path' }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  servers.push(server);
+  return (server.address() as AddressInfo).port;
+}
+
+afterEach(async () => {
+  await Promise.all(servers.splice(0).map((server) => new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))));
+});
+
+async function seedFixture() {
+  const authRepository = createInMemoryAuthRepository();
+  const instanceRepository = createInMemoryInstanceRepository();
+  const app = await buildApp({ logger: false, authRepository, instanceRepository, enableBackgroundPolling: false });
+  await app.inject({ method: 'POST', url: '/api/auth/bootstrap', payload: { email: 'admin@example.com', displayName: 'Admin User', password: 'AdminPassword!42' } });
+  const adminLogin = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: 'admin@example.com', password: 'AdminPassword!42' } });
+  const tenantA = await authRepository.createTenant({ name: 'Tenant A', description: null });
+  const tenantB = await authRepository.createTenant({ name: 'Tenant B', description: null });
+  const groupA = await authRepository.createGroup({ name: 'Tenant A Group', description: null, tenantId: tenantA.id, instanceAccessMode: 'all', instanceIds: [] });
+  await authRepository.createUser({ email: 'viewer-a@example.com', displayName: 'Viewer A', password: 'ViewerPassword!42', roleNames: ['Viewer'], groupIds: [groupA.id], tenantId: tenantA.id, instanceAccessMode: 'all', instanceIds: [] });
+  const viewerLogin = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: 'viewer-a@example.com', password: 'ViewerPassword!42' } });
+  const port = await startMockOxyGen();
+  const instanceA = await instanceRepository.createInstance({ name: 'Tenant A OxyGen', description: null, tenantId: tenantA.id, protocol: 'http', host: '127.0.0.1', port, username: 'admin', password: 'RemotePassword!42' });
+  const instanceB = await instanceRepository.createInstance({ name: 'Tenant B OxyGen', description: null, tenantId: tenantB.id, protocol: 'http', host: '127.0.0.1', port, username: 'admin', password: 'RemotePassword!42' });
+  return { app, tokens: { admin: adminLogin.json().token as string, viewer: viewerLogin.json().token as string }, instanceA, instanceB };
+}
+
+describe('Processing Errors typed read-only routes', () => {
+  it('authenticates server-side and forwards only typed trigger grid paths with clamped DataSourceRequest paging', async () => {
+    const fixture = await seedFixture();
+
+    const response = await fixture.app.inject({
+      method: 'GET',
+      url: `/api/instances/${fixture.instanceA.id}/processing/triggers/grid`,
+      headers: { authorization: authHeader(fixture.tokens.admin) },
+      query: { skip: '25', take: '9999', sort: 'Id-asc', filter: "Status~eq~'Errored'" }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ data: [{ Id: 100, Status: 'Errored' }], total: 1 });
+    expect(seenRequests.map((entry) => entry.url)).toContain('/v2/Auth/Login');
+    const forwarded = seenRequests.find((entry) => entry.url?.startsWith('/web-api/BUS/workflows/triggers/grid'));
+    expect(forwarded?.cookie).toContain('ASP.NET_SessionId=processing-session');
+    expect(forwarded?.url).toContain('skip=25');
+    expect(forwarded?.url).toContain('take=250');
+    expect(forwarded?.url).toContain('sort=Id-asc');
+    expect(forwarded?.url).toContain('filter=Status%7Eeq%7E%27Errored%27');
+    await fixture.app.close();
+  });
+
+  it('defaults take to a safe bounded page size and supports typed schema/detail/children routes', async () => {
+    const fixture = await seedFixture();
+
+    const schema = await fixture.app.inject({ method: 'GET', url: `/api/instances/${fixture.instanceA.id}/processing/service-events/WHE/schema`, headers: { authorization: authHeader(fixture.tokens.admin) } });
+    const detail = await fixture.app.inject({ method: 'GET', url: `/api/instances/${fixture.instanceA.id}/processing/service-events/WHE/300`, headers: { authorization: authHeader(fixture.tokens.admin) } });
+    const children = await fixture.app.inject({ method: 'GET', url: `/api/instances/${fixture.instanceA.id}/processing/service-events/WHE/300/children`, headers: { authorization: authHeader(fixture.tokens.admin) } });
+
+    expect(schema.statusCode).toBe(200);
+    expect(detail.statusCode).toBe(200);
+    expect(children.statusCode).toBe(200);
+    const childrenPath = [...seenRequests].reverse().find((entry) => entry.url?.startsWith('/web-api/WHE/Events/Grid'))?.url;
+    expect(childrenPath).toContain('take=50');
+    expect(childrenPath).toContain('filter=ParentId%7Eeq%7E300');
+    await fixture.app.close();
+  });
+
+  it('denies invisible instances before making a remote OxyGen call', async () => {
+    const fixture = await seedFixture();
+    seenRequests.length = 0;
+
+    const response = await fixture.app.inject({ method: 'GET', url: `/api/instances/${fixture.instanceB.id}/processing/triggers/schema`, headers: { authorization: authHeader(fixture.tokens.viewer) } });
+
+    expect(response.statusCode).toBe(404);
+    expect(seenRequests).toEqual([]);
+    await fixture.app.close();
+  });
+
+  it('rejects invalid service identifiers and generic proxy-shaped paths without remote calls', async () => {
+    const fixture = await seedFixture();
+    seenRequests.length = 0;
+
+    const invalidService = await fixture.app.inject({ method: 'GET', url: `/api/instances/${fixture.instanceA.id}/processing/service-events/WHE!/schema`, headers: { authorization: authHeader(fixture.tokens.admin) } });
+    const proxyAttempt = await fixture.app.inject({ method: 'GET', url: `/api/instances/${fixture.instanceA.id}/processing/proxy?path=/web-api/BUS/workflows/triggers/grid`, headers: { authorization: authHeader(fixture.tokens.admin) } });
+
+    expect(invalidService.statusCode).toBe(400);
+    expect(proxyAttempt.statusCode).toBe(404);
+    expect(seenRequests).toEqual([]);
+    await fixture.app.close();
+  });
+});

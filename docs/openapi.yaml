@@ -647,6 +647,149 @@ paths:
         '204': { description: Instance deleted. }
         '400': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
+  /api/instances/{instanceId}/processing/triggers/schema:
+    parameters:
+      - $ref: '#/components/parameters/instanceId'
+    get:
+      tags: [Processing Errors]
+      summary: Get OxyGen workflow trigger grid schema
+      description: Authenticates to the selected OxyGen instance server-side and returns the typed trigger schema from `/web-api/BUS/workflows/triggers/schema`. Requires instance visibility and `processing.errors.view`; remote credentials and cookies are never returned to the browser.
+      responses:
+        '200': { description: Remote schema payload., content: { application/json: { schema: {} } } }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
+  /api/instances/{instanceId}/processing/triggers/grid:
+    parameters:
+      - $ref: '#/components/parameters/instanceId'
+    get:
+      tags: [Processing Errors]
+      summary: Get OxyGen workflow trigger grid page
+      description: Typed, bounded pass-through to `/web-api/BUS/workflows/triggers/grid`. Preserves Kendo DataSourceRequest query semantics for `skip`, `take`, `sort`, and `filter`, defaults `take` to 50, and clamps `take` to 250. This is not a generic proxy.
+      parameters:
+        - $ref: '#/components/parameters/processingSkip'
+        - $ref: '#/components/parameters/processingTake'
+        - $ref: '#/components/parameters/processingSort'
+        - $ref: '#/components/parameters/processingFilter'
+      responses:
+        '200': { description: Server-paged grid data., content: { application/json: { schema: { $ref: '#/components/schemas/ProcessingGridResponse' } } } }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
+  /api/instances/{instanceId}/processing/triggers/{triggerId}/children:
+    parameters:
+      - $ref: '#/components/parameters/instanceId'
+      - in: path
+        name: triggerId
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Processing Errors]
+      summary: Get child workflow triggers
+      description: Fetches a bounded child-trigger grid page using an OxyGen filter for `IsChild` and `TriggerGroupId`.
+      responses:
+        '200': { description: Server-paged child trigger data., content: { application/json: { schema: { $ref: '#/components/schemas/ProcessingGridResponse' } } } }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
+  /api/instances/{instanceId}/processing/workflow-events/schema:
+    parameters:
+      - $ref: '#/components/parameters/instanceId'
+    get:
+      tags: [Processing Errors]
+      summary: Get OxyGen workflow event grid schema
+      responses:
+        '200': { description: Remote schema payload., content: { application/json: { schema: {} } } }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
+  /api/instances/{instanceId}/processing/workflow-events/grid:
+    parameters:
+      - $ref: '#/components/parameters/instanceId'
+    get:
+      tags: [Processing Errors]
+      summary: Get OxyGen workflow event grid page
+      description: Typed, bounded pass-through to `/web-api/BUS/workflows/events/grid`; preserves Kendo DataSourceRequest query semantics and clamps `take` to 250.
+      parameters:
+        - $ref: '#/components/parameters/processingSkip'
+        - $ref: '#/components/parameters/processingTake'
+        - $ref: '#/components/parameters/processingSort'
+        - $ref: '#/components/parameters/processingFilter'
+      responses:
+        '200': { description: Server-paged grid data., content: { application/json: { schema: { $ref: '#/components/schemas/ProcessingGridResponse' } } } }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
+  /api/instances/{instanceId}/processing/service-events/{serviceIdentifier}/schema:
+    parameters:
+      - $ref: '#/components/parameters/instanceId'
+      - $ref: '#/components/parameters/serviceIdentifier'
+    get:
+      tags: [Processing Errors]
+      summary: Get OxyGen service event grid schema
+      description: "serviceIdentifier must match ^[A-Za-z0-9_-]+$; arbitrary paths are rejected."
+      responses:
+        '200': { description: Remote schema payload., content: { application/json: { schema: {} } } }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
+  /api/instances/{instanceId}/processing/service-events/{serviceIdentifier}/grid:
+    parameters:
+      - $ref: '#/components/parameters/instanceId'
+      - $ref: '#/components/parameters/serviceIdentifier'
+    get:
+      tags: [Processing Errors]
+      summary: Get OxyGen service event grid page
+      parameters:
+        - $ref: '#/components/parameters/processingSkip'
+        - $ref: '#/components/parameters/processingTake'
+        - $ref: '#/components/parameters/processingSort'
+        - $ref: '#/components/parameters/processingFilter'
+      responses:
+        '200': { description: Server-paged grid data., content: { application/json: { schema: { $ref: '#/components/schemas/ProcessingGridResponse' } } } }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
+  /api/instances/{instanceId}/processing/service-events/{serviceIdentifier}/{eventId}:
+    parameters:
+      - $ref: '#/components/parameters/instanceId'
+      - $ref: '#/components/parameters/serviceIdentifier'
+      - $ref: '#/components/parameters/eventId'
+    get:
+      tags: [Processing Errors]
+      summary: Get OxyGen service event details
+      responses:
+        '200': { description: Remote detail payload., content: { application/json: { schema: {} } } }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
+  /api/instances/{instanceId}/processing/service-events/{serviceIdentifier}/{eventId}/children:
+    parameters:
+      - $ref: '#/components/parameters/instanceId'
+      - $ref: '#/components/parameters/serviceIdentifier'
+      - $ref: '#/components/parameters/eventId'
+    get:
+      tags: [Processing Errors]
+      summary: Get child OxyGen service event grid page
+      description: Fetches a bounded child service-event grid page filtered by `ParentId`.
+      responses:
+        '200': { description: Server-paged child service event data., content: { application/json: { schema: { $ref: '#/components/schemas/ProcessingGridResponse' } } } }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
   /api/instances/{instanceId}/test-connectivity:
     parameters:
       - $ref: '#/components/parameters/instanceId'
@@ -1402,6 +1545,37 @@ components:
         minLength: 1
         maxLength: 128
         pattern: '^[a-zA-Z0-9_-]+$'
+    serviceIdentifier:
+      name: serviceIdentifier
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9_-]+$'
+    eventId:
+      name: eventId
+      in: path
+      required: true
+      schema: { type: string }
+    processingSkip:
+      name: skip
+      in: query
+      schema: { type: integer, minimum: 0, default: 0 }
+    processingTake:
+      name: take
+      in: query
+      description: Requested page/window size. Defaults to 50 and is clamped to a maximum of 250.
+      schema: { type: integer, minimum: 1, maximum: 250, default: 50 }
+    processingSort:
+      name: sort
+      in: query
+      schema: { type: string }
+      description: Kendo DataSourceRequest sort expression forwarded to the typed OxyGen grid endpoint.
+    processingFilter:
+      name: filter
+      in: query
+      schema: { type: string }
+      description: Kendo DataSourceRequest filter expression forwarded to the typed OxyGen grid endpoint.
   requestBodies:
     TenantInput:
       required: true
@@ -1431,6 +1605,17 @@ components:
       properties:
         error: { type: string }
         details: {}
+    ProcessingGridResponse:
+      type: object
+      required: [data, total]
+      description: CMS-normalized server-paged OxyGen Processing grid response. The CMS forwards only typed allowlisted endpoints and never exposes remote OxyGen credentials or session cookies.
+      properties:
+        data:
+          type: array
+          items: {}
+        total: { type: integer, minimum: 0 }
+        raw:
+          description: Original remote grid envelope when needed for schema-driven callers.
     SetupStatus:
       type: object
       additionalProperties: true

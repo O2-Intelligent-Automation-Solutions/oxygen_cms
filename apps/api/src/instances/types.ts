@@ -45,6 +45,11 @@ export type OxyGenInstance = {
   updatedAt: string;
 };
 
+export type OxyGenInstanceRemoteAccess = {
+  instance: Pick<OxyGenInstance, 'id' | 'name' | 'protocol' | 'host' | 'port' | 'apiBaseUrl' | 'username'>;
+  password: string;
+};
+
 export type CreateInstanceInput = {
   id?: string;
   name: string;
@@ -193,6 +198,7 @@ export interface InstanceRepository {
   deleteInstance(instanceId: string): Promise<void>;
   listInstances(scope?: { instanceIds?: string[]; includeAll?: boolean; includeArchived?: boolean }): Promise<OxyGenInstance[]>;
   getInstance(instanceId: string): Promise<OxyGenInstance | null>;
+  getRemoteAccess?(instanceId: string): Promise<OxyGenInstanceRemoteAccess | null>;
   getHealthDetails(instanceId: string): Promise<InstanceHealthDetails>;
   testConnectivity(instanceId: string): Promise<ConnectivityResult>;
 }

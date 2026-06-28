@@ -212,6 +212,22 @@ export function createInMemoryInstanceRepository(): InstanceRepository {
       const instance = instances.get(instanceId);
       return instance ? publicInstance(instance) : null;
     },
+    async getRemoteAccess(instanceId: string) {
+      const instance = instances.get(instanceId);
+      if (!instance) return null;
+      return {
+        instance: {
+          id: instance.id,
+          name: instance.name,
+          protocol: instance.protocol,
+          host: instance.host,
+          port: instance.port,
+          apiBaseUrl: instance.apiBaseUrl,
+          username: instance.username
+        },
+        password: instance.passwordSecret
+      };
+    },
     async getHealthDetails(instanceId: string) {
       const instance = instances.get(instanceId);
       if (!instance) throw new Error('Instance not found.');

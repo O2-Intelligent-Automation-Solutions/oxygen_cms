@@ -470,6 +470,24 @@ export function createMysqlInstanceRepository(pool: Pool, credentialCipher?: Cre
 
     getInstance: findInstanceById,
 
+    async getRemoteAccess(instanceId: string) {
+      const row = await one<InstanceRow>(`${instanceSelectSql} WHERE i.id = ? LIMIT 1`, [instanceId]);
+      if (!row) return null;
+      const instance = mapInstance(row);
+      return {
+        instance: {
+          id: instance.id,
+          name: instance.name,
+          protocol: instance.protocol,
+          host: instance.host,
+          port: instance.port,
+          apiBaseUrl: instance.apiBaseUrl,
+          username: instance.username
+        },
+        password: decryptCredential(row.password_secret)
+      };
+    },
+
     async getHealthDetails(instanceId: string) {
       const instance = await findInstanceById(instanceId);
       if (!instance) throw new Error('Instance not found.');

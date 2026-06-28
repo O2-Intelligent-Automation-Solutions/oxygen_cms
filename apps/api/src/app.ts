@@ -26,6 +26,7 @@ import { createInMemoryInstanceRepository } from './instances/inMemoryInstanceRe
 import { createInstancePoller, type InstancePoller } from './instances/instancePoller.js';
 import { createSetupAwareInstanceRepository } from './instances/mysqlInstanceRepository.js';
 import { registerInstanceRoutes } from './instances/registerInstanceRoutes.js';
+import { registerProcessingRoutes } from './processing/processingRoutes.js';
 import { createQueueRuntime, type QueueRuntime, type QueueStatusProvider } from './queues/queueStatus.js';
 import { createDatabaseMaintenanceQueue, type DatabaseMaintenanceQueue } from './queues/databaseMaintenanceQueue.js';
 import { createInstanceCheckQueueScheduler, reconcileInstanceCheckSchedules, type InstanceCheckQueueScheduler } from './queues/instanceCheckScheduler.js';
@@ -354,6 +355,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await registerGridPreferenceRoutes(app, authRepository, gridPreferenceRepository);
   await registerAppSettingsRoutes(app, authRepository, appSettingsRepository, queueStatusProvider);
   await registerAppLogRoutes(app, authRepository, appLogRepository, appSettingsRepository, databaseMaintenanceQueue);
+  await registerProcessingRoutes(app, authRepository, instanceRepository);
   await registerSystemRoutes(app, authRepository, instancePoller, instanceRepository, appSettingsRepository, databasePerformanceReader, issueCatalogReader, updateChecker, updateStatusProvider, queueStatusProvider, reconcileInstanceCheckQueueSchedules);
 
   if (queueRuntime.bullBoard) {
