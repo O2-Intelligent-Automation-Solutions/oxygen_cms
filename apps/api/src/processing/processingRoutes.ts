@@ -111,6 +111,7 @@ export async function registerProcessingRoutes(app: FastifyInstance, authReposit
   const cancelWorkflowEventPreHandler = [requireAuth(authRepository), requirePermission('processing.errors.cancelWorkflowEvent')];
   const restoreServiceEventPreHandler = [requireAuth(authRepository), requirePermission('processing.errors.restoreServiceEvent')];
   const downloadServiceEventFilePreHandler = [requireAuth(authRepository), requirePermission('processing.errors.downloadServiceEventFile')];
+  const viewServiceEventMessagePreHandler = [requireAuth(authRepository), requirePermission('processing.errors.viewServiceEventMessage')];
 
   async function withInstance(request: FastifyRequest, reply: FastifyReply, handler: (access: ProcessingRemoteAccess) => Promise<unknown>) {
     const profile = (request as AuthenticatedRequest).authProfile;
@@ -176,10 +177,22 @@ export async function registerProcessingRoutes(app: FastifyInstance, authReposit
     return client.getGrid(access, `/web-api/${encodeURIComponent(serviceIdentifier)}/Events/Grid`, parseProcessingDataSourceRequest(queryRecord(request)));
   }));
 
+  app.get('/api/instances/:instanceId/processing/service-events/:serviceIdentifier/message-schema', { preHandler: viewServiceEventMessagePreHandler }, async (request, reply) => withInstance(request, reply, (access) => {
+    const { serviceIdentifier } = paramsRecord(request);
+    assertValidServiceIdentifier(serviceIdentifier);
+    return client.getSchema(access, `/web-api/${encodeURIComponent(serviceIdentifier)}/Queue/Schema`);
+  }));
+
   app.get('/api/instances/:instanceId/processing/service-events/:serviceIdentifier/:eventId', { preHandler: viewPreHandler }, async (request, reply) => withInstance(request, reply, (access) => {
     const { serviceIdentifier, eventId } = paramsRecord(request);
     assertValidServiceIdentifier(serviceIdentifier);
     return client.getDetail(access, `/web-api/${encodeURIComponent(serviceIdentifier)}/Events/${encodeURIComponent(String(numericId(eventId, 'service event id')))}`);
+  }));
+
+  app.get('/api/instances/:instanceId/processing/service-events/:serviceIdentifier/:eventId/message', { preHandler: viewServiceEventMessagePreHandler }, async (request, reply) => withInstance(request, reply, (access) => {
+    const { serviceIdentifier, eventId } = paramsRecord(request);
+    assertValidServiceIdentifier(serviceIdentifier);
+    return client.getDetail(access, `/web-api/${encodeURIComponent(serviceIdentifier)}/Queue/${encodeURIComponent(String(numericId(eventId, 'queue entry id')))}`);
   }));
 
   app.get('/api/instances/:instanceId/processing/service-events/:serviceIdentifier/:eventId/files/:fileName', { preHandler: downloadServiceEventFilePreHandler }, async (request, reply) => {

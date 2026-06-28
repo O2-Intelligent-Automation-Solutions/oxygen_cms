@@ -70,3 +70,38 @@ export type ServiceEventGridQuery = {
   workflowEventId: string | number;
   search?: string;
 };
+
+export type ProcessingEmailAddress = {
+  Name?: string;
+  Address?: string;
+  IsInvalid?: boolean;
+  Message?: string | null;
+};
+
+export type ProcessingMessageAttachment = {
+  FileName: string;
+  ContentType?: string;
+  Content: string;
+};
+
+export type ProcessingMessageDetails = {
+  To?: ProcessingEmailAddress[];
+  From?: ProcessingEmailAddress;
+  CC?: ProcessingEmailAddress[];
+  BCC?: ProcessingEmailAddress[];
+  Subject?: string;
+  IsPlainText?: boolean;
+  Body?: string;
+  Attachments?: ProcessingMessageAttachment[] | null;
+  SendDeliveryReceipts?: boolean;
+  DeliveryReceiptEmail?: string;
+  SendReadReceipts?: boolean;
+  ReadReceiptEmail?: string;
+};
+
+export type ProcessingQueueEntryDetail = ProcessingGridRecord & {
+  Message?: ProcessingMessageDetails | null;
+  OriginalMessage?: ProcessingMessageDetails | null;
+  LastEditDate?: string | null;
+  LastEditUser?: ProcessingGridRecord | null;
+};

@@ -67,7 +67,8 @@ export function ProcessingErrorsPage({ instance, token, permissions, onBackToIns
     canRecoverWorkflowEvent: permissions.includes('processing.errors.recoverWorkflowEvent'),
     canCancelWorkflowEvent: permissions.includes('processing.errors.cancelWorkflowEvent'),
     canRestoreServiceEvent: permissions.includes('processing.errors.restoreServiceEvent'),
-    canDownloadServiceEventFile: permissions.includes('processing.errors.downloadServiceEventFile')
+    canDownloadServiceEventFile: permissions.includes('processing.errors.downloadServiceEventFile'),
+    canViewServiceEventMessage: permissions.includes('processing.errors.viewServiceEventMessage')
   };
   const selectedServiceIdentifier = selectedWorkflowEvent ? String(recordValue(selectedWorkflowEvent, 'ServiceIdentifier') ?? '') || null : null;
 
@@ -102,7 +103,7 @@ export function ProcessingErrorsPage({ instance, token, permissions, onBackToIns
 
     <ServiceEventGrid instanceId={instance.id} token={token} selectedWorkflowEvent={selectedWorkflowEvent} selectedServiceEvent={selectedServiceEvent} canRestoreServiceEvent={actionPermissions.canRestoreServiceEvent} onSelectedServiceEventChange={setSelectedServiceEvent} />
 
-    <EventDetailsPanel instanceId={instance.id} token={token} serviceIdentifier={selectedServiceIdentifier} selectedServiceEvent={selectedServiceEvent} canDownloadServiceEventFile={actionPermissions.canDownloadServiceEventFile} />
+    <EventDetailsPanel instanceId={instance.id} token={token} serviceIdentifier={selectedServiceIdentifier} selectedServiceEvent={selectedServiceEvent} canDownloadServiceEventFile={actionPermissions.canDownloadServiceEventFile} canViewServiceEventMessage={actionPermissions.canViewServiceEventMessage} />
 
     <aside className="panel processing-selected-panel" aria-label="Selected trigger read-only context">
       <div><p className="eyebrow small">Selected Trigger</p><h3>{selectedTrigger ? `Trigger ${String(recordValue(selectedTrigger, triggerIdField(schema)) ?? 'unknown')}` : 'No trigger selected'}</h3></div>

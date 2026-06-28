@@ -1,5 +1,5 @@
 import { toDataSourceRequestString, type CompositeFilterDescriptor, type FilterDescriptor } from '@progress/kendo-data-query';
-import type { ProcessingFilterPreset, ProcessingGridRecord, ProcessingGridResponse, ProcessingGridState, ProcessingSchema, ServiceEventGridQuery, TriggerGridQuery, WorkflowEventGridQuery } from './types';
+import type { ProcessingFilterPreset, ProcessingGridRecord, ProcessingGridResponse, ProcessingGridState, ProcessingQueueEntryDetail, ProcessingSchema, ServiceEventGridQuery, TriggerGridQuery, WorkflowEventGridQuery } from './types';
 
 const DEFAULT_TAKE = 50;
 const MAX_TAKE = 250;
@@ -185,6 +185,23 @@ export async function downloadServiceEventFile(instanceId: string, serviceIdenti
   } finally {
     URL.revokeObjectURL(url);
   }
+}
+
+export async function getServiceEventMessageSchema(instanceId: string, serviceIdentifier: string, token: string, signal?: AbortSignal) {
+  return fetchJson<ProcessingSchema>(`/api/instances/${encodeURIComponent(instanceId)}/processing/service-events/${encodeURIComponent(serviceIdentifier)}/message-schema`, token, signal);
+}
+
+export async function getServiceEventMessage(instanceId: string, serviceIdentifier: string, eventId: string | number, token: string, signal?: AbortSignal) {
+  return fetchJson<ProcessingQueueEntryDetail>(`/api/instances/${encodeURIComponent(instanceId)}/processing/service-events/${encodeURIComponent(serviceIdentifier)}/${encodeURIComponent(String(eventId))}/message`, token, signal);
+}
+
+export function downloadBase64Attachment(fileName: string, content: string, contentType = 'application/octet-stream') {
+  const link = document.createElement('a');
+  link.href = `data:${contentType};base64,${content}`;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
 }
 
 export async function cancelTrigger(instanceId: string, triggerId: string | number, token: string, isParent: boolean) {

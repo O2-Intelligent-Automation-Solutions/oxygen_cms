@@ -78,6 +78,14 @@ async function startMockOxyGen() {
       response.end('{"downloaded":true}');
       return;
     }
+    if (request.method === 'GET' && request.url === '/web-api/EMM/Queue/Schema') {
+      response.end(JSON.stringify({ Fields: [{ Key: 'Id', Label: 'Id' }], Groups: { Workflow: ['WorkflowId'] } }));
+      return;
+    }
+    if (request.method === 'GET' && request.url === '/web-api/EMM/Queue/300') {
+      response.end(JSON.stringify({ Id: 300, Status: 'Active', Message: { Subject: 'Hello', Body: 'Message body', IsPlainText: true, To: [{ Address: 'ops@example.com' }], Attachments: [{ FileName: 'notice.txt', ContentType: 'text/plain', Content: 'SGVsbG8=' }] }, OriginalMessage: null }));
+      return;
+    }
     if (request.method === 'POST' && request.url === '/web-api/BUS/workflows/triggers/100/cancel?isParent=false') {
       response.end(JSON.stringify('Successfully canceled.'));
       return;
@@ -240,6 +248,27 @@ describe('Processing Errors typed read-only routes', () => {
     expect(downloaded.headers['content-disposition']).toContain('payload.json');
     expect(seenRequests.map((entry) => `${entry.method} ${entry.url}`)).toContain('GET /web-api/WHE/Events/300/payload.json/File');
     const forwarded = seenRequests.find((entry) => entry.url === '/web-api/WHE/Events/300/payload.json/File');
+    expect(forwarded?.cookie).toContain('ASP.NET_SessionId=processing-session');
+    await fixture.app.close();
+  });
+
+  it('views EMM queue message schema and details through typed CMS routes', async () => {
+    const fixture = await seedFixture();
+    seenRequests.length = 0;
+
+    const denied = await fixture.app.inject({ method: 'GET', url: `/api/instances/${fixture.instanceA.id}/processing/service-events/EMM/300/message`, headers: { authorization: authHeader(fixture.tokens.viewer) } });
+    const schema = await fixture.app.inject({ method: 'GET', url: `/api/instances/${fixture.instanceA.id}/processing/service-events/EMM/message-schema`, headers: { authorization: authHeader(fixture.tokens.admin) } });
+    const message = await fixture.app.inject({ method: 'GET', url: `/api/instances/${fixture.instanceA.id}/processing/service-events/EMM/300/message`, headers: { authorization: authHeader(fixture.tokens.admin) } });
+
+    expect(denied.statusCode).toBe(403);
+    expect(schema.statusCode).toBe(200);
+    expect(message.statusCode).toBe(200);
+    expect(message.json()).toMatchObject({ Id: 300, Message: { Subject: 'Hello', Attachments: [{ FileName: 'notice.txt' }] } });
+    expect(seenRequests.map((entry) => `${entry.method} ${entry.url}`)).toEqual(expect.arrayContaining([
+      'GET /web-api/EMM/Queue/Schema',
+      'GET /web-api/EMM/Queue/300'
+    ]));
+    const forwarded = seenRequests.find((entry) => entry.url === '/web-api/EMM/Queue/300');
     expect(forwarded?.cookie).toContain('ASP.NET_SessionId=processing-session');
     await fixture.app.close();
   });

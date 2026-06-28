@@ -1092,6 +1092,32 @@ button.secondary {
   overflow-wrap: anywhere;
 }
 
+.processing-message-shell,
+.processing-message-details {
+  border-color: rgba(123, 92, 255, 0.24);
+}
+
+.processing-message-body {
+  margin: 10px 0 0;
+  max-height: 360px;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid rgba(125, 160, 188, 0.18);
+  border-radius: 10px;
+  background: rgba(3, 12, 22, 0.42);
+  color: var(--brand-text);
+  white-space: pre-wrap;
+}
+
+.processing-message-frame {
+  width: 100%;
+  min-height: 320px;
+  margin-top: 10px;
+  border: 1px solid rgba(125, 160, 188, 0.18);
+  border-radius: 10px;
+  background: #fff;
+}
+
 .processing-loading-panel,
 .processing-error-panel {
   display: flex;

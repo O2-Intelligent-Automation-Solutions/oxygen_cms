@@ -840,6 +840,21 @@ paths:
         '403': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
         '502': { $ref: '#/components/responses/Error' }
+  /api/instances/{instanceId}/processing/service-events/{serviceIdentifier}/message-schema:
+    parameters:
+      - $ref: '#/components/parameters/instanceId'
+      - $ref: '#/components/parameters/serviceIdentifier'
+    get:
+      tags: [Processing Errors]
+      summary: Get OxyGen service-event message schema
+      description: Requires `processing.errors.viewServiceEventMessage`. Fetches the OxyGen queue schema for the selected service through the server-side form session; used before opening an EMM message viewer.
+      responses:
+        '200': { description: Remote queue schema payload., content: { application/json: { schema: {} } } }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
   /api/instances/{instanceId}/processing/service-events/{serviceIdentifier}/{eventId}:
     parameters:
       - $ref: '#/components/parameters/instanceId'
@@ -850,6 +865,22 @@ paths:
       summary: Get OxyGen service event details
       responses:
         '200': { description: Remote detail payload., content: { application/json: { schema: {} } } }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
+  /api/instances/{instanceId}/processing/service-events/{serviceIdentifier}/{eventId}/message:
+    parameters:
+      - $ref: '#/components/parameters/instanceId'
+      - $ref: '#/components/parameters/serviceIdentifier'
+      - $ref: '#/components/parameters/eventId'
+    get:
+      tags: [Processing Errors]
+      summary: Get OxyGen service-event queue/message detail
+      description: Requires `processing.errors.viewServiceEventMessage`. Fetches the typed OxyGen queue entry detail through the server-side form session for read-only EMM message viewing, including current/original message payloads and base64 attachments when returned by OxyGen.
+      responses:
+        '200': { description: Remote queue entry/message detail payload., content: { application/json: { schema: {} } } }
         '400': { $ref: '#/components/responses/Error' }
         '401': { $ref: '#/components/responses/Error' }
         '403': { $ref: '#/components/responses/Error' }
