@@ -63,3 +63,10 @@ export type WorkflowEventGridQuery = {
   workflowTriggerId: string | number;
   search?: string;
 };
+
+export type ServiceEventGridQuery = {
+  state: ProcessingGridState;
+  serviceIdentifier: string;
+  workflowEventId: string | number;
+  search?: string;
+};

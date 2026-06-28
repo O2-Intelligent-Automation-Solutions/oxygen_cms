@@ -1,5 +1,5 @@
 import { toDataSourceRequestString, type CompositeFilterDescriptor, type FilterDescriptor } from '@progress/kendo-data-query';
-import type { ProcessingFilterPreset, ProcessingGridRecord, ProcessingGridResponse, ProcessingGridState, ProcessingSchema, TriggerGridQuery, WorkflowEventGridQuery } from './types';
+import type { ProcessingFilterPreset, ProcessingGridRecord, ProcessingGridResponse, ProcessingGridState, ProcessingSchema, ServiceEventGridQuery, TriggerGridQuery, WorkflowEventGridQuery } from './types';
 
 const DEFAULT_TAKE = 50;
 const MAX_TAKE = 250;
@@ -82,6 +82,23 @@ function buildWorkflowEventGridQuery({ state, workflowTriggerId, search }: Workf
   return toDataSourceRequestString(safeState);
 }
 
+function buildServiceEventGridQuery({ state, workflowEventId, search }: ServiceEventGridQuery) {
+  const parentFilter: CompositeFilterDescriptor = {
+    logic: 'or',
+    filters: [
+      { field: 'ParentId', operator: 'isnull', value: null },
+      atomicFilter('ParentId', 'eq', 0)
+    ]
+  };
+  const safeState = {
+    skip: Math.max(0, Math.floor(state.skip || 0)),
+    take: normalizeTake(state.take),
+    sort: state.sort,
+    filter: mergeFilter([atomicFilter('WorkflowEventId', 'eq', workflowEventId), parentFilter as unknown as FilterDescriptor], state.filter, searchFilter(search, ['WorkflowId', 'WorkflowTriggerId', 'WorkflowEventId', 'ServiceIdentifier', 'JobId', 'Status']))
+  };
+  return toDataSourceRequestString(safeState);
+}
+
 export function formatSimpleFilter(field: string, operator: string, value: string | number | boolean) {
   return `${field}~${operator}~${literal(value)}`;
 }
@@ -112,6 +129,25 @@ export async function getWorkflowEventSchema(instanceId: string, token: string, 
 export async function getWorkflowEventGrid(instanceId: string, token: string, query: WorkflowEventGridQuery, signal?: AbortSignal) {
   const dataSourceQuery = buildWorkflowEventGridQuery(query);
   return fetchJson<ProcessingGridResponse>(`/api/instances/${encodeURIComponent(instanceId)}/processing/workflow-events/grid?${dataSourceQuery}`, token, signal);
+}
+
+export async function getServiceEventSchema(instanceId: string, serviceIdentifier: string, token: string, signal?: AbortSignal) {
+  return fetchJson<ProcessingSchema>(`/api/instances/${encodeURIComponent(instanceId)}/processing/service-events/${encodeURIComponent(serviceIdentifier)}/schema`, token, signal);
+}
+
+export async function getServiceEventGrid(instanceId: string, token: string, query: ServiceEventGridQuery, signal?: AbortSignal) {
+  const dataSourceQuery = buildServiceEventGridQuery(query);
+  return fetchJson<ProcessingGridResponse>(`/api/instances/${encodeURIComponent(instanceId)}/processing/service-events/${encodeURIComponent(query.serviceIdentifier)}/grid?${dataSourceQuery}`, token, signal);
+}
+
+export async function getChildServiceEventGrid(instanceId: string, serviceIdentifier: string, eventId: string | number, token: string, state: ProcessingGridState, signal?: AbortSignal) {
+  const dataSourceQuery = toDataSourceRequestString({
+    skip: Math.max(0, Math.floor(state.skip || 0)),
+    take: normalizeTake(state.take),
+    sort: state.sort,
+    filter: state.filter
+  });
+  return fetchJson<ProcessingGridResponse>(`/api/instances/${encodeURIComponent(instanceId)}/processing/service-events/${encodeURIComponent(serviceIdentifier)}/${encodeURIComponent(String(eventId))}/children?${dataSourceQuery}`, token, signal);
 }
 
 export function recordValue(record: ProcessingGridRecord, field: string) {

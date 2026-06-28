@@ -4,6 +4,7 @@ import type { ProcessingSchema, ProcessingSchemaField } from './types';
 const FALLBACK_PARENT_COLUMNS = ['Id', 'WorkflowId', 'WorkflowTriggerId', 'WorkflowName', 'SourceIdentifier', 'ServiceIdentifier', 'JobId', 'Status', 'StatusInfo', 'TriggerDate', 'CompleteDate', 'HasErrors', 'ChildTriggers'];
 const FALLBACK_CHILD_COLUMNS = ['Id', 'TriggerGroupId', 'WorkflowId', 'WorkflowTriggerId', 'WorkflowName', 'SourceIdentifier', 'ServiceIdentifier', 'JobId', 'Status', 'StatusInfo', 'TriggerDate', 'CompleteDate', 'HasErrors'];
 const FALLBACK_WORKFLOW_EVENT_COLUMNS = ['Id', 'WorkflowId', 'WorkflowTriggerId', 'ServiceIdentifier', 'ServiceEventId', 'Status', 'LastError', 'Sequence', 'CreatedDate', 'ModifiedDate'];
+const FALLBACK_SERVICE_EVENT_COLUMNS = ['Id', 'ParentId', 'WorkflowId', 'WorkflowTriggerId', 'WorkflowEventId', 'ServiceIdentifier', 'JobId', 'Status', 'ErrorMessage', 'Sequence', 'CreatedDate', 'ModifiedDate', 'HasChild'];
 
 function widthFor(field: ProcessingSchemaField) {
   if (field.Width) return field.Width;
@@ -30,10 +31,10 @@ function fallbackField(key: string): ProcessingSchemaField {
   return { Key: key, Label: key.replace(/([a-z0-9])([A-Z])/g, '$1 $2'), Type: key.toLowerCase().endsWith('id') ? 'Number' : 'String', IsVisible: true, Sortable: true, Filterable: true };
 }
 
-export function schemaColumns(schema: ProcessingSchema | null, grid: 'Parent' | 'Child' | 'WorkflowEvent'): GridColumnProps[] {
+export function schemaColumns(schema: ProcessingSchema | null, grid: 'Parent' | 'Child' | 'WorkflowEvent' | 'ServiceEvent'): GridColumnProps[] {
   const fields = schema ? fieldMap(schema) : new Map<string, ProcessingSchemaField>();
   const schemaGridFields = grid === 'Parent' ? schema?.Grids?.Parent : grid === 'Child' ? schema?.Grids?.Child : undefined;
-  const fallbackKeys = grid === 'Parent' ? FALLBACK_PARENT_COLUMNS : grid === 'Child' ? FALLBACK_CHILD_COLUMNS : FALLBACK_WORKFLOW_EVENT_COLUMNS;
+  const fallbackKeys = grid === 'Parent' ? FALLBACK_PARENT_COLUMNS : grid === 'Child' ? FALLBACK_CHILD_COLUMNS : grid === 'WorkflowEvent' ? FALLBACK_WORKFLOW_EVENT_COLUMNS : FALLBACK_SERVICE_EVENT_COLUMNS;
   const keys = schemaGridFields?.length ? schemaGridFields : fallbackKeys;
   return keys
     .map((key) => fields.get(key) ?? fallbackField(key))
@@ -61,5 +62,13 @@ export function workflowEventIdField(schema: ProcessingSchema | null) {
 }
 
 export function workflowEventStatusField(schema: ProcessingSchema | null) {
+  return schema?.IdColumns?.StatusField || 'Status';
+}
+
+export function serviceEventIdField(schema: ProcessingSchema | null) {
+  return schema?.IdColumns?.IdField || 'Id';
+}
+
+export function serviceEventStatusField(schema: ProcessingSchema | null) {
   return schema?.IdColumns?.StatusField || 'Status';
 }

@@ -986,11 +986,13 @@ button.secondary {
   gap: 10px;
 }
 
-.processing-workflow-panel {
+.processing-workflow-panel,
+.processing-service-panel {
   border-color: rgba(32, 214, 210, 0.24);
 }
 
-.processing-workflow-grid.k-grid {
+.processing-workflow-grid.k-grid,
+.processing-service-grid.k-grid {
   min-width: 1320px;
 }
 
