@@ -1,8 +1,8 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Button } from '@progress/kendo-react-buttons';
-import { Copy, LoaderCircle, RotateCw } from 'lucide-react';
+import { Copy, Download, LoaderCircle, RotateCw } from 'lucide-react';
 import type { ProcessingGridRecord } from './types';
-import { getServiceEventDetail, recordValue } from './api';
+import { downloadServiceEventFile, getServiceEventDetail, recordValue } from './api';
 import { serviceEventIdField } from './schemaColumns';
 
 type EventDetailsPanelProps = {
@@ -10,6 +10,15 @@ type EventDetailsPanelProps = {
   token: string;
   serviceIdentifier: string | null;
   selectedServiceEvent: ProcessingGridRecord | null;
+  canDownloadServiceEventFile: boolean;
+};
+
+type EventFile = {
+  FileName: string;
+  IsExists?: boolean;
+  Location?: string | number;
+  LocationString?: string;
+  [key: string]: unknown;
 };
 
 const GROUPS: Array<{ name: string; fields: string[] }> = [
@@ -50,24 +59,66 @@ function groupedDetails(detail: ProcessingGridRecord | null, advanced: boolean):
   return groups;
 }
 
-export function EventDetailsPanel({ instanceId, token, serviceIdentifier, selectedServiceEvent }: EventDetailsPanelProps) {
+function normalizeFile(value: unknown): EventFile | null {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  const fileName = record.FileName ?? record.fileName ?? record.Name ?? record.name;
+  if (typeof fileName !== 'string' || !fileName.trim()) return null;
+  const location = record.Location ?? record.location;
+  return {
+    ...record,
+    FileName: fileName,
+    IsExists: typeof record.IsExists === 'boolean' ? record.IsExists : typeof record.isExists === 'boolean' ? record.isExists : undefined,
+    Location: typeof location === 'string' || typeof location === 'number' ? location : undefined,
+    LocationString: typeof record.LocationString === 'string' ? record.LocationString : typeof record.locationString === 'string' ? record.locationString : undefined
+  };
+}
+
+function extractFiles(detail: ProcessingGridRecord | null): EventFile[] {
+  if (!detail) return [];
+  const seen = new Set<string>();
+  const files: EventFile[] = [];
+  for (const value of Object.values(detail)) {
+    if (!Array.isArray(value)) continue;
+    for (const entry of value) {
+      const file = normalizeFile(entry);
+      if (!file || seen.has(file.FileName)) continue;
+      seen.add(file.FileName);
+      files.push(file);
+    }
+  }
+  return files.sort((left, right) => `${left.LocationString ?? left.Location ?? ''}`.localeCompare(`${right.LocationString ?? right.Location ?? ''}`) || left.FileName.localeCompare(right.FileName));
+}
+
+function fileMeta(file: EventFile) {
+  const location = file.LocationString ?? file.Location;
+  const exists = file.IsExists === false ? 'missing in OxyGen' : 'available';
+  return [location ? `Location ${String(location)}` : null, exists].filter(Boolean).join(' · ');
+}
+
+export function EventDetailsPanel({ instanceId, token, serviceIdentifier, selectedServiceEvent, canDownloadServiceEventFile }: EventDetailsPanelProps) {
   const [detail, setDetail] = useState<ProcessingGridRecord | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [advanced, setAdvanced] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [downloadingFile, setDownloadingFile] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const eventId = selectedServiceEvent ? recordValue(selectedServiceEvent, serviceEventIdField(null)) : null;
   const groups = useMemo(() => groupedDetails(detail, advanced), [advanced, detail]);
+  const files = useMemo(() => extractFiles(detail), [detail]);
 
   useEffect(() => {
     if (!serviceIdentifier || eventId === null || eventId === undefined) {
       setDetail(null);
       setError(null);
+      setDownloadError(null);
       return undefined;
     }
     const controller = new AbortController();
     setLoading(true);
     setError(null);
+    setDownloadError(null);
     getServiceEventDetail(instanceId, serviceIdentifier, String(eventId), token, controller.signal)
       .then(setDetail)
       .catch((err: unknown) => {
@@ -83,6 +134,19 @@ export function EventDetailsPanel({ instanceId, token, serviceIdentifier, select
     await navigator.clipboard?.writeText(errorText);
   }
 
+  async function handleDownload(file: EventFile) {
+    if (!serviceIdentifier || eventId === null || eventId === undefined || !canDownloadServiceEventFile || file.IsExists === false) return;
+    setDownloadingFile(file.FileName);
+    setDownloadError(null);
+    try {
+      await downloadServiceEventFile(instanceId, serviceIdentifier, String(eventId), file.FileName, token);
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : 'Event file download failed.');
+    } finally {
+      setDownloadingFile(null);
+    }
+  }
+
   if (!selectedServiceEvent || !serviceIdentifier) {
     return <article className="panel processing-details-panel"><div className="processing-grid-toolbar"><div className="processing-grid-toolbar-summary"><strong>Event Details</strong><span>Select a service event to load details on demand.</span></div></div><p className="panel-copy small-copy">Details, files, and messages stay lazy. This panel does not fetch remote detail payloads until a service event is selected.</p></article>;
   }
@@ -95,7 +159,18 @@ export function EventDetailsPanel({ instanceId, token, serviceIdentifier, select
     </div>
     {loading && <div className="cms-loading-overlay grid-loading-overlay" role="status" aria-live="polite"><LoaderCircle className="cms-loading-spinner" /><span>Loading event details…</span></div>}
     {error && <p className="panel-copy warning">{error}</p>}
+    {downloadError && <p className="panel-copy warning">{downloadError}</p>}
     {detail && <div className="processing-details-body">
+      {files.length > 0 && <section className="processing-detail-group processing-file-downloads">
+        <header><p className="eyebrow small">Files</p><span className="panel-copy small-copy">Downloads use typed CMS endpoints and remain lazy until clicked.</span></header>
+        <div className="processing-file-list">
+          {files.map((file) => <article key={file.FileName} className="processing-file-row">
+            <div><strong>{file.FileName}</strong><small>{fileMeta(file)}</small></div>
+            <Button className="compact-button" type="button" fillMode="flat" disabled={!canDownloadServiceEventFile || file.IsExists === false || downloadingFile === file.FileName} onClick={() => void handleDownload(file)}><Download /> {downloadingFile === file.FileName ? 'Downloading…' : 'Download'}</Button>
+          </article>)}
+        </div>
+        {!canDownloadServiceEventFile && <p className="panel-copy small-copy">Your role can view event details but cannot download raw event files.</p>}
+      </section>}
       {groups.map((group) => <section key={group.name} className={`processing-detail-group ${group.name === 'Error' ? 'error' : ''}`}>
         <header><p className="eyebrow small">{group.name}</p>{group.name === 'Error' && <Button className="compact-button" type="button" fillMode="flat" onClick={() => void copyError()}><Copy /> Copy Error</Button>}</header>
         <dl className="detail-list processing-selected-detail">
@@ -103,6 +178,6 @@ export function EventDetailsPanel({ instanceId, token, serviceIdentifier, select
         </dl>
       </section>)}
     </div>}
-    <p className="panel-copy small-copy">File downloads and EMM message viewers remain intentionally deferred to the next guarded details/actions slice; raw content is not fetched until implemented behind typed CMS endpoints and audit-safe handling.</p>
+    <p className="panel-copy small-copy">EMM message viewers remain deferred to the next guarded details/actions slice; raw message content is not fetched until implemented behind typed CMS endpoints and audit-safe handling.</p>
   </article>;
 }

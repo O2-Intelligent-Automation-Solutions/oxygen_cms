@@ -32,6 +32,7 @@ export const PERMISSIONS = [
   { key: 'processing.errors.recoverWorkflowEvent', label: 'Recover Processing Error workflow events', description: 'Resume individual OxyGen workflow events for accessible instances.', scope: 'tenant' },
   { key: 'processing.errors.cancelWorkflowEvent', label: 'Cancel Processing Error workflow events', description: 'Cancel individual OxyGen workflow events for accessible instances.', scope: 'tenant' },
   { key: 'processing.errors.restoreServiceEvent', label: 'Restore Processing Error service events', description: 'Restore individual OxyGen service events for accessible instances.', scope: 'tenant' },
+  { key: 'processing.errors.downloadServiceEventFile', label: 'Download Processing Error service event files', description: 'Download individual OxyGen service event files for accessible instances.', scope: 'tenant' },
   { key: 'gridPreferences.manage', label: 'Manage own grid preferences', description: 'Save personal grid layout preferences.', scope: 'self' }
 ] as const satisfies readonly PermissionDefinition[];
 
@@ -56,6 +57,7 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     'processing.errors.recoverWorkflowEvent',
     'processing.errors.cancelWorkflowEvent',
     'processing.errors.restoreServiceEvent',
+    'processing.errors.downloadServiceEventFile',
     'gridPreferences.manage'
   ],
   Operator: [

@@ -85,6 +85,17 @@ function cancelActionValue(value: unknown) {
   return action;
 }
 
+function fileNameValue(value: string | unknown) {
+  const fileName = String(value ?? '').trim();
+  if (!fileName || fileName.includes('/') || fileName.includes('\\') || fileName.includes('\0') || fileName === '.' || fileName === '..') throw new Error('Invalid file name.');
+  return fileName;
+}
+
+function contentDispositionFileName(fileName: string) {
+  const fallback = fileName.replace(/[^A-Za-z0-9._-]/g, '_') || 'event-file';
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
+}
+
 function handleError(reply: FastifyReply, error: unknown) {
   const message = error instanceof Error ? error.message : 'Processing Errors request failed.';
   if (message === 'Invalid service identifier.' || message.startsWith('Invalid ') || message.includes('confirmation is required')) return reply.code(400).send({ error: message });
@@ -99,6 +110,7 @@ export async function registerProcessingRoutes(app: FastifyInstance, authReposit
   const recoverWorkflowEventPreHandler = [requireAuth(authRepository), requirePermission('processing.errors.recoverWorkflowEvent')];
   const cancelWorkflowEventPreHandler = [requireAuth(authRepository), requirePermission('processing.errors.cancelWorkflowEvent')];
   const restoreServiceEventPreHandler = [requireAuth(authRepository), requirePermission('processing.errors.restoreServiceEvent')];
+  const downloadServiceEventFilePreHandler = [requireAuth(authRepository), requirePermission('processing.errors.downloadServiceEventFile')];
 
   async function withInstance(request: FastifyRequest, reply: FastifyReply, handler: (access: ProcessingRemoteAccess) => Promise<unknown>) {
     const profile = (request as AuthenticatedRequest).authProfile;
@@ -169,6 +181,27 @@ export async function registerProcessingRoutes(app: FastifyInstance, authReposit
     assertValidServiceIdentifier(serviceIdentifier);
     return client.getDetail(access, `/web-api/${encodeURIComponent(serviceIdentifier)}/Events/${encodeURIComponent(String(numericId(eventId, 'service event id')))}`);
   }));
+
+  app.get('/api/instances/:instanceId/processing/service-events/:serviceIdentifier/:eventId/files/:fileName', { preHandler: downloadServiceEventFilePreHandler }, async (request, reply) => {
+    const profile = (request as AuthenticatedRequest).authProfile;
+    const instanceId = paramsRecord(request).instanceId;
+    const instance = await visibleInstance(profile, instanceRepository, instanceId);
+    if (!instance) return reply.code(404).send({ error: 'Instance not found.' });
+    try {
+      const access = await remoteAccess(instanceRepository, instance);
+      const { serviceIdentifier, eventId, fileName } = paramsRecord(request);
+      assertValidServiceIdentifier(serviceIdentifier);
+      const safeEventId = numericId(eventId, 'service event id');
+      const safeFileName = fileNameValue(fileName);
+      const result = await client.downloadFile(access, `/web-api/${encodeURIComponent(serviceIdentifier)}/Events/${encodeURIComponent(String(safeEventId))}/${encodeURIComponent(safeFileName)}/File`);
+      reply.header('content-type', Array.isArray(result.contentType) ? result.contentType[0] : result.contentType || 'application/octet-stream');
+      if (result.contentLength && !Array.isArray(result.contentLength)) reply.header('content-length', result.contentLength);
+      reply.header('content-disposition', contentDispositionFileName(safeFileName));
+      return reply.code(200).send(result.body);
+    } catch (error) {
+      return handleError(reply, error);
+    }
+  });
 
   app.post('/api/instances/:instanceId/processing/service-events/:serviceIdentifier/:eventId/restore', { preHandler: restoreServiceEventPreHandler }, async (request, reply) => withAction(request, reply, (access) => {
     const { serviceIdentifier, eventId } = paramsRecord(request);

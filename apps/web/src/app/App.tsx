@@ -157,11 +157,12 @@ const PERMISSION_CATALOG: PermissionCatalogItem[] = [
   { key: 'processing.errors.recoverWorkflowEvent', label: 'Recover Processing Error workflow events', description: 'Resume individual OxyGen workflow events for accessible instances.', group: 'System' },
   { key: 'processing.errors.cancelWorkflowEvent', label: 'Cancel Processing Error workflow events', description: 'Cancel individual OxyGen workflow events for accessible instances.', group: 'System' },
   { key: 'processing.errors.restoreServiceEvent', label: 'Restore Processing Error service events', description: 'Restore individual OxyGen service events for accessible instances.', group: 'System' },
+  { key: 'processing.errors.downloadServiceEventFile', label: 'Download Processing Error service event files', description: 'Download individual OxyGen service event files for accessible instances.', group: 'System' },
   { key: 'gridPreferences.manage', label: 'Manage grid preferences', description: 'Save and maintain user grid column, filter, and display preferences.', group: 'UI' }
 ];
 const DEFAULT_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
   SystemAdmin: PERMISSION_CATALOG.map((permission) => permission.key),
-  TenantAdmin: ['dashboard.view', 'instances.view', 'instances.manage', 'instances.importExport', 'users.manage', 'groups.manage', 'roles.manage', 'tenants.view', 'logs.view', 'system.version.view', 'issueTypes.view', 'processing.errors.view', 'processing.errors.cancelTrigger', 'processing.errors.recoverWorkflowEvent', 'processing.errors.cancelWorkflowEvent', 'processing.errors.restoreServiceEvent', 'gridPreferences.manage'],
+  TenantAdmin: ['dashboard.view', 'instances.view', 'instances.manage', 'instances.importExport', 'users.manage', 'groups.manage', 'roles.manage', 'tenants.view', 'logs.view', 'system.version.view', 'issueTypes.view', 'processing.errors.view', 'processing.errors.cancelTrigger', 'processing.errors.recoverWorkflowEvent', 'processing.errors.cancelWorkflowEvent', 'processing.errors.restoreServiceEvent', 'processing.errors.downloadServiceEventFile', 'gridPreferences.manage'],
   Operator: ['dashboard.view', 'instances.view', 'instances.manage', 'logs.view', 'system.version.view', 'issueTypes.view', 'processing.errors.view', 'gridPreferences.manage'],
   Viewer: ['dashboard.view', 'instances.view', 'system.version.view', 'issueTypes.view', 'processing.errors.view', 'gridPreferences.manage']
 };

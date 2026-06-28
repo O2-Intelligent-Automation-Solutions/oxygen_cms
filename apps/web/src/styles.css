@@ -1061,6 +1061,37 @@ button.secondary {
   margin: 0;
 }
 
+.processing-file-downloads {
+  border-color: rgba(32, 214, 210, 0.22);
+}
+
+.processing-file-list {
+  display: grid;
+  gap: 8px;
+}
+
+.processing-file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(125, 160, 188, 0.18);
+  border-radius: 10px;
+  background: rgba(3, 12, 22, 0.32);
+}
+
+.processing-file-row div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.processing-file-row strong,
+.processing-file-row small {
+  overflow-wrap: anywhere;
+}
+
 .processing-loading-panel,
 .processing-error-panel {
   display: flex;

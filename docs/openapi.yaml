@@ -855,6 +855,32 @@ paths:
         '403': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
         '502': { $ref: '#/components/responses/Error' }
+  /api/instances/{instanceId}/processing/service-events/{serviceIdentifier}/{eventId}/files/{fileName}:
+    parameters:
+      - $ref: '#/components/parameters/instanceId'
+      - $ref: '#/components/parameters/serviceIdentifier'
+      - $ref: '#/components/parameters/eventId'
+      - $ref: '#/components/parameters/fileName'
+    get:
+      tags: [Processing Errors]
+      summary: Download an OxyGen service event file
+      description: Requires `processing.errors.downloadServiceEventFile`. The CMS validates the service identifier and file name, authenticates to OxyGen server-side, streams the typed event file endpoint, and never exposes remote credentials or cookies to the browser.
+      responses:
+        '200':
+          description: Event file bytes from the remote OxyGen instance.
+          headers:
+            Content-Disposition:
+              schema: { type: string }
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+            application/json:
+              schema: { type: string, format: binary }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
   /api/instances/{instanceId}/processing/service-events/{serviceIdentifier}/{eventId}/restore:
     parameters:
       - $ref: '#/components/parameters/instanceId'
@@ -1659,6 +1685,15 @@ components:
       in: path
       required: true
       schema: { type: string }
+    fileName:
+      name: fileName
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 255
+      description: Single OxyGen event file name; path separators and null bytes are rejected by the API.
     processingSkip:
       name: skip
       in: query

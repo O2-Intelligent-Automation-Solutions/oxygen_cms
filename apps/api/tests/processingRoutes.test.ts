@@ -70,7 +70,12 @@ async function startMockOxyGen() {
       return;
     }
     if (request.method === 'GET' && request.url === '/web-api/WHE/Events/300') {
-      response.end(JSON.stringify({ Id: 300, MappedIndexData: { safe: true } }));
+      response.end(JSON.stringify({ Id: 300, MappedIndexData: { safe: true }, Files: [{ FileName: 'payload.json', IsExists: true, Location: 1 }] }));
+      return;
+    }
+    if (request.method === 'GET' && request.url === '/web-api/WHE/Events/300/payload.json/File') {
+      response.setHeader('content-type', 'application/json');
+      response.end('{"downloaded":true}');
       return;
     }
     if (request.method === 'POST' && request.url === '/web-api/BUS/workflows/triggers/100/cancel?isParent=false') {
@@ -217,6 +222,25 @@ describe('Processing Errors typed read-only routes', () => {
       'POST /web-api/BUS/workflows/events/200/cancel?action=2',
       'POST /web-api/WHE/events/queue/300'
     ]));
+    await fixture.app.close();
+  });
+
+  it('downloads event files through typed CMS route with permission and safe filename checks', async () => {
+    const fixture = await seedFixture();
+    seenRequests.length = 0;
+
+    const denied = await fixture.app.inject({ method: 'GET', url: `/api/instances/${fixture.instanceA.id}/processing/service-events/WHE/300/files/payload.json`, headers: { authorization: authHeader(fixture.tokens.viewer) } });
+    const invalid = await fixture.app.inject({ method: 'GET', url: `/api/instances/${fixture.instanceA.id}/processing/service-events/WHE/300/files/%00bad`, headers: { authorization: authHeader(fixture.tokens.admin) } });
+    const downloaded = await fixture.app.inject({ method: 'GET', url: `/api/instances/${fixture.instanceA.id}/processing/service-events/WHE/300/files/payload.json`, headers: { authorization: authHeader(fixture.tokens.admin) } });
+
+    expect(denied.statusCode).toBe(403);
+    expect(invalid.statusCode).toBe(400);
+    expect(downloaded.statusCode).toBe(200);
+    expect(downloaded.body).toBe('{"downloaded":true}');
+    expect(downloaded.headers['content-disposition']).toContain('payload.json');
+    expect(seenRequests.map((entry) => `${entry.method} ${entry.url}`)).toContain('GET /web-api/WHE/Events/300/payload.json/File');
+    const forwarded = seenRequests.find((entry) => entry.url === '/web-api/WHE/Events/300/payload.json/File');
+    expect(forwarded?.cookie).toContain('ASP.NET_SessionId=processing-session');
     await fixture.app.close();
   });
 });

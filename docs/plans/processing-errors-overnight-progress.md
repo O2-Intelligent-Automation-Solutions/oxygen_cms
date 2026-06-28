@@ -20,6 +20,7 @@ Date: 2026-06-28
 - Commit `0b1c247`: added the read-only Service Events grid. Workflow-event selection with a `ServiceIdentifier` lazy-loads service-event schema/data filtered server-side by `WorkflowEventId`, defaults to parent service rows, and expands child service-event rows on demand.
 - Commit `13ea029`: added the read-only Event Details panel. Details load only after service-event selection, present common fields and prominent/copyable error text, and keep advanced/remaining fields behind an explicit toggle.
 - Commit `d1accf3`: added confirmed row actions for trigger cancel, workflow-event recovery, workflow-event cancel, and service-event restore. These actions are routed through typed CMS endpoints, require granular Processing permissions and confirmation, use the server-side OxyGen form session, and log API activity through the app activity hook.
+- Continuation slice: added typed service-event file downloads from the Event Details panel. Downloads require `processing.errors.downloadServiceEventFile`, validate service identifiers and single file names, use the server-side OxyGen form session, and keep credentials/cookies out of the browser.
 - Final docs closeout in progress updates OpenAPI/docs/Wiki status so the committed contracts match the row-action API surface.
 
 ## Validation completed during the run
@@ -46,7 +47,6 @@ To be refreshed immediately before final commit/push:
 
 Do not treat this as 100% parity yet. The following inventory areas remain open:
 
-- File-download routes and UI.
 - EMM/WHE message viewers and raw-message/file audit logging.
 - Bulk cancel/restore/reset actions with grid-total previews, scoped confirmations, and large-dataset guardrails.
 - Queue/message parity fast-follow surfaces.

@@ -166,6 +166,27 @@ export async function getServiceEventDetail(instanceId: string, serviceIdentifie
   return fetchJson<ProcessingGridRecord>(`/api/instances/${encodeURIComponent(instanceId)}/processing/service-events/${encodeURIComponent(serviceIdentifier)}/${encodeURIComponent(String(eventId))}`, token, signal);
 }
 
+export async function downloadServiceEventFile(instanceId: string, serviceIdentifier: string, eventId: string | number, fileName: string, token: string) {
+  const response = await fetch(`/api/instances/${encodeURIComponent(instanceId)}/processing/service-events/${encodeURIComponent(serviceIdentifier)}/${encodeURIComponent(String(eventId))}/files/${encodeURIComponent(fileName)}`, { headers: authHeaders(token) });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    const message = body && typeof body === 'object' && 'error' in body ? String((body as { error?: unknown }).error) : `Processing Errors file download failed with status ${response.status}`;
+    throw new Error(message);
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  try {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 export async function cancelTrigger(instanceId: string, triggerId: string | number, token: string, isParent: boolean) {
   return postJson<{ ok: true; result: unknown }>(`/api/instances/${encodeURIComponent(instanceId)}/processing/triggers/${encodeURIComponent(String(triggerId))}/cancel`, token, { confirmed: true, isParent });
 }

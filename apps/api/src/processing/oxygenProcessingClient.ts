@@ -9,6 +9,8 @@ type RemoteResponse = {
   status: number;
   setCookies: string[];
   body: string;
+  rawBody: Buffer;
+  headers: Record<string, string | string[] | undefined>;
 };
 
 function joinUrl(baseUrl: string, path: string) {
@@ -32,10 +34,13 @@ function requestRemote(url: string, options: { method: 'GET' | 'POST'; headers?:
       response.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
       response.on('end', () => {
         const setCookie = response.headers['set-cookie'];
+        const rawBody = Buffer.concat(chunks);
         resolve({
           status: response.statusCode ?? 0,
           setCookies: Array.isArray(setCookie) ? setCookie : setCookie ? [setCookie] : [],
-          body: Buffer.concat(chunks).toString('utf8')
+          body: rawBody.toString('utf8'),
+          rawBody,
+          headers: response.headers as Record<string, string | string[] | undefined>
         });
       });
     });
@@ -108,6 +113,13 @@ export class OxygenProcessingClient {
     return parseJson(response.body);
   }
 
+  private async requestRaw(access: ProcessingRemoteAccess, method: 'GET', path: string) {
+    const cookie = await this.session(access);
+    const response = await requestRemote(joinUrl(access.instance.apiBaseUrl, path), { method, headers: { cookie }, timeoutMs: this.timeoutMs });
+    if (response.status < 200 || response.status >= 400) throw new Error(`OxyGen request failed with HTTP ${response.status}.`);
+    return { body: response.rawBody, contentType: response.headers['content-type'], contentLength: response.headers['content-length'] };
+  }
+
   private async get(access: ProcessingRemoteAccess, path: string) {
     return this.request(access, 'GET', path);
   }
@@ -129,5 +141,9 @@ export class OxygenProcessingClient {
 
   async postAction(access: ProcessingRemoteAccess, path: string) {
     return this.request(access, 'POST', path);
+  }
+
+  async downloadFile(access: ProcessingRemoteAccess, path: string) {
+    return this.requestRaw(access, 'GET', path);
   }
 }
