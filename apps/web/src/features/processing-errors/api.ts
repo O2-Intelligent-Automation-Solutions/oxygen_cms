@@ -1,5 +1,5 @@
 import { toDataSourceRequestString, type CompositeFilterDescriptor, type FilterDescriptor } from '@progress/kendo-data-query';
-import type { ProcessingFilterPreset, ProcessingGridRecord, ProcessingGridResponse, ProcessingGridState, ProcessingSchema, TriggerGridQuery } from './types';
+import type { ProcessingFilterPreset, ProcessingGridRecord, ProcessingGridResponse, ProcessingGridState, ProcessingSchema, TriggerGridQuery, WorkflowEventGridQuery } from './types';
 
 const DEFAULT_TAKE = 50;
 const MAX_TAKE = 250;
@@ -52,10 +52,14 @@ function searchFilter(search: string | undefined, fields: string[]): CompositeFi
 }
 
 function mergeFilter(base: FilterDescriptor[], current?: CompositeFilterDescriptor, search?: CompositeFilterDescriptor | null): CompositeFilterDescriptor {
-  const filters: CompositeFilterDescriptor['filters'] = [atomicFilter('IsChild', 'neq', true), ...base];
+  const filters: CompositeFilterDescriptor['filters'] = [...base];
   if (current?.filters?.length) filters.push(current);
   if (search) filters.push(search);
   return { logic: 'and', filters };
+}
+
+function sortedState(state: ProcessingGridState, fallbackSort: ProcessingGridState['sort'] = []) {
+  return state.sort?.length ? state.sort : fallbackSort;
 }
 
 function buildGridQuery({ state, preset, search }: TriggerGridQuery) {
@@ -63,7 +67,17 @@ function buildGridQuery({ state, preset, search }: TriggerGridQuery) {
     skip: Math.max(0, Math.floor(state.skip || 0)),
     take: normalizeTake(state.take),
     sort: state.sort,
-    filter: mergeFilter(presetFilters(preset), state.filter, searchFilter(search, ['WorkflowId', 'WorkflowTriggerId', 'ServiceIdentifier', 'JobId', 'Status']))
+    filter: mergeFilter([atomicFilter('IsChild', 'neq', true), ...presetFilters(preset)], state.filter, searchFilter(search, ['WorkflowId', 'WorkflowTriggerId', 'ServiceIdentifier', 'JobId', 'Status']))
+  };
+  return toDataSourceRequestString(safeState);
+}
+
+function buildWorkflowEventGridQuery({ state, workflowTriggerId, search }: WorkflowEventGridQuery) {
+  const safeState = {
+    skip: Math.max(0, Math.floor(state.skip || 0)),
+    take: normalizeTake(state.take),
+    sort: sortedState(state, [{ field: 'Id', dir: 'asc' }]),
+    filter: mergeFilter([atomicFilter('WorkflowTriggerId', 'eq', workflowTriggerId)], state.filter, searchFilter(search, ['WorkflowId', 'WorkflowTriggerId', 'ServiceIdentifier', 'Status']))
   };
   return toDataSourceRequestString(safeState);
 }
@@ -89,6 +103,15 @@ export async function getChildTriggerGrid(instanceId: string, triggerId: string 
     filter: state.filter
   });
   return fetchJson<ProcessingGridResponse>(`/api/instances/${encodeURIComponent(instanceId)}/processing/triggers/${encodeURIComponent(String(triggerId))}/children?${dataSourceQuery}`, token, signal);
+}
+
+export async function getWorkflowEventSchema(instanceId: string, token: string, signal?: AbortSignal) {
+  return fetchJson<ProcessingSchema>(`/api/instances/${encodeURIComponent(instanceId)}/processing/workflow-events/schema`, token, signal);
+}
+
+export async function getWorkflowEventGrid(instanceId: string, token: string, query: WorkflowEventGridQuery, signal?: AbortSignal) {
+  const dataSourceQuery = buildWorkflowEventGridQuery(query);
+  return fetchJson<ProcessingGridResponse>(`/api/instances/${encodeURIComponent(instanceId)}/processing/workflow-events/grid?${dataSourceQuery}`, token, signal);
 }
 
 export function recordValue(record: ProcessingGridRecord, field: string) {

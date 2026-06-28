@@ -4,7 +4,8 @@ import { ChevronLeft, ExternalLink, LoaderCircle, RotateCw } from 'lucide-react'
 import type { ProcessingGridRecord, ProcessingSchema } from './types';
 import { getTriggerSchema, recordValue } from './api';
 import { TriggerGrid } from './TriggerGrid';
-import { triggerIdField, triggerStatusField } from './schemaColumns';
+import { WorkflowEventGrid } from './WorkflowEventGrid';
+import { triggerIdField, triggerStatusField, workflowEventIdField, workflowEventStatusField } from './schemaColumns';
 
 type ProcessingErrorsPageProps = {
   instance: {
@@ -30,6 +31,7 @@ export function ProcessingErrorsPage({ instance, token, onBackToInstance }: Proc
   const [schemaLoading, setSchemaLoading] = useState(false);
   const [schemaRefreshKey, setSchemaRefreshKey] = useState(0);
   const [selectedTrigger, setSelectedTrigger] = useState<ProcessingGridRecord | null>(null);
+  const [selectedWorkflowEvent, setSelectedWorkflowEvent] = useState<ProcessingGridRecord | null>(null);
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
 
   useEffect(() => {
@@ -47,13 +49,17 @@ export function ProcessingErrorsPage({ instance, token, onBackToInstance }: Proc
   }, [instance.id, schemaRefreshKey, token]);
 
   const handleLoaded = useCallback((timestamp: string) => setLastLoadedAt(timestamp), []);
+  const handleSelectedTriggerChange = useCallback((trigger: ProcessingGridRecord | null) => {
+    setSelectedTrigger(trigger);
+    setSelectedWorkflowEvent(null);
+  }, []);
 
   return <section className="processing-errors-page native-processing-errors" aria-label="Processing Errors">
     <header className="processing-errors-page-head native-processing-head">
       <div>
         <p className="eyebrow small">Processing Errors</p>
         <h2>{instance.name}</h2>
-        <p className="panel-copy small-copy">CMS-native, server-paged OxyGen trigger grid. Schema, paging, filtering, sorting, row selection, and child trigger expansion are loaded through typed CMS Processing APIs.</p>
+        <p className="panel-copy small-copy">CMS-native, server-paged OxyGen trigger and workflow event grids. Schema, paging, filtering, sorting, row selection, and child trigger expansion are loaded through typed CMS Processing APIs.</p>
         <small className="dashboard-refresh-stamp">Host: {instance.host} · Last grid load: {formatDateTime(lastLoadedAt)}</small>
       </div>
       <div className="workflow-errors-page-actions processing-errors-page-actions">
@@ -67,17 +73,22 @@ export function ProcessingErrorsPage({ instance, token, onBackToInstance }: Proc
       <article><span>Page size</span><strong>50 default</strong><small>Requests are server-paged and API-clamped at 250.</small></article>
       <article><span>Default filters</span><strong>Active/Error</strong><small>No all-history fetch on initial page load.</small></article>
       <article><span>Schema</span><strong>{schema?.Fields?.length ?? (schemaLoading ? 'Loading' : 'Unknown')}</strong><small>Columns come from the OxyGen trigger schema.</small></article>
-      <article><span>Child rows</span><strong>On demand</strong><small>Expanded parent triggers fetch children separately.</small></article>
+      <article><span>Drilldown</span><strong>Lazy grids</strong><small>Workflow events load only after a trigger is selected.</small></article>
     </section>
 
     {schemaLoading && !schema && <article className="panel processing-loading-panel"><LoaderCircle className="cms-loading-spinner" /><span>Loading OxyGen trigger schema…</span></article>}
     {schemaError && <article className="panel processing-error-panel"><strong>Processing Errors schema unavailable</strong><p>{schemaError}</p></article>}
 
-    <TriggerGrid instanceId={instance.id} token={token} schema={schema} selectedTrigger={selectedTrigger} onSelectedTriggerChange={setSelectedTrigger} onLoaded={handleLoaded} />
+    <TriggerGrid instanceId={instance.id} token={token} schema={schema} selectedTrigger={selectedTrigger} onSelectedTriggerChange={handleSelectedTriggerChange} onLoaded={handleLoaded} />
+
+    <WorkflowEventGrid instanceId={instance.id} token={token} triggerSchema={schema} selectedTrigger={selectedTrigger} selectedWorkflowEvent={selectedWorkflowEvent} onSelectedWorkflowEventChange={setSelectedWorkflowEvent} />
 
     <aside className="panel processing-selected-panel" aria-label="Selected trigger read-only context">
       <div><p className="eyebrow small">Selected Trigger</p><h3>{selectedTrigger ? `Trigger ${String(recordValue(selectedTrigger, triggerIdField(schema)) ?? 'unknown')}` : 'No trigger selected'}</h3></div>
-      {selectedTrigger ? <dl className="detail-list processing-selected-detail"><dt>Status</dt><dd>{String(recordValue(selectedTrigger, triggerStatusField(schema)) ?? 'Unknown')}</dd><dt>Workflow</dt><dd>{String(recordValue(selectedTrigger, schema?.IdColumns?.WorkflowNameField || 'WorkflowName') ?? '—')}</dd><dt>Workflow ID</dt><dd>{String(recordValue(selectedTrigger, schema?.IdColumns?.WorkflowIdField || 'WorkflowId') ?? '—')}</dd><dt>Service</dt><dd>{String(recordValue(selectedTrigger, schema?.IdColumns?.ServiceIdentifierField || 'ServiceIdentifier') ?? recordValue(selectedTrigger, 'SourceIdentifier') ?? '—')}</dd><dt>Job ID</dt><dd>{String(recordValue(selectedTrigger, schema?.IdColumns?.JobIdField || 'JobId') ?? '—')}</dd></dl> : <p className="panel-copy small-copy">Select a trigger row to prepare the read-only drilldown area for Milestone 3 workflow-event and Milestone 4 service-event panes.</p>}
+      {selectedTrigger ? <dl className="detail-list processing-selected-detail"><dt>Status</dt><dd>{String(recordValue(selectedTrigger, triggerStatusField(schema)) ?? 'Unknown')}</dd><dt>Workflow</dt><dd>{String(recordValue(selectedTrigger, schema?.IdColumns?.WorkflowNameField || 'WorkflowName') ?? '—')}</dd><dt>Workflow ID</dt><dd>{String(recordValue(selectedTrigger, schema?.IdColumns?.WorkflowIdField || 'WorkflowId') ?? '—')}</dd><dt>Service</dt><dd>{String(recordValue(selectedTrigger, schema?.IdColumns?.ServiceIdentifierField || 'ServiceIdentifier') ?? recordValue(selectedTrigger, 'SourceIdentifier') ?? '—')}</dd><dt>Job ID</dt><dd>{String(recordValue(selectedTrigger, schema?.IdColumns?.JobIdField || 'JobId') ?? '—')}</dd></dl> : <p className="panel-copy small-copy">Select a trigger row to load the read-only workflow-event drilldown pane.</p>}
+      <div className="processing-selected-divider" />
+      <div><p className="eyebrow small">Selected Workflow Event</p><h3>{selectedWorkflowEvent ? `Event ${String(recordValue(selectedWorkflowEvent, workflowEventIdField(null)) ?? 'unknown')}` : 'No workflow event selected'}</h3></div>
+      {selectedWorkflowEvent ? <dl className="detail-list processing-selected-detail"><dt>Status</dt><dd>{String(recordValue(selectedWorkflowEvent, workflowEventStatusField(null)) ?? 'Unknown')}</dd><dt>Service</dt><dd>{String(recordValue(selectedWorkflowEvent, 'ServiceIdentifier') ?? '—')}</dd><dt>Service Event ID</dt><dd>{String(recordValue(selectedWorkflowEvent, 'ServiceEventId') ?? '—')}</dd><dt>Last Error</dt><dd>{String(recordValue(selectedWorkflowEvent, 'LastError') ?? '—')}</dd></dl> : <p className="panel-copy small-copy">Select a workflow event row to prepare the read-only Milestone 4 service-event pane.</p>}
     </aside>
   </section>;
 }

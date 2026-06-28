@@ -57,3 +57,9 @@ export type TriggerGridQuery = {
   preset: ProcessingFilterPreset;
   search?: string;
 };
+
+export type WorkflowEventGridQuery = {
+  state: ProcessingGridState;
+  workflowTriggerId: string | number;
+  search?: string;
+};

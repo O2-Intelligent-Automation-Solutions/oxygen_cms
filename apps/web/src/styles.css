@@ -986,6 +986,19 @@ button.secondary {
   gap: 10px;
 }
 
+.processing-workflow-panel {
+  border-color: rgba(32, 214, 210, 0.24);
+}
+
+.processing-workflow-grid.k-grid {
+  min-width: 1320px;
+}
+
+.processing-selected-divider {
+  height: 1px;
+  background: rgba(125, 160, 188, 0.18);
+}
+
 .processing-selected-detail {
   margin: 0;
 }
