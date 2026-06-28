@@ -6,10 +6,10 @@ import { createInMemoryAuthRepository } from '../src/auth/inMemoryAuthRepository
 import { createInMemoryInstanceRepository } from '../src/instances/inMemoryInstanceRepository.js';
 
 const servers: Array<ReturnType<typeof createServer>> = [];
-const seenRequests: Array<{ method: string | undefined; url: string | undefined; cookie: string | undefined }> = [];
+const seenRequests: Array<{ method: string | undefined; url: string | undefined; cookie: string | undefined; body?: string }> = [];
 
 function authHeader(token: string) {
-  return `${'Be'}arer ${token}`;
+  return `Bearer ${token}`;
 }
 
 function readBody(request: IncomingMessage) {
@@ -25,9 +25,10 @@ function readBody(request: IncomingMessage) {
 async function startMockOxyGen() {
   seenRequests.length = 0;
   const server = createServer(async (request: IncomingMessage, response: ServerResponse) => {
-    seenRequests.push({ method: request.method, url: request.url, cookie: request.headers.cookie });
+    const requestBody = request.method === 'POST' ? await readBody(request) : undefined;
+    seenRequests.push({ method: request.method, url: request.url, cookie: request.headers.cookie, body: requestBody });
     if (request.method === 'POST' && request.url === '/v2/Auth/Login') {
-      const body = new URLSearchParams(await readBody(request));
+      const body = new URLSearchParams(requestBody ?? '');
       if (body.get('Username') === 'admin' && body.get('Password') === 'RemotePassword!42') {
         response.statusCode = 200;
         response.setHeader('set-cookie', 'ASP.NET_SessionId=processing-session; Path=/; HttpOnly');
@@ -70,6 +71,22 @@ async function startMockOxyGen() {
     }
     if (request.method === 'GET' && request.url === '/web-api/WHE/Events/300') {
       response.end(JSON.stringify({ Id: 300, MappedIndexData: { safe: true } }));
+      return;
+    }
+    if (request.method === 'POST' && request.url === '/web-api/BUS/workflows/triggers/100/cancel?isParent=false') {
+      response.end(JSON.stringify('Successfully canceled.'));
+      return;
+    }
+    if (request.method === 'POST' && request.url === '/web-api/BUS/workflows/events/200/recovery?triggerId=100') {
+      response.end(JSON.stringify('Recovery requested.'));
+      return;
+    }
+    if (request.method === 'POST' && request.url === '/web-api/BUS/workflows/events/200/cancel?action=2') {
+      response.end(JSON.stringify('Event canceled.'));
+      return;
+    }
+    if (request.method === 'POST' && request.url === '/web-api/WHE/events/queue/300') {
+      response.end(JSON.stringify('Restore queued.'));
       return;
     }
     response.statusCode = 404;
@@ -161,6 +178,45 @@ describe('Processing Errors typed read-only routes', () => {
     expect(invalidService.statusCode).toBe(400);
     expect(proxyAttempt.statusCode).toBe(404);
     expect(seenRequests).toEqual([]);
+    await fixture.app.close();
+  });
+
+  it('requires granular action permissions and confirmation before forwarding row actions server-side', async () => {
+    const fixture = await seedFixture();
+    seenRequests.length = 0;
+
+    const denied = await fixture.app.inject({ method: 'POST', url: `/api/instances/${fixture.instanceA.id}/processing/triggers/100/cancel`, headers: { authorization: authHeader(fixture.tokens.viewer) }, payload: { confirmed: true, isParent: false } });
+    const unconfirmed = await fixture.app.inject({ method: 'POST', url: `/api/instances/${fixture.instanceA.id}/processing/triggers/100/cancel`, headers: { authorization: authHeader(fixture.tokens.admin) }, payload: { isParent: false } });
+    const forwarded = await fixture.app.inject({ method: 'POST', url: `/api/instances/${fixture.instanceA.id}/processing/triggers/100/cancel`, headers: { authorization: authHeader(fixture.tokens.admin) }, payload: { confirmed: true, isParent: false } });
+
+    expect(denied.statusCode).toBe(403);
+    expect(unconfirmed.statusCode).toBe(400);
+    expect(forwarded.statusCode).toBe(200);
+    expect(forwarded.json()).toEqual({ ok: true, result: 'Successfully canceled.' });
+    const remoteActions = seenRequests.filter((entry) => entry.url?.includes('/cancel'));
+    expect(remoteActions).toHaveLength(1);
+    expect(remoteActions[0]).toMatchObject({ method: 'POST', url: '/web-api/BUS/workflows/triggers/100/cancel?isParent=false' });
+    expect(remoteActions[0].cookie).toContain('ASP.NET_SessionId=processing-session');
+    expect(remoteActions[0].body).toBe('');
+    await fixture.app.close();
+  });
+
+  it('forwards confirmed workflow and service row actions through typed endpoints only', async () => {
+    const fixture = await seedFixture();
+    seenRequests.length = 0;
+
+    const recovery = await fixture.app.inject({ method: 'POST', url: `/api/instances/${fixture.instanceA.id}/processing/workflow-events/200/recovery`, headers: { authorization: authHeader(fixture.tokens.admin) }, payload: { confirmed: true, triggerId: 100 } });
+    const cancel = await fixture.app.inject({ method: 'POST', url: `/api/instances/${fixture.instanceA.id}/processing/workflow-events/200/cancel`, headers: { authorization: authHeader(fixture.tokens.admin) }, payload: { confirmed: true, action: 2 } });
+    const restore = await fixture.app.inject({ method: 'POST', url: `/api/instances/${fixture.instanceA.id}/processing/service-events/WHE/300/restore`, headers: { authorization: authHeader(fixture.tokens.admin) }, payload: { confirmed: true } });
+
+    expect(recovery.statusCode).toBe(200);
+    expect(cancel.statusCode).toBe(200);
+    expect(restore.statusCode).toBe(200);
+    expect(seenRequests.map((entry) => `${entry.method} ${entry.url}`)).toEqual(expect.arrayContaining([
+      'POST /web-api/BUS/workflows/events/200/recovery?triggerId=100',
+      'POST /web-api/BUS/workflows/events/200/cancel?action=2',
+      'POST /web-api/WHE/events/queue/300'
+    ]));
     await fixture.app.close();
   });
 });

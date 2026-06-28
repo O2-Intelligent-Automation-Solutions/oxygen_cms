@@ -20,6 +20,18 @@ async function fetchJson<T>(path: string, token: string, signal?: AbortSignal): 
   return body as T;
 }
 
+async function postJson<T>(path: string, token: string, payload: Record<string, unknown>): Promise<T> {
+  const headers = authHeaders(token);
+  headers.set('Content-Type', 'application/json');
+  const response = await fetch(path, { method: 'POST', headers, body: JSON.stringify(payload) });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = body && typeof body === 'object' && 'error' in body ? String((body as { error?: unknown }).error) : `Processing Errors action failed with status ${response.status}`;
+    throw new Error(message);
+  }
+  return body as T;
+}
+
 function normalizeTake(take: number) {
   if (!Number.isFinite(take) || take <= 0) return DEFAULT_TAKE;
   return Math.min(Math.floor(take), MAX_TAKE);
@@ -152,6 +164,22 @@ export async function getChildServiceEventGrid(instanceId: string, serviceIdenti
 
 export async function getServiceEventDetail(instanceId: string, serviceIdentifier: string, eventId: string | number, token: string, signal?: AbortSignal) {
   return fetchJson<ProcessingGridRecord>(`/api/instances/${encodeURIComponent(instanceId)}/processing/service-events/${encodeURIComponent(serviceIdentifier)}/${encodeURIComponent(String(eventId))}`, token, signal);
+}
+
+export async function cancelTrigger(instanceId: string, triggerId: string | number, token: string, isParent: boolean) {
+  return postJson<{ ok: true; result: unknown }>(`/api/instances/${encodeURIComponent(instanceId)}/processing/triggers/${encodeURIComponent(String(triggerId))}/cancel`, token, { confirmed: true, isParent });
+}
+
+export async function recoverWorkflowEvent(instanceId: string, eventId: string | number, token: string, triggerId: string | number) {
+  return postJson<{ ok: true; result: unknown }>(`/api/instances/${encodeURIComponent(instanceId)}/processing/workflow-events/${encodeURIComponent(String(eventId))}/recovery`, token, { confirmed: true, triggerId });
+}
+
+export async function cancelWorkflowEvent(instanceId: string, eventId: string | number, token: string, action: 1 | 2 | 3) {
+  return postJson<{ ok: true; result: unknown }>(`/api/instances/${encodeURIComponent(instanceId)}/processing/workflow-events/${encodeURIComponent(String(eventId))}/cancel`, token, { confirmed: true, action });
+}
+
+export async function restoreServiceEvent(instanceId: string, serviceIdentifier: string, eventId: string | number, token: string) {
+  return postJson<{ ok: true; result: unknown }>(`/api/instances/${encodeURIComponent(instanceId)}/processing/service-events/${encodeURIComponent(serviceIdentifier)}/${encodeURIComponent(String(eventId))}/restore`, token, { confirmed: true });
 }
 
 export function recordValue(record: ProcessingGridRecord, field: string) {

@@ -153,11 +153,15 @@ const PERMISSION_CATALOG: PermissionCatalogItem[] = [
   { key: 'system.version.view', label: 'View CMS version/update status', description: 'View installed CMS version, source revision, and available update status.', group: 'System' },
   { key: 'issueTypes.view', label: 'View issue type catalog', description: 'View the system issue type catalog, severities, matching rules, and affected instance evidence.', group: 'System' },
   { key: 'processing.errors.view', label: 'View Processing Errors', description: 'View server-paged OxyGen Processing trigger, workflow event, and service event data for accessible instances.', group: 'System' },
+  { key: 'processing.errors.cancelTrigger', label: 'Cancel Processing Error triggers', description: 'Cancel individual OxyGen workflow triggers for accessible instances.', group: 'System' },
+  { key: 'processing.errors.recoverWorkflowEvent', label: 'Recover Processing Error workflow events', description: 'Resume individual OxyGen workflow events for accessible instances.', group: 'System' },
+  { key: 'processing.errors.cancelWorkflowEvent', label: 'Cancel Processing Error workflow events', description: 'Cancel individual OxyGen workflow events for accessible instances.', group: 'System' },
+  { key: 'processing.errors.restoreServiceEvent', label: 'Restore Processing Error service events', description: 'Restore individual OxyGen service events for accessible instances.', group: 'System' },
   { key: 'gridPreferences.manage', label: 'Manage grid preferences', description: 'Save and maintain user grid column, filter, and display preferences.', group: 'UI' }
 ];
 const DEFAULT_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
   SystemAdmin: PERMISSION_CATALOG.map((permission) => permission.key),
-  TenantAdmin: ['dashboard.view', 'instances.view', 'instances.manage', 'instances.importExport', 'users.manage', 'groups.manage', 'roles.manage', 'tenants.view', 'logs.view', 'system.version.view', 'issueTypes.view', 'processing.errors.view', 'gridPreferences.manage'],
+  TenantAdmin: ['dashboard.view', 'instances.view', 'instances.manage', 'instances.importExport', 'users.manage', 'groups.manage', 'roles.manage', 'tenants.view', 'logs.view', 'system.version.view', 'issueTypes.view', 'processing.errors.view', 'processing.errors.cancelTrigger', 'processing.errors.recoverWorkflowEvent', 'processing.errors.cancelWorkflowEvent', 'processing.errors.restoreServiceEvent', 'gridPreferences.manage'],
   Operator: ['dashboard.view', 'instances.view', 'instances.manage', 'logs.view', 'system.version.view', 'issueTypes.view', 'processing.errors.view', 'gridPreferences.manage'],
   Viewer: ['dashboard.view', 'instances.view', 'system.version.view', 'issueTypes.view', 'processing.errors.view', 'gridPreferences.manage']
 };
@@ -2626,7 +2630,7 @@ export function App() {
       return <article className="panel workflow-errors-page"><p className="panel-copy">You do not have permission to view Processing Errors.</p><Button className="compact-button" type="button" onClick={() => void openInstanceDashboard(selectedInstance)}><ChevronLeft /> Back to Instance</Button></article>;
     }
     const instance = healthDetails?.instance?.id === selectedInstance.id ? healthDetails.instance : selectedInstance;
-    return <ProcessingErrorsPage instance={instance} token={token} onBackToInstance={() => void openInstanceDashboard(instance)} />;
+    return <ProcessingErrorsPage instance={instance} token={token} permissions={profile?.permissions ?? []} onBackToInstance={() => void openInstanceDashboard(instance)} />;
   }
 
   function renderDashboard() {

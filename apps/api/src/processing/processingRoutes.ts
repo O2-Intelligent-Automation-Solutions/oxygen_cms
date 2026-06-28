@@ -10,6 +10,13 @@ import type { ProcessingRemoteAccess } from './types.js';
 type AuthenticatedRequest = FastifyRequest & { authProfile: AuthProfile };
 type ProcessingRepository = InstanceRepository & { getRemoteAccess?(instanceId: string): Promise<ProcessingRemoteAccess | null> };
 
+type ProcessingActionPayload = {
+  confirmed?: unknown;
+  isParent?: unknown;
+  triggerId?: unknown;
+  action?: unknown;
+};
+
 function instanceScope(profile: AuthProfile, includeArchived = true) {
   if (profile.user.instanceAccessMode === 'none') return { instanceIds: [], includeArchived };
   const instanceIds = new Set<string>();
@@ -54,9 +61,33 @@ function paramsRecord(request: FastifyRequest) {
   return request.params as Record<string, string>;
 }
 
+function bodyRecord(request: FastifyRequest): ProcessingActionPayload {
+  return (request.body && typeof request.body === 'object' ? request.body : {}) as ProcessingActionPayload;
+}
+
+function requireConfirmed(request: FastifyRequest) {
+  if (bodyRecord(request).confirmed !== true) throw new Error('Processing action confirmation is required.');
+}
+
+function numericId(value: string | unknown, label: string) {
+  const parsed = typeof value === 'number' ? value : Number(String(value));
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error(`Invalid ${label}.`);
+  return parsed;
+}
+
+function booleanValue(value: unknown) {
+  return value === true || value === 'true';
+}
+
+function cancelActionValue(value: unknown) {
+  const action = numericId(value, 'cancel action');
+  if (![1, 2, 3].includes(action)) throw new Error('Invalid cancel action.');
+  return action;
+}
+
 function handleError(reply: FastifyReply, error: unknown) {
   const message = error instanceof Error ? error.message : 'Processing Errors request failed.';
-  if (message === 'Invalid service identifier.') return reply.code(400).send({ error: message });
+  if (message === 'Invalid service identifier.' || message.startsWith('Invalid ') || message.includes('confirmation is required')) return reply.code(400).send({ error: message });
   if (message.includes('credentials are not available')) return reply.code(503).send({ error: message });
   if (message.includes('authentication failed')) return reply.code(502).send({ error: message });
   return reply.code(502).send({ error: message });
@@ -64,6 +95,10 @@ function handleError(reply: FastifyReply, error: unknown) {
 
 export async function registerProcessingRoutes(app: FastifyInstance, authRepository: AuthRepository, instanceRepository: ProcessingRepository, client = new OxygenProcessingClient()) {
   const viewPreHandler = [requireAuth(authRepository), requirePermission('processing.errors.view')];
+  const cancelTriggerPreHandler = [requireAuth(authRepository), requirePermission('processing.errors.cancelTrigger')];
+  const recoverWorkflowEventPreHandler = [requireAuth(authRepository), requirePermission('processing.errors.recoverWorkflowEvent')];
+  const cancelWorkflowEventPreHandler = [requireAuth(authRepository), requirePermission('processing.errors.cancelWorkflowEvent')];
+  const restoreServiceEventPreHandler = [requireAuth(authRepository), requirePermission('processing.errors.restoreServiceEvent')];
 
   async function withInstance(request: FastifyRequest, reply: FastifyReply, handler: (access: ProcessingRemoteAccess) => Promise<unknown>) {
     const profile = (request as AuthenticatedRequest).authProfile;
@@ -79,18 +114,43 @@ export async function registerProcessingRoutes(app: FastifyInstance, authReposit
     }
   }
 
+  async function withAction(request: FastifyRequest, reply: FastifyReply, handler: (access: ProcessingRemoteAccess) => Promise<unknown>) {
+    return withInstance(request, reply, async (access) => {
+      requireConfirmed(request);
+      return { ok: true, result: await handler(access) };
+    });
+  }
+
   app.get('/api/instances/:instanceId/processing/triggers/schema', { preHandler: viewPreHandler }, async (request, reply) => withInstance(request, reply, (access) => client.getSchema(access, '/web-api/BUS/workflows/triggers/schema')));
 
   app.get('/api/instances/:instanceId/processing/triggers/grid', { preHandler: viewPreHandler }, async (request, reply) => withInstance(request, reply, (access) => client.getGrid(access, '/web-api/BUS/workflows/triggers/grid', parseProcessingDataSourceRequest(queryRecord(request)))));
 
   app.get('/api/instances/:instanceId/processing/triggers/:triggerId/children', { preHandler: viewPreHandler }, async (request, reply) => withInstance(request, reply, (access) => {
-    const triggerId = paramsRecord(request).triggerId;
+    const triggerId = numericId(paramsRecord(request).triggerId, 'trigger id');
     return client.getGrid(access, '/web-api/BUS/workflows/triggers/grid', parseProcessingDataSourceRequest(queryRecord(request), { filter: `IsChild~eq~true~and~TriggerGroupId~eq~${triggerId}` }));
+  }));
+
+  app.post('/api/instances/:instanceId/processing/triggers/:triggerId/cancel', { preHandler: cancelTriggerPreHandler }, async (request, reply) => withAction(request, reply, (access) => {
+    const triggerId = numericId(paramsRecord(request).triggerId, 'trigger id');
+    const isParent = booleanValue(bodyRecord(request).isParent);
+    return client.postAction(access, `/web-api/BUS/workflows/triggers/${encodeURIComponent(String(triggerId))}/cancel?isParent=${isParent}`);
   }));
 
   app.get('/api/instances/:instanceId/processing/workflow-events/schema', { preHandler: viewPreHandler }, async (request, reply) => withInstance(request, reply, (access) => client.getSchema(access, '/web-api/BUS/workflows/events/schema')));
 
   app.get('/api/instances/:instanceId/processing/workflow-events/grid', { preHandler: viewPreHandler }, async (request, reply) => withInstance(request, reply, (access) => client.getGrid(access, '/web-api/BUS/workflows/events/grid', parseProcessingDataSourceRequest(queryRecord(request)))));
+
+  app.post('/api/instances/:instanceId/processing/workflow-events/:eventId/recovery', { preHandler: recoverWorkflowEventPreHandler }, async (request, reply) => withAction(request, reply, (access) => {
+    const eventId = numericId(paramsRecord(request).eventId, 'workflow event id');
+    const triggerId = numericId(bodyRecord(request).triggerId, 'trigger id');
+    return client.postAction(access, `/web-api/BUS/workflows/events/${encodeURIComponent(String(eventId))}/recovery?triggerId=${encodeURIComponent(String(triggerId))}`);
+  }));
+
+  app.post('/api/instances/:instanceId/processing/workflow-events/:eventId/cancel', { preHandler: cancelWorkflowEventPreHandler }, async (request, reply) => withAction(request, reply, (access) => {
+    const eventId = numericId(paramsRecord(request).eventId, 'workflow event id');
+    const action = cancelActionValue(bodyRecord(request).action);
+    return client.postAction(access, `/web-api/BUS/workflows/events/${encodeURIComponent(String(eventId))}/cancel?action=${action}`);
+  }));
 
   app.get('/api/instances/:instanceId/processing/service-events/:serviceIdentifier/schema', { preHandler: viewPreHandler }, async (request, reply) => withInstance(request, reply, (access) => {
     const serviceIdentifier = paramsRecord(request).serviceIdentifier;
@@ -107,12 +167,18 @@ export async function registerProcessingRoutes(app: FastifyInstance, authReposit
   app.get('/api/instances/:instanceId/processing/service-events/:serviceIdentifier/:eventId', { preHandler: viewPreHandler }, async (request, reply) => withInstance(request, reply, (access) => {
     const { serviceIdentifier, eventId } = paramsRecord(request);
     assertValidServiceIdentifier(serviceIdentifier);
-    return client.getDetail(access, `/web-api/${encodeURIComponent(serviceIdentifier)}/Events/${encodeURIComponent(eventId)}`);
+    return client.getDetail(access, `/web-api/${encodeURIComponent(serviceIdentifier)}/Events/${encodeURIComponent(String(numericId(eventId, 'service event id')))}`);
+  }));
+
+  app.post('/api/instances/:instanceId/processing/service-events/:serviceIdentifier/:eventId/restore', { preHandler: restoreServiceEventPreHandler }, async (request, reply) => withAction(request, reply, (access) => {
+    const { serviceIdentifier, eventId } = paramsRecord(request);
+    assertValidServiceIdentifier(serviceIdentifier);
+    return client.postAction(access, `/web-api/${encodeURIComponent(serviceIdentifier)}/events/queue/${encodeURIComponent(String(numericId(eventId, 'service event id')))}`);
   }));
 
   app.get('/api/instances/:instanceId/processing/service-events/:serviceIdentifier/:eventId/children', { preHandler: viewPreHandler }, async (request, reply) => withInstance(request, reply, (access) => {
     const { serviceIdentifier, eventId } = paramsRecord(request);
     assertValidServiceIdentifier(serviceIdentifier);
-    return client.getGrid(access, `/web-api/${encodeURIComponent(serviceIdentifier)}/Events/Grid`, parseProcessingDataSourceRequest(queryRecord(request), { filter: `ParentId~eq~${eventId}` }));
+    return client.getGrid(access, `/web-api/${encodeURIComponent(serviceIdentifier)}/Events/Grid`, parseProcessingDataSourceRequest(queryRecord(request), { filter: `ParentId~eq~${numericId(eventId, 'service event id')}` }));
   }));
 }

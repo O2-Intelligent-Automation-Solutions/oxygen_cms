@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Grid, GridColumn, type GridCellProps, type GridDataStateChangeEvent, type GridRowClickEvent } from '@progress/kendo-react-grid';
 import { Button } from '@progress/kendo-react-buttons';
-import { ChevronDown, ChevronRight, LoaderCircle, RotateCw } from 'lucide-react';
+import { Ban, ChevronDown, ChevronRight, LoaderCircle, RotateCw } from 'lucide-react';
 import type { ProcessingFilterPreset, ProcessingGridRecord, ProcessingGridState, ProcessingSchema } from './types';
-import { getTriggerGrid, recordValue } from './api';
+import { cancelTrigger, getTriggerGrid, recordValue } from './api';
 import { schemaColumns, triggerIdField, triggerStatusField } from './schemaColumns';
 import { ChildTriggerGrid } from './ChildTriggerGrid';
 
@@ -12,6 +12,7 @@ type TriggerGridProps = {
   token: string;
   schema: ProcessingSchema | null;
   selectedTrigger: ProcessingGridRecord | null;
+  canCancelTrigger: boolean;
   onSelectedTriggerChange: (trigger: ProcessingGridRecord | null) => void;
   onLoaded: (timestamp: string) => void;
 };
@@ -34,7 +35,12 @@ function statusTone(status: unknown) {
   return 'unknown';
 }
 
-export function TriggerGrid({ instanceId, token, schema, selectedTrigger, onSelectedTriggerChange, onLoaded }: TriggerGridProps) {
+function actionResultMessage(result: unknown, fallback: string) {
+  if (typeof result === 'string' && result.trim()) return result;
+  return fallback;
+}
+
+export function TriggerGrid({ instanceId, token, schema, selectedTrigger, canCancelTrigger, onSelectedTriggerChange, onLoaded }: TriggerGridProps) {
   const [state, setState] = useState<ProcessingGridState>({ skip: 0, take: 50, sort: [] });
   const [preset, setPreset] = useState<ProcessingFilterPreset>('active-errors');
   const [search, setSearch] = useState('');
@@ -42,6 +48,8 @@ export function TriggerGrid({ instanceId, token, schema, selectedTrigger, onSele
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [actionBusyId, setActionBusyId] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [expandedTriggerId, setExpandedTriggerId] = useState<string | null>(null);
   const columns = useMemo(() => schemaColumns(schema, 'Parent'), [schema]);
@@ -70,6 +78,24 @@ export function TriggerGrid({ instanceId, token, schema, selectedTrigger, onSele
     onSelectedTriggerChange(event.dataItem as ProcessingGridRecord);
   }
 
+  async function handleCancel(row: ProcessingGridRecord) {
+    const id = rowId(schema, row);
+    const isParent = Boolean(row.IsParent ?? row.isParent);
+    if (!window.confirm(`Cancel trigger ${id}? This forwards a server-side OxyGen mutation for this one visible instance only.`)) return;
+    setActionBusyId(id);
+    setActionMessage(null);
+    setError(null);
+    try {
+      const response = await cancelTrigger(instanceId, id, token, isParent);
+      setActionMessage(actionResultMessage(response.result, `Trigger ${id} canceled.`));
+      setRefreshKey((value) => value + 1);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Cancel trigger failed.');
+    } finally {
+      setActionBusyId(null);
+    }
+  }
+
   function ExpandCell(props: GridCellProps) {
     const row = props.dataItem as ProcessingGridRecord;
     const id = rowId(schema, row);
@@ -79,6 +105,14 @@ export function TriggerGrid({ instanceId, token, schema, selectedTrigger, onSele
         {expandedTriggerId === id ? <ChevronDown /> : <ChevronRight />}{expandable ? 'Children' : '—'}
       </Button>
     </td>;
+  }
+
+  function ActionCell(props: GridCellProps) {
+    const row = props.dataItem as ProcessingGridRecord;
+    const id = rowId(schema, row);
+    const status = String(recordValue(row, triggerStatusField(schema)) ?? '').toLowerCase();
+    const disabledByStatus = status.includes('cancel') || status.includes('complete') || status.includes('success');
+    return <td className="k-table-td processing-action-cell"><Button className="compact-button" type="button" fillMode="flat" disabled={!canCancelTrigger || disabledByStatus || actionBusyId === id} title={canCancelTrigger ? 'Cancel Trigger' : 'Permission required'} onClick={(event) => { event.stopPropagation(); void handleCancel(row); }}><Ban /> Cancel</Button></td>;
   }
 
   function StatusCell(props: GridCellProps) {
@@ -95,6 +129,7 @@ export function TriggerGrid({ instanceId, token, schema, selectedTrigger, onSele
       <label className="processing-inline-filter"><span>Search</span><input value={search} onChange={(event) => { setSearch(event.target.value); setState((current) => ({ ...current, skip: 0 })); }} placeholder="Workflow, trigger, service, job, status" /></label>
       <Button className="compact-button" type="button" onClick={() => setRefreshKey((value) => value + 1)}><RotateCw /> Refresh</Button>
     </div>
+    {actionMessage && <p className="panel-copy success">{actionMessage}</p>}
     {error && <p className="panel-copy warning">{error}</p>}
     <div className="processing-grid-scroll">
       {loading && <div className="cms-loading-overlay grid-loading-overlay" role="status" aria-live="polite"><LoaderCircle className="cms-loading-spinner" /><span>Loading Processing Errors trigger page…</span></div>}
@@ -116,6 +151,7 @@ export function TriggerGrid({ instanceId, token, schema, selectedTrigger, onSele
         onDataStateChange={(event: GridDataStateChangeEvent) => setState({ skip: event.dataState.skip ?? 0, take: event.dataState.take ?? 50, sort: event.dataState.sort ?? [], filter: event.dataState.filter })}
       >
         <GridColumn title="Expand" width={120} filterable={false} sortable={false} cells={{ data: ExpandCell }} />
+        <GridColumn title="Actions" width={140} filterable={false} sortable={false} cells={{ data: ActionCell }} />
         {columns.map((column) => <GridColumn key={String(column.field)} {...column} cells={String(column.field) === triggerStatusField(schema) ? { data: StatusCell } : column.cells} />)}
       </Grid>
     </div>

@@ -158,6 +158,11 @@ function classifyApplicationActivity(method: string, url: string, statusCode: nu
     return { type: 'UI', message: succeeded ? `Updated ${setting}.` : `Update to ${setting} failed.`, entityGuid: null, tenantId: null };
   }
 
+  if (area === 'instances' && segments[3] === 'processing') {
+    const processingAction = segments.slice(4).join('/');
+    return { type: 'Audit', message: succeeded ? `Processing Errors action completed: ${processingAction}.` : `Processing Errors action failed: ${processingAction}.`, entityGuid: entityGuidFromSegments(segments), tenantId: null };
+  }
+
   const entityLabel = entityPathLabels[area];
   if (entityLabel && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
     const verb = actionVerb(method);

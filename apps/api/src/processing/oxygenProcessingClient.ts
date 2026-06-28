@@ -101,11 +101,15 @@ export class OxygenProcessingClient {
     return cookieHeader;
   }
 
-  private async get(access: ProcessingRemoteAccess, path: string) {
+  private async request(access: ProcessingRemoteAccess, method: 'GET' | 'POST', path: string) {
     const cookie = await this.session(access);
-    const response = await requestRemote(joinUrl(access.instance.apiBaseUrl, path), { method: 'GET', headers: { cookie }, timeoutMs: this.timeoutMs });
+    const response = await requestRemote(joinUrl(access.instance.apiBaseUrl, path), { method, headers: { cookie }, timeoutMs: this.timeoutMs });
     if (response.status < 200 || response.status >= 400) throw new Error(`OxyGen request failed with HTTP ${response.status}.`);
     return parseJson(response.body);
+  }
+
+  private async get(access: ProcessingRemoteAccess, path: string) {
+    return this.request(access, 'GET', path);
   }
 
   async getSchema(access: ProcessingRemoteAccess, path: string) {
@@ -121,5 +125,9 @@ export class OxygenProcessingClient {
 
   async getDetail(access: ProcessingRemoteAccess, path: string) {
     return this.get(access, path);
+  }
+
+  async postAction(access: ProcessingRemoteAccess, path: string) {
+    return this.request(access, 'POST', path);
   }
 }

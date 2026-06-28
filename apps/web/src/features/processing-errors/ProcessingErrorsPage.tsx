@@ -17,6 +17,7 @@ type ProcessingErrorsPageProps = {
     launchUrl: string;
   };
   token: string;
+  permissions: string[];
   onBackToInstance: () => void;
 };
 
@@ -27,7 +28,7 @@ function formatDateTime(value: string | null) {
   return date.toLocaleString();
 }
 
-export function ProcessingErrorsPage({ instance, token, onBackToInstance }: ProcessingErrorsPageProps) {
+export function ProcessingErrorsPage({ instance, token, permissions, onBackToInstance }: ProcessingErrorsPageProps) {
   const [schema, setSchema] = useState<ProcessingSchema | null>(null);
   const [schemaError, setSchemaError] = useState<string | null>(null);
   const [schemaLoading, setSchemaLoading] = useState(false);
@@ -61,6 +62,12 @@ export function ProcessingErrorsPage({ instance, token, onBackToInstance }: Proc
     setSelectedWorkflowEvent(event);
     setSelectedServiceEvent(null);
   }, []);
+  const actionPermissions = {
+    canCancelTrigger: permissions.includes('processing.errors.cancelTrigger'),
+    canRecoverWorkflowEvent: permissions.includes('processing.errors.recoverWorkflowEvent'),
+    canCancelWorkflowEvent: permissions.includes('processing.errors.cancelWorkflowEvent'),
+    canRestoreServiceEvent: permissions.includes('processing.errors.restoreServiceEvent')
+  };
   const selectedServiceIdentifier = selectedWorkflowEvent ? String(recordValue(selectedWorkflowEvent, 'ServiceIdentifier') ?? '') || null : null;
 
   return <section className="processing-errors-page native-processing-errors" aria-label="Processing Errors">
@@ -88,11 +95,11 @@ export function ProcessingErrorsPage({ instance, token, onBackToInstance }: Proc
     {schemaLoading && !schema && <article className="panel processing-loading-panel"><LoaderCircle className="cms-loading-spinner" /><span>Loading OxyGen trigger schema…</span></article>}
     {schemaError && <article className="panel processing-error-panel"><strong>Processing Errors schema unavailable</strong><p>{schemaError}</p></article>}
 
-    <TriggerGrid instanceId={instance.id} token={token} schema={schema} selectedTrigger={selectedTrigger} onSelectedTriggerChange={handleSelectedTriggerChange} onLoaded={handleLoaded} />
+    <TriggerGrid instanceId={instance.id} token={token} schema={schema} selectedTrigger={selectedTrigger} canCancelTrigger={actionPermissions.canCancelTrigger} onSelectedTriggerChange={handleSelectedTriggerChange} onLoaded={handleLoaded} />
 
-    <WorkflowEventGrid instanceId={instance.id} token={token} triggerSchema={schema} selectedTrigger={selectedTrigger} selectedWorkflowEvent={selectedWorkflowEvent} onSelectedWorkflowEventChange={handleSelectedWorkflowEventChange} />
+    <WorkflowEventGrid instanceId={instance.id} token={token} triggerSchema={schema} selectedTrigger={selectedTrigger} selectedWorkflowEvent={selectedWorkflowEvent} canRecoverWorkflowEvent={actionPermissions.canRecoverWorkflowEvent} canCancelWorkflowEvent={actionPermissions.canCancelWorkflowEvent} onSelectedWorkflowEventChange={handleSelectedWorkflowEventChange} />
 
-    <ServiceEventGrid instanceId={instance.id} token={token} selectedWorkflowEvent={selectedWorkflowEvent} selectedServiceEvent={selectedServiceEvent} onSelectedServiceEventChange={setSelectedServiceEvent} />
+    <ServiceEventGrid instanceId={instance.id} token={token} selectedWorkflowEvent={selectedWorkflowEvent} selectedServiceEvent={selectedServiceEvent} canRestoreServiceEvent={actionPermissions.canRestoreServiceEvent} onSelectedServiceEventChange={setSelectedServiceEvent} />
 
     <EventDetailsPanel instanceId={instance.id} token={token} serviceIdentifier={selectedServiceIdentifier} selectedServiceEvent={selectedServiceEvent} />
 

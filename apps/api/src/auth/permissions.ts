@@ -28,6 +28,10 @@ export const PERMISSIONS = [
   { key: 'system.version.view', label: 'View version', description: 'View CMS release and update information.', scope: 'tenant' },
   { key: 'issueTypes.view', label: 'View issue types', description: 'View issue classification catalog and affected instance summaries.', scope: 'tenant' },
   { key: 'processing.errors.view', label: 'View Processing Errors', description: 'View server-paged OxyGen Processing trigger, workflow event, and service event data for accessible instances.', scope: 'tenant' },
+  { key: 'processing.errors.cancelTrigger', label: 'Cancel Processing Error triggers', description: 'Cancel individual OxyGen workflow triggers for accessible instances.', scope: 'tenant' },
+  { key: 'processing.errors.recoverWorkflowEvent', label: 'Recover Processing Error workflow events', description: 'Resume individual OxyGen workflow events for accessible instances.', scope: 'tenant' },
+  { key: 'processing.errors.cancelWorkflowEvent', label: 'Cancel Processing Error workflow events', description: 'Cancel individual OxyGen workflow events for accessible instances.', scope: 'tenant' },
+  { key: 'processing.errors.restoreServiceEvent', label: 'Restore Processing Error service events', description: 'Restore individual OxyGen service events for accessible instances.', scope: 'tenant' },
   { key: 'gridPreferences.manage', label: 'Manage own grid preferences', description: 'Save personal grid layout preferences.', scope: 'self' }
 ] as const satisfies readonly PermissionDefinition[];
 
@@ -48,6 +52,10 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     'system.version.view',
     'issueTypes.view',
     'processing.errors.view',
+    'processing.errors.cancelTrigger',
+    'processing.errors.recoverWorkflowEvent',
+    'processing.errors.cancelWorkflowEvent',
+    'processing.errors.restoreServiceEvent',
     'gridPreferences.manage'
   ],
   Operator: [
