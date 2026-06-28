@@ -805,6 +805,203 @@ button.secondary {
   overscroll-behavior: contain;
 }
 
+.native-processing-errors {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  padding-bottom: 24px;
+}
+
+.native-processing-head {
+  align-items: flex-start;
+}
+
+.processing-errors-page-actions,
+.processing-grid-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: flex-end;
+  gap: 10px;
+  min-width: 0;
+}
+
+.processing-errors-guardrail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+}
+
+.processing-errors-guardrail-grid article,
+.processing-selection-strip,
+.processing-child-grid {
+  border: 1px solid rgba(125, 160, 188, 0.22);
+  border-radius: 12px;
+  background: rgba(3, 12, 22, 0.44);
+  padding: 12px;
+}
+
+.processing-errors-guardrail-grid span,
+.processing-grid-toolbar-summary span,
+.processing-selection-strip span,
+.processing-errors-guardrail-grid small {
+  color: var(--brand-muted);
+  font-size: 0.78rem;
+}
+
+.processing-errors-guardrail-grid strong {
+  display: block;
+  color: var(--brand-primary);
+  font-family: var(--brand-font-display);
+  font-size: 1.15rem;
+}
+
+.processing-trigger-panel {
+  display: grid;
+  gap: 0;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0;
+}
+
+.processing-grid-toolbar {
+  width: 100%;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--brand-line);
+  background: rgba(3, 12, 22, 0.36);
+}
+
+.processing-grid-toolbar-summary {
+  display: grid;
+  gap: 2px;
+  margin-right: auto;
+  min-width: 180px;
+}
+
+.processing-inline-filter {
+  display: grid;
+  gap: 4px;
+  color: var(--brand-muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.processing-inline-filter input,
+.processing-inline-filter select {
+  min-height: 34px;
+  min-width: 190px;
+  border: 1px solid rgba(125, 160, 188, 0.28);
+  border-radius: 8px;
+  background: rgba(3, 12, 22, 0.78);
+  color: var(--brand-text);
+  padding: 6px 10px;
+}
+
+.processing-grid-scroll {
+  position: relative;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-color: rgba(32, 214, 210, 0.62) rgba(3, 12, 22, 0.72);
+  scrollbar-width: thin;
+}
+
+.processing-grid-scroll.child {
+  border: 1px solid rgba(125, 160, 188, 0.18);
+  border-radius: 10px;
+}
+
+.processing-kendo-grid.k-grid {
+  min-width: 1480px;
+  min-height: 420px;
+}
+
+.processing-child-grid .processing-kendo-grid.k-grid {
+  min-height: 300px;
+}
+
+.processing-expand-cell {
+  text-align: center;
+}
+
+.processing-expand-button.k-button {
+  min-width: 92px;
+}
+
+.processing-status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(125, 160, 188, 0.28);
+  color: var(--brand-muted-2);
+  background: rgba(125, 160, 188, 0.08);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.processing-status-pill.issue {
+  border-color: rgba(248, 113, 113, 0.42);
+  background: rgba(248, 113, 113, 0.10);
+  color: #fecaca;
+}
+
+.processing-status-pill.warning {
+  border-color: rgba(251, 191, 36, 0.38);
+  background: rgba(251, 191, 36, 0.09);
+  color: #fde68a;
+}
+
+.processing-status-pill.ok {
+  border-color: rgba(52, 211, 153, 0.35);
+  background: rgba(52, 211, 153, 0.08);
+  color: #a7f3d0;
+}
+
+.processing-selection-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 12px;
+}
+
+.processing-child-grid {
+  display: grid;
+  gap: 10px;
+  margin: 0 12px 12px;
+}
+
+.processing-child-grid-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.processing-selected-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.processing-selected-detail {
+  margin: 0;
+}
+
+.processing-loading-panel,
+.processing-error-panel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.processing-error-panel {
+  color: #fecaca;
+  border-color: rgba(248, 113, 113, 0.32);
+}
+
 .admin-content:has(.tenant-dashboard)::-webkit-scrollbar,
 .admin-content.settings-section::-webkit-scrollbar,
 .admin-content.processing-errors-section::-webkit-scrollbar {
