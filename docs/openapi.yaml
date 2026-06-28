@@ -30,6 +30,7 @@ tags:
   - name: Groups
   - name: Users
   - name: Instances
+  - name: Processing Errors
   - name: Dashboard
   - name: System
   - name: Application Logs
@@ -695,6 +696,34 @@ paths:
         '403': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
         '502': { $ref: '#/components/responses/Error' }
+  /api/instances/{instanceId}/processing/triggers/{triggerId}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/instanceId'
+      - in: path
+        name: triggerId
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Processing Errors]
+      summary: Cancel an OxyGen workflow trigger
+      description: Requires `processing.errors.cancelTrigger` and explicit confirmation. The CMS authenticates to OxyGen server-side, forwards only the typed trigger cancel action, and never returns remote credentials or cookies to the browser.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/ProcessingActionConfirmation'
+                - type: object
+                  properties:
+                    isParent: { type: boolean, default: false }
+      responses:
+        '200': { description: Confirmed trigger cancel result., content: { application/json: { schema: { $ref: '#/components/schemas/ProcessingActionResponse' } } } }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
   /api/instances/{instanceId}/processing/workflow-events/schema:
     parameters:
       - $ref: '#/components/parameters/instanceId'
@@ -721,6 +750,58 @@ paths:
         - $ref: '#/components/parameters/processingFilter'
       responses:
         '200': { description: Server-paged grid data., content: { application/json: { schema: { $ref: '#/components/schemas/ProcessingGridResponse' } } } }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
+  /api/instances/{instanceId}/processing/workflow-events/{eventId}/recovery:
+    parameters:
+      - $ref: '#/components/parameters/instanceId'
+      - $ref: '#/components/parameters/eventId'
+    post:
+      tags: [Processing Errors]
+      summary: Recover an OxyGen workflow event
+      description: Requires `processing.errors.recoverWorkflowEvent` and explicit confirmation. Forwards a typed server-side recovery request with the selected workflow trigger id.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/ProcessingActionConfirmation'
+                - type: object
+                  required: [triggerId]
+                  properties:
+                    triggerId: { type: integer, minimum: 1 }
+      responses:
+        '200': { description: Confirmed workflow recovery result., content: { application/json: { schema: { $ref: '#/components/schemas/ProcessingActionResponse' } } } }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
+  /api/instances/{instanceId}/processing/workflow-events/{eventId}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/instanceId'
+      - $ref: '#/components/parameters/eventId'
+    post:
+      tags: [Processing Errors]
+      summary: Cancel an OxyGen workflow event
+      description: Requires `processing.errors.cancelWorkflowEvent` and explicit confirmation. The `action` value is the OxyGen workflow-event cancel action code accepted by the typed CMS route.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/ProcessingActionConfirmation'
+                - type: object
+                  required: [action]
+                  properties:
+                    action: { type: integer, enum: [1, 2, 3] }
+      responses:
+        '200': { description: Confirmed workflow cancel result., content: { application/json: { schema: { $ref: '#/components/schemas/ProcessingActionResponse' } } } }
+        '400': { $ref: '#/components/responses/Error' }
         '401': { $ref: '#/components/responses/Error' }
         '403': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
@@ -769,6 +850,27 @@ paths:
       summary: Get OxyGen service event details
       responses:
         '200': { description: Remote detail payload., content: { application/json: { schema: {} } } }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
+  /api/instances/{instanceId}/processing/service-events/{serviceIdentifier}/{eventId}/restore:
+    parameters:
+      - $ref: '#/components/parameters/instanceId'
+      - $ref: '#/components/parameters/serviceIdentifier'
+      - $ref: '#/components/parameters/eventId'
+    post:
+      tags: [Processing Errors]
+      summary: Restore an OxyGen service event
+      description: Requires `processing.errors.restoreServiceEvent` and explicit confirmation. The CMS validates the service identifier, authenticates server-side, and forwards the typed service-event restore request.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProcessingActionConfirmation' }
+      responses:
+        '200': { description: Confirmed service-event restore result., content: { application/json: { schema: { $ref: '#/components/schemas/ProcessingActionResponse' } } } }
         '400': { $ref: '#/components/responses/Error' }
         '401': { $ref: '#/components/responses/Error' }
         '403': { $ref: '#/components/responses/Error' }
@@ -1616,6 +1718,21 @@ components:
         total: { type: integer, minimum: 0 }
         raw:
           description: Original remote grid envelope when needed for schema-driven callers.
+    ProcessingActionConfirmation:
+      type: object
+      required: [confirmed]
+      properties:
+        confirmed:
+          type: boolean
+          const: true
+          description: Must be true before the CMS forwards a mutating Processing action to OxyGen.
+    ProcessingActionResponse:
+      type: object
+      required: [ok]
+      properties:
+        ok: { type: boolean, const: true }
+        result:
+          description: Sanitized remote OxyGen action result. Raw payloads, credentials, and cookies are not returned.
     SetupStatus:
       type: object
       additionalProperties: true
