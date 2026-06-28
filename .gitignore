@@ -14,3 +14,6 @@ apps/api/data/
 deploy/.env
 deploy/*.env
 !deploy/.gitkeep
+
+# Generated cron/status report exports
+reports/cron/*.html
