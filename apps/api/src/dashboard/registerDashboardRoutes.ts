@@ -145,6 +145,19 @@ function processingIssue(instance: OxyGenInstance) {
   return processingFailure(instance) || processingWarning(instance);
 }
 
+function workflowSummaryRecord(instance: OxyGenInstance) {
+  return parseDetailsJson(instance.workflowSummaryJson);
+}
+
+function workflowActiveErrorCount(instance: OxyGenInstance) {
+  const value = workflowSummaryRecord(instance).activeErrorCount;
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function workflowTriggerErrorIssue(instance: OxyGenInstance) {
+  return workflowActiveErrorCount(instance) > 0;
+}
+
 function connectivityIssueLabel(instance: OxyGenInstance) {
   if (instance.status === 'auth-error') return 'Authentication failure';
   if (isTlsConnectionError(instance)) return 'TLS / Connection Error';
@@ -164,7 +177,8 @@ function instanceIssueDetails(instance: OxyGenInstance, sslWarningSettings: SslC
   const issues: DashboardIssue[] = [];
   if (connectivityIssue(instance)) issues.push({ label: connectivityIssueLabel(instance), severity: 'failure' });
   if (licenseFailure(instance, licenseWarningSettings, latestLicense)) issues.push({ label: licenseIssueLabel(instance, licenseWarningSettings, latestLicense), severity: 'failure' });
-  if (processingFailure(instance)) issues.push({ label: 'Processing failure', severity: 'failure' });
+  if (workflowTriggerErrorIssue(instance)) issues.push({ label: 'Trigger errors', severity: 'failure' });
+  if (processingFailure(instance) && !workflowTriggerErrorIssue(instance)) issues.push({ label: 'Processing failure', severity: 'failure' });
   if (sslIssue(instance, sslWarningSettings)) issues.push({ label: sslCertificateIssueLabel(instance, sslWarningSettings), severity: 'warning' });
   if (licenseWarning(instance, licenseWarningSettings, latestLicense)) issues.push({ label: licenseIssueLabel(instance, licenseWarningSettings, latestLicense), severity: 'warning' });
   if (processingWarning(instance)) issues.push({ label: 'Processing warning', severity: 'warning' });
@@ -258,6 +272,7 @@ export async function registerDashboardRoutes(app: FastifyInstance, authReposito
           downInstances: instances.filter((instance) => instance.status === 'down').length,
           sslIssues: instances.filter((instance) => sslIssue(instance, sslWarningSettings)).length,
           licenseIssues: instances.filter((instance) => instance.issueDetails.some((issue) => issue.label.toLowerCase().startsWith('license '))).length,
+          triggerErrors: instances.filter(workflowTriggerErrorIssue).length,
           disabledInstances: scopedInstances.filter((instance) => !instance.isEnabled).length,
           connectivityIssues: instances.filter(connectivityIssue).length,
           processingIssues: instances.filter(processingIssue).length,

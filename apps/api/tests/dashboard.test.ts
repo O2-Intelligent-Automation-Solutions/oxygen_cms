@@ -106,7 +106,7 @@ describe('dashboard API', () => {
         instance({ id: 'acme-ssl', name: 'Acme SSL Warning', tenantId: tenant.id, status: 'ssl-error', sslValid: false }),
         instance({ id: 'acme-authssl', name: 'Acme SSL Auth Failure', tenantId: tenant.id, status: 'auth-error', sslValid: false, lastError: 'OxyGen authentication failed with HTTP 401.', licenseKey: null, licenseStatus: 'unknown' }),
         instance({ id: 'acme-license', name: 'Acme Missing License', tenantId: tenant.id, licenseKey: null, licenseStatus: 'error', licenseJson: { IsValid: false, IsExpired: false, LicenseKey: null } }),
-        instance({ id: 'acme-processing', name: 'Acme Processing', tenantId: tenant.id, processingStatus: 'error' }),
+        instance({ id: 'acme-processing', name: 'Acme Processing', tenantId: tenant.id, processingStatus: 'error', workflowSummaryJson: { totalTriggers: 2, triggerStatusCounts: { Pending: 1, Recovery: 1 }, activeErrorCount: 1, activeErrors: [{ workflowTriggerId: '7001', triggerStatus: 'Recovery' }] } }),
         instance({ id: 'acme-disabled', name: 'Acme Disabled', tenantId: tenant.id, isEnabled: false, status: 'down', lastError: 'Disabled host offline' }),
         instance({ id: 'other-down', name: 'Other Down', tenantId: otherTenant.id, status: 'down' })
       ])
@@ -118,7 +118,7 @@ describe('dashboard API', () => {
     const body = response.json();
     expect(body.dashboard.scope).toBe('tenant');
     expect(body.dashboard.tenant.id).toBe(tenant.id);
-    expect(body.dashboard.counts).toMatchObject({ groups: 1, users: 1, tenantRoles: 1, instances: 7, instancesWithIssues: 6, connectivityIssues: 3, sslIssues: 2, licenseIssues: 1, processingIssues: 1 });
+    expect(body.dashboard.counts).toMatchObject({ groups: 1, users: 1, tenantRoles: 1, instances: 7, instancesWithIssues: 6, connectivityIssues: 3, sslIssues: 2, licenseIssues: 1, triggerErrors: 1, processingIssues: 1 });
     expect(body.dashboard.instances.map((entry: { id: string }) => entry.id)).toEqual(['acme-up', 'acme-down', 'acme-tls', 'acme-ssl', 'acme-authssl', 'acme-license', 'acme-processing']);
     expect(body.dashboard.counts.disabledInstances).toBe(1);
     expect(body.dashboard.instances.find((entry: { id: string; hasIssue: boolean }) => entry.id === 'acme-disabled')).toBeUndefined();
@@ -130,6 +130,7 @@ describe('dashboard API', () => {
     expect(body.dashboard.instances.find((entry: { id: string; issues: string[] }) => entry.id === 'acme-down').issues).not.toContain('License API unavailable');
     expect(body.dashboard.instances.find((entry: { id: string; issues: string[] }) => entry.id === 'acme-authssl').issues).not.toContain('License API unavailable');
     expect(body.dashboard.instances.find((entry: { id: string; issues: string[]; severity: string; primaryIssue: string }) => entry.id === 'acme-license')).toMatchObject({ severity: 'failure', primaryIssue: 'License missing' });
+    expect(body.dashboard.instances.find((entry: { id: string; issues: string[]; severity: string; primaryIssue: string }) => entry.id === 'acme-processing')).toMatchObject({ severity: 'failure', primaryIssue: 'Trigger errors' });
     await app.close();
   });
 

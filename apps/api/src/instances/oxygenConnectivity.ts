@@ -4,7 +4,7 @@ import { connect as tcpConnect } from 'node:net';
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { connect as tlsConnect } from 'node:tls';
-import type { ConnectivityResult, ConnectivityStepResult, InstanceProtocol, LicenseProbeResult, LicenseStatus, WorkflowProbeResult, WorkflowTriggerIssue } from './types.js';
+import type { ConnectivityResult, ConnectivityStepResult, InstanceProtocol, LicenseProbeResult, LicenseStatus, WorkflowProbeResult, WorkflowTriggerIssue, WorkflowTriggerSummary } from './types.js';
 
 type ConnectivityInput = {
   instance: {
@@ -297,7 +297,7 @@ async function probeGlobalSettings(input: ConnectivityInput, cookieHeader: strin
 
 
 function skippedWorkflowProbe(message: string): WorkflowProbeResult {
-  return { step: { ok: false, skipped: true, message }, totalTriggers: 0, activeErrorCount: 0, activeErrors: [] };
+  return { step: { ok: false, skipped: true, message }, totalTriggers: 0, triggerStatusCounts: {}, openTriggers: [], activeErrorCount: 0, activeErrors: [] };
 }
 
 function recordsFromGrid(payload: unknown): Record<string, unknown>[] {
@@ -332,9 +332,58 @@ function recordBool(record: Record<string, unknown>, names: string[]) {
   return false;
 }
 
+function recordNumber(record: Record<string, unknown>, names: string[]) {
+  for (const name of names) {
+    const value = record[name];
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string' && value.trim()) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return null;
+}
+
 function isErroredStatus(status: string | null) {
   const normalized = status?.trim().toLowerCase() ?? '';
-  return normalized === 'errored' || normalized === 'error' || normalized === 'recovery' || normalized === 'failed';
+  return normalized === 'errored' || normalized === 'error' || normalized === 'recovery' || normalized === 'failed' || normalized.includes('recovery') || normalized.includes('exception');
+}
+
+function triggerStatusLabel(status: string | null, statusInfo?: string | null) {
+  const normalizedStatus = status?.trim() || 'Unknown';
+  const normalizedInfo = statusInfo?.trim();
+  if (!normalizedInfo || normalizedInfo.toLowerCase() === normalizedStatus.toLowerCase()) return normalizedStatus;
+  return `${normalizedStatus} - ${normalizedInfo}`;
+}
+
+function triggerHasErrors(trigger: Record<string, unknown>) {
+  return recordBool(trigger, ['HasErrors', 'hasErrors']) || isErroredStatus(recordString(trigger, ['Status', 'status'])) || isErroredStatus(recordString(trigger, ['StatusInfo', 'statusInfo']));
+}
+
+function countTriggersByStatus(triggers: Record<string, unknown>[]) {
+  return triggers.reduce<Record<string, number>>((counts, trigger) => {
+    const status = triggerStatusLabel(recordString(trigger, ['Status', 'status']), recordString(trigger, ['StatusInfo', 'statusInfo']));
+    counts[status] = (counts[status] ?? 0) + 1;
+    return counts;
+  }, {});
+}
+
+function summarizeTrigger(trigger: Record<string, unknown>): WorkflowTriggerSummary | null {
+  const triggerId = recordString(trigger, ['Id', 'WorkflowTriggerId', 'workflowTriggerId']) ?? '';
+  if (!triggerId) return null;
+  return {
+    workflowTriggerId: triggerId,
+    workflowName: recordString(trigger, ['WorkflowName', 'workflowName', 'Name', 'name']),
+    sourceIdentifier: recordString(trigger, ['SourceIdentifier', 'sourceIdentifier', 'Source_Identifier']),
+    sourceEndpointName: recordString(trigger, ['SourceEndpointName', 'sourceEndpointName', 'Source_Endpoint_Name']),
+    triggerStatus: triggerStatusLabel(recordString(trigger, ['Status', 'status']), recordString(trigger, ['StatusInfo', 'statusInfo'])),
+    statusInfo: recordString(trigger, ['StatusInfo', 'statusInfo']),
+    triggerDate: recordString(trigger, ['TriggerDate', 'triggerDate']),
+    completeDate: recordString(trigger, ['CompleteDate', 'completeDate']),
+    hasErrors: triggerHasErrors(trigger),
+    childTriggers: recordNumber(trigger, ['ChildTriggers', 'childTriggers']),
+    isParent: recordBool(trigger, ['IsParent', 'isParent'])
+  };
 }
 
 async function getJsonProbe(input: ConnectivityInput, cookieHeader: string, path: string): Promise<{ response: ProbeResponse; payload: unknown | null }> {
@@ -367,14 +416,16 @@ async function probeWorkflowTriggers(input: ConnectivityInput, cookieHeader: str
     const triggerFilter = "(IsChild~neq~true~and~(Status~eq~'Active'~or~Status~eq~'Pending'~or~Status~eq~'Errored'~or~Status~eq~'Recovery'))";
     const triggersResponse = await getJsonProbe(input, cookieHeader, `/web-api/BUS/workflows/triggers/grid?${new URLSearchParams({ filter: triggerFilter }).toString()}`);
     const triggers = recordsFromGrid(triggersResponse.payload);
-    const candidates = triggers.filter((trigger) => isErroredStatus(recordString(trigger, ['Status', 'status'])) || recordBool(trigger, ['HasErrors', 'hasErrors']));
+    const triggerStatusCounts = countTriggersByStatus(triggers);
+    const openTriggers = triggers.map(summarizeTrigger).filter((trigger): trigger is WorkflowTriggerSummary => Boolean(trigger)).slice(0, 25);
+    const candidates = triggers.filter(triggerHasErrors);
     const activeErrors: WorkflowTriggerIssue[] = [];
     for (const trigger of candidates.slice(0, 10)) {
       const triggerId = recordString(trigger, ['Id', 'WorkflowTriggerId', 'workflowTriggerId']) ?? '';
       if (!triggerId) continue;
       const events = await getJsonProbe(input, cookieHeader, `/web-api/BUS/workflows/events/grid?${new URLSearchParams({ filter: `WorkflowTriggerId~eq~${triggerId}`, sort: 'Id-asc' }).toString()}`);
       const eventRows = recordsFromGrid(events.payload);
-      const eventRow = eventRows.find((event) => isErroredStatus(recordString(event, ['Status', 'status'])) || Boolean(recordString(event, ['LastError', 'lastError']))) ?? eventRows[0] ?? null;
+      const eventRow = eventRows.find((event) => isErroredStatus(recordString(event, ['Status', 'status'])) || isErroredStatus(recordString(event, ['StatusInfo', 'statusInfo'])) || Boolean(recordString(event, ['LastError', 'lastError']))) ?? eventRows[0] ?? null;
       const workflowEventId = recordString(eventRow, ['Id', 'WorkflowEventId', 'workflowEventId']);
       const eventDetailProbe = workflowEventId ? await getJsonProbe(input, cookieHeader, `/web-api/BUS/workflows/events/${encodeURIComponent(workflowEventId)}`) : null;
       const eventDetail = eventDetailProbe?.payload && typeof eventDetailProbe.payload === 'object' && !Array.isArray(eventDetailProbe.payload) ? eventDetailProbe.payload as Record<string, unknown> : eventRow;
@@ -382,14 +433,17 @@ async function probeWorkflowTriggers(input: ConnectivityInput, cookieHeader: str
       activeErrors.push({
         workflowTriggerId: triggerId,
         workflowName: recordString(trigger, ['WorkflowName', 'workflowName', 'Name', 'name']),
-        triggerStatus: recordString(trigger, ['Status', 'status']),
+        triggerStatus: triggerStatusLabel(recordString(trigger, ['Status', 'status']), recordString(trigger, ['StatusInfo', 'statusInfo'])),
         statusInfo: recordString(trigger, ['StatusInfo', 'statusInfo']),
         triggerDate: recordString(trigger, ['TriggerDate', 'triggerDate']),
         workflowEventId,
-        workflowEventStatus: recordString(eventDetail, ['Status', 'status']),
+        workflowEventStatus: triggerStatusLabel(recordString(eventDetail, ['Status', 'status']), recordString(eventDetail, ['StatusInfo', 'statusInfo'])),
+        workflowEventSequence: recordNumber(eventDetail ?? {}, ['Sequence', 'Seq', 'Step', 'SortOrder', 'Order', 'Index']),
         workflowEventLastError: recordString(eventDetail, ['LastError', 'lastError']),
         serviceIdentifier: recordString(eventDetail, ['ServiceIdentifier', 'serviceIdentifier']),
+        serviceName: recordString(eventDetail, ['ServiceName', 'serviceName', 'ServiceDisplayName', 'serviceDisplayName', 'DataIOModule', 'DataIOModuleName', 'ModuleName', 'moduleName']) ?? recordString(serviceDetail, ['ServiceName', 'serviceName', 'ServiceDisplayName', 'serviceDisplayName', 'ModuleName', 'moduleName', 'Name', 'name']),
         serviceEventId: recordString(eventDetail, ['ServiceEventId', 'serviceEventId']) ?? recordString(serviceDetail, ['Id', 'ServiceEventId', 'serviceEventId']),
+        serviceEventSequence: recordNumber(serviceDetail ?? {}, ['Sequence', 'Seq', 'Step', 'SortOrder', 'Order', 'Index']) ?? recordNumber(eventDetail ?? {}, ['Sequence', 'Seq', 'Step', 'SortOrder', 'Order', 'Index']),
         serviceErrorMessage: recordString(serviceDetail, ['ErrorMessage', 'errorMessage']),
         serviceStackTrace: recordString(serviceDetail, ['StackTrace', 'stackTrace']),
         processingOutputs: recordString(serviceDetail, ['ProcessingOutputs', 'processingOutputs']),
@@ -405,11 +459,13 @@ async function probeWorkflowTriggers(input: ConnectivityInput, cookieHeader: str
         errorCode: activeErrors.length ? 'WORKFLOW_TRIGGER_ERRORS' : undefined
       },
       totalTriggers: triggers.length,
+      triggerStatusCounts,
+      openTriggers,
       activeErrorCount: activeErrors.length,
       activeErrors
     };
   } catch (error) {
-    return { step: { ok: false, durationMs: Date.now() - startedAt, message: messageFromError(error), errorCode: codeFromError(error) }, totalTriggers: 0, activeErrorCount: 0, activeErrors: [] };
+    return { step: { ok: false, durationMs: Date.now() - startedAt, message: messageFromError(error), errorCode: codeFromError(error) }, totalTriggers: 0, triggerStatusCounts: {}, openTriggers: [], activeErrorCount: 0, activeErrors: [] };
   }
 }
 

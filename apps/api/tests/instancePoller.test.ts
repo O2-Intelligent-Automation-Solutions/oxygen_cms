@@ -64,7 +64,7 @@ function connectivityResult(): ConnectivityResult {
     api: { ok: true, httpStatusCode: 200 },
     settingsJson: null,
     license: { step: { ok: true, httpStatusCode: 200 }, status: 'valid', key: 'KEY-123', payload: { licenseKey: 'KEY-123' } },
-    workflows: { step: { ok: true, httpStatusCode: 200 }, totalTriggers: 0, activeErrorCount: 0, activeErrors: [] }
+    workflows: { step: { ok: true, httpStatusCode: 200 }, totalTriggers: 0, triggerStatusCounts: {}, openTriggers: [], activeErrorCount: 0, activeErrors: [] }
   };
 }
 
@@ -82,7 +82,7 @@ function failedConnectivityResult(): ConnectivityResult {
     authentication: { ok: false, skipped: true, message: 'Skipped because DNS failed.' },
     api: { ok: false, skipped: true, message: 'Skipped because DNS failed.' },
     license: { step: { ok: false, skipped: true, message: 'Skipped because DNS failed.' }, status: 'unknown', key: null, payload: null },
-    workflows: { step: { ok: false, skipped: true, message: 'Skipped because DNS failed.' }, totalTriggers: 0, activeErrorCount: 0, activeErrors: [] }
+    workflows: { step: { ok: false, skipped: true, message: 'Skipped because DNS failed.' }, totalTriggers: 0, triggerStatusCounts: {}, openTriggers: [], activeErrorCount: 0, activeErrors: [] }
   };
 }
 

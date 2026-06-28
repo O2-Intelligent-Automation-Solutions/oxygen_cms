@@ -1709,7 +1709,7 @@ components:
             - type: 'null'
         counts:
           type: object
-          required: [tenants, groups, users, roles, tenantRoles, globalRoles, instances, totalInstances, instancesWithIssues, upInstances, downInstances, sslIssues, licenseIssues, disabledInstances, connectivityIssues, processingIssues, unknownInstances]
+          required: [tenants, groups, users, roles, tenantRoles, globalRoles, instances, totalInstances, instancesWithIssues, upInstances, downInstances, sslIssues, licenseIssues, triggerErrors, disabledInstances, connectivityIssues, processingIssues, unknownInstances]
           properties:
             tenants: { type: integer, minimum: 0 }
             groups: { type: integer, minimum: 0 }
@@ -1724,6 +1724,7 @@ components:
             downInstances: { type: integer, minimum: 0 }
             sslIssues: { type: integer, minimum: 0, description: Visible HTTPS instances with certificate-validation warnings, expired certificates, or otherwise valid certificates within the global Expiring Soon threshold. TLS handshake closures, resets, and timeouts are connectivity failures, not SSL warnings. }
             licenseIssues: { type: integer, minimum: 0, description: Visible instances with missing, warning, expired, error, or otherwise valid-but-expiring-soon license state. }
+            triggerErrors: { type: integer, minimum: 0, description: Visible instances whose latest trigger/workflow probe found active errored or recovery triggers. }
             disabledInstances: { type: integer, minimum: 0 }
             connectivityIssues: { type: integer, minimum: 0, description: Visible instances whose availability status is down, auth-error, TLS/connection failed, or another non-up/non-unknown connectivity state excluding certificate-only SSL warnings. }
             processingIssues: { type: integer, minimum: 0, description: Visible instances with processing, EMM queue, SMS, or Hangfire component status outside ok/unknown. }
@@ -1824,7 +1825,7 @@ components:
     WorkflowTriggerIssue:
       type: object
       description: Sanitized active trigger/workflow error correlated through Workflow Trigger, Workflow Event, and Service Event details. Raw payloads, outgoing payloads, credentials, and arbitrary service request bodies are not returned.
-      required: [workflowTriggerId, workflowName, triggerStatus, statusInfo, triggerDate, workflowEventId, workflowEventStatus, workflowEventLastError, serviceIdentifier, serviceEventId, serviceErrorMessage, serviceStackTrace, processingOutputs, mappedIndexData]
+      required: [workflowTriggerId, workflowName, triggerStatus, statusInfo, triggerDate, workflowEventId, workflowEventStatus, workflowEventSequence, workflowEventLastError, serviceIdentifier, serviceName, serviceEventId, serviceEventSequence, serviceErrorMessage, serviceStackTrace, processingOutputs, mappedIndexData]
       properties:
         workflowTriggerId: { type: string }
         workflowName: { type: [string, 'null'] }
@@ -1833,19 +1834,46 @@ components:
         triggerDate: { type: [string, 'null'] }
         workflowEventId: { type: [string, 'null'] }
         workflowEventStatus: { type: [string, 'null'] }
+        workflowEventSequence: { type: [integer, 'null'], minimum: 0 }
         workflowEventLastError: { type: [string, 'null'] }
         serviceIdentifier: { type: [string, 'null'] }
+        serviceName: { type: [string, 'null'] }
         serviceEventId: { type: [string, 'null'] }
+        serviceEventSequence: { type: [integer, 'null'], minimum: 0 }
         serviceErrorMessage: { type: [string, 'null'] }
         serviceStackTrace: { type: [string, 'null'] }
         processingOutputs: { type: [string, 'null'] }
         mappedIndexData: {}
+    WorkflowTriggerSummary:
+      type: object
+      description: Sanitized row from the latest open OxyGen Workflow Triggers grid for dashboard display.
+      required: [workflowTriggerId, workflowName, sourceIdentifier, sourceEndpointName, triggerStatus, statusInfo, triggerDate, completeDate, hasErrors, childTriggers, isParent]
+      properties:
+        workflowTriggerId: { type: string }
+        workflowName: { type: [string, 'null'] }
+        sourceIdentifier: { type: [string, 'null'] }
+        sourceEndpointName: { type: [string, 'null'] }
+        triggerStatus: { type: [string, 'null'] }
+        statusInfo: { type: [string, 'null'] }
+        triggerDate: { type: [string, 'null'] }
+        completeDate: { type: [string, 'null'] }
+        hasErrors: { type: boolean }
+        childTriggers: { type: [integer, 'null'], minimum: 0 }
+        isParent: { type: boolean }
     WorkflowProbeResult:
       type: object
-      required: [step, totalTriggers, activeErrorCount, activeErrors]
+      required: [step, totalTriggers, triggerStatusCounts, openTriggers, activeErrorCount, activeErrors]
       properties:
         step: { $ref: '#/components/schemas/ConnectivityStepResult' }
         totalTriggers: { type: integer, minimum: 0 }
+        triggerStatusCounts:
+          type: object
+          description: Counts of currently open workflow triggers by OxyGen trigger status, including Pending, Active, Errored, and Recovery when returned by the remote grid.
+          additionalProperties: { type: integer, minimum: 0 }
+        openTriggers:
+          type: array
+          description: Sanitized open trigger rows from the latest OxyGen Workflow Triggers grid, capped for dashboard display.
+          items: { $ref: '#/components/schemas/WorkflowTriggerSummary' }
         activeErrorCount: { type: integer, minimum: 0 }
         activeErrors:
           type: array

@@ -112,18 +112,37 @@ export type WorkflowTriggerIssue = {
   triggerDate: string | null;
   workflowEventId: string | null;
   workflowEventStatus: string | null;
+  workflowEventSequence: number | null;
   workflowEventLastError: string | null;
   serviceIdentifier: string | null;
+  serviceName: string | null;
   serviceEventId: string | null;
+  serviceEventSequence: number | null;
   serviceErrorMessage: string | null;
   serviceStackTrace: string | null;
   processingOutputs: string | null;
   mappedIndexData: unknown | null;
 };
 
+export type WorkflowTriggerSummary = {
+  workflowTriggerId: string;
+  workflowName: string | null;
+  sourceIdentifier: string | null;
+  sourceEndpointName: string | null;
+  triggerStatus: string | null;
+  statusInfo: string | null;
+  triggerDate: string | null;
+  completeDate: string | null;
+  hasErrors: boolean;
+  childTriggers: number | null;
+  isParent: boolean;
+};
+
 export type WorkflowProbeResult = {
   step: ConnectivityStepResult;
   totalTriggers: number;
+  triggerStatusCounts: Record<string, number>;
+  openTriggers: WorkflowTriggerSummary[];
   activeErrorCount: number;
   activeErrors: WorkflowTriggerIssue[];
   recoveredErrorKeys?: string[];

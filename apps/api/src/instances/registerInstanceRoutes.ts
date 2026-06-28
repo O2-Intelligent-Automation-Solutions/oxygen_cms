@@ -81,13 +81,14 @@ function connectivitySeverity(result: ConnectivityResult) {
 
 function connectivityMessage(result: ConnectivityResult) {
   if (result.ok) return 'Manual connectivity check passed.';
+  if (!result.workflows.step.skipped && result.workflows.activeErrorCount > 0) return 'Manual connectivity check found trigger errors.';
   if (result.status === 'ssl-error') return 'Manual connectivity check failed: SSL error.';
   if (result.status === 'auth-error') return 'Manual connectivity check failed: authentication error.';
   return 'Manual connectivity check failed: unreachable.';
 }
 
 function connectivityErrorCode(result: ConnectivityResult) {
-  return result.dns.errorCode ?? result.ssl.errorCode ?? result.authentication.errorCode ?? result.api.errorCode ?? result.license.step.errorCode ?? null;
+  return result.dns.errorCode ?? result.ssl.errorCode ?? result.authentication.errorCode ?? result.api.errorCode ?? result.license.step.errorCode ?? result.workflows.step.errorCode ?? null;
 }
 
 async function appendConnectivityLog(app: FastifyInstance, repository: AppLogRepository, request: FastifyRequest, result: ConnectivityResult, entityGuid: string | null, instanceName: string | null, tenantId: string | null) {
@@ -123,7 +124,8 @@ async function appendConnectivityLog(app: FastifyInstance, repository: AppLogRep
       api: result.api,
       license: result.license.step,
       workflows: result.workflows.step,
-      workflowActiveErrorCount: result.workflows.activeErrorCount
+      workflowActiveErrorCount: result.workflows.activeErrorCount,
+      workflowTriggerStatusCounts: result.workflows.triggerStatusCounts
     }
   }).catch((error) => app.log.warn({ error }, 'Failed to persist manual connectivity log'));
 }

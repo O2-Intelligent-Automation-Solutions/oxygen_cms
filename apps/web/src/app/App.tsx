@@ -67,8 +67,9 @@ type DashboardSeverity = 'ok' | 'warning' | 'failure' | 'unknown';
 type InstanceHealthModalKind = 'availability' | 'ssl' | 'license' | 'response' | 'endpoint' | 'monitoring' | 'workflow' | 'settings' | 'metadata' | 'notes' | 'record';
 type InstanceCheckHistoryEntry = { checkType: string; status: string; startedAt: string; finishedAt: string | null; durationMs: number | null; httpStatusCode: number | null; errorCode: string | null; errorMessage: string | null; detailsJson: unknown | null };
 type InstanceHealthDetails = { instance: OxyGenInstance; availability: InstanceCheckHistoryEntry[]; latestConnectivity: InstanceCheckHistoryEntry | null; licenseHistory: InstanceCheckHistoryEntry[]; workflowHistory: InstanceCheckHistoryEntry[]; latestWorkflow: InstanceCheckHistoryEntry | null };
-type WorkflowTriggerIssue = { workflowTriggerId?: string; workflowName?: string | null; triggerStatus?: string | null; statusInfo?: string | null; triggerDate?: string | null; workflowEventId?: string | null; workflowEventStatus?: string | null; workflowEventLastError?: string | null; serviceIdentifier?: string | null; serviceEventId?: string | null; serviceErrorMessage?: string | null; serviceStackTrace?: string | null; processingOutputs?: string | null; mappedIndexData?: unknown | null };
-type WorkflowProbeSummary = { activeErrorCount?: number; activeErrors?: WorkflowTriggerIssue[]; recoveredErrorKeys?: string[]; step?: { message?: string; skipped?: boolean } };
+type WorkflowTriggerIssue = { workflowTriggerId?: string; workflowName?: string | null; triggerStatus?: string | null; statusInfo?: string | null; triggerDate?: string | null; workflowEventId?: string | null; workflowEventStatus?: string | null; workflowEventSequence?: number | null; workflowEventLastError?: string | null; serviceIdentifier?: string | null; serviceName?: string | null; serviceEventId?: string | null; serviceEventSequence?: number | null; serviceErrorMessage?: string | null; serviceStackTrace?: string | null; processingOutputs?: string | null; mappedIndexData?: unknown | null };
+type WorkflowTriggerSummary = { workflowTriggerId?: string; workflowName?: string | null; sourceIdentifier?: string | null; sourceEndpointName?: string | null; triggerStatus?: string | null; statusInfo?: string | null; triggerDate?: string | null; completeDate?: string | null; hasErrors?: boolean; childTriggers?: number | null; isParent?: boolean };
+type WorkflowProbeSummary = { totalTriggers?: number; triggerStatusCounts?: Record<string, number>; openTriggers?: WorkflowTriggerSummary[]; activeErrorCount?: number; activeErrors?: WorkflowTriggerIssue[]; recoveredErrorKeys?: string[]; step?: { message?: string; skipped?: boolean } };
 type InstancePollerSummary = { checked: number; skipped: number; failed: number };
 type InstancePollerStatus = { state: 'running' | 'paused' | 'stopped'; isRunning: boolean; isPaused: boolean; tickIntervalMs: number; inFlight: number; lastRunAt: string | null; nextRunAt: string | null; lastSummary: InstancePollerSummary | null; lastError: string | null };
 type AppLogType = 'Audit' | 'Service' | 'CRUD' | 'Connection' | 'Security' | 'UI';
@@ -88,7 +89,7 @@ type ConnectivityStepDetail = { ok?: boolean; skipped?: boolean; message?: strin
 type ConnectivityDetailsJson = { dns?: ConnectivityStepDetail; connect?: ConnectivityStepDetail; ssl?: ConnectivityStepDetail; authentication?: ConnectivityStepDetail; api?: ConnectivityStepDetail; license?: ConnectivityStepDetail };
 type DashboardIssueDetail = { label: string; severity: Exclude<DashboardSeverity, 'ok' | 'unknown'> };
 type DashboardInstance = OxyGenInstance & { issues: string[]; issueDetails?: DashboardIssueDetail[]; issueCount: number; hasIssue: boolean; severity?: DashboardSeverity; primaryIssue?: string | null };
-type DashboardSummary = { scope: 'tenant' | 'global'; tenant: { id: string; name: string; description: string | null } | null; poller: InstancePollerStatus | null; counts: { tenants: number; groups: number; users: number; roles: number; tenantRoles: number; globalRoles: number; instances: number; totalInstances: number; instancesWithIssues: number; upInstances: number; downInstances: number; sslIssues: number; licenseIssues: number; disabledInstances: number; connectivityIssues: number; processingIssues: number; unknownInstances: number }; instances: DashboardInstance[] };
+type DashboardSummary = { scope: 'tenant' | 'global'; tenant: { id: string; name: string; description: string | null } | null; poller: InstancePollerStatus | null; counts: { tenants: number; groups: number; users: number; roles: number; tenantRoles: number; globalRoles: number; instances: number; totalInstances: number; instancesWithIssues: number; upInstances: number; downInstances: number; sslIssues: number; licenseIssues: number; triggerErrors?: number; disabledInstances: number; connectivityIssues: number; processingIssues: number; unknownInstances: number }; instances: DashboardInstance[] };
 type BootstrapStatus = { requiresBootstrap: boolean };
 type SetupNextStep = 'database' | 'schema' | 'admin' | 'complete';
 type SetupStatus = { database: { configured: boolean; connected: boolean; schemaCurrent: boolean; defaultDatabaseName: string; targetSchemaVersion: string }; admin: { exists: boolean }; nextStep: SetupNextStep; requiresSetup: boolean };
@@ -120,7 +121,7 @@ type LogPurgeResult = ActivityTableMaintenanceResult;
 type ActivityRetentionRunResult = ActivityTableMaintenanceResult & { retention: LogRetentionSettings };
 type DatabaseMode = 'managed-mysql' | 'local-mysql' | 'existing-mysql';
 type DbWizardStep = 'mode' | 'connection' | 'credentials' | 'review';
-type NavSection = 'dashboard' | 'organizations' | 'instances' | 'instance-dashboard' | 'users' | 'user-groups' | 'roles' | 'settings-general' | 'settings-queue' | 'settings-update' | 'settings-logs' | 'settings-database' | 'settings-issues' | 'settings-advanced';
+type NavSection = 'dashboard' | 'organizations' | 'instances' | 'instance-dashboard' | 'workflow-errors' | 'users' | 'user-groups' | 'roles' | 'settings-general' | 'settings-queue' | 'settings-update' | 'settings-logs' | 'settings-database' | 'settings-issues' | 'settings-advanced';
 type ModalKind = 'user' | 'group' | 'role' | 'tenant' | 'instance';
 type ModalEntity = UserProfile | Group | Role | Tenant | OxyGenInstance;
 type ModalState = { kind: ModalKind; data?: ModalEntity } | null;
@@ -165,6 +166,7 @@ function cmsPathFor(section: NavSection, instanceId?: string) {
   if (section === 'organizations') return '/Tenants';
   if (section === 'instances') return '/Instances';
   if (section === 'instance-dashboard') return instanceId ? `/Entity/${instanceId}` : '/Instances';
+  if (section === 'workflow-errors') return instanceId ? `/Workflow-Errors/Entity/${instanceId}` : '/Instances';
   if (section === 'users') return '/Users';
   if (section === 'user-groups') return '/Groups';
   if (section === 'roles') return '/Roles';
@@ -184,6 +186,7 @@ function sectionFromPath(pathname: string): { section: NavSection; entityId?: st
   if (first === 'tenants' || first === 'organizations') return { section: 'organizations' };
   if (first === 'instances') return parts[1] ? { section: 'instance-dashboard', entityId: parts[1] } : { section: 'instances' };
   if (first === 'entity') return parts[1] ? { section: 'instance-dashboard', entityId: parts[1] } : { section: 'instances' };
+  if (first === 'workflow-errors') return parts[1]?.toLowerCase() === 'entity' && parts[2] ? { section: 'workflow-errors', entityId: parts[2] } : { section: 'instances' };
   if (first === 'users') return { section: 'users' };
   if (first === 'groups' || first === 'user-groups') return { section: 'user-groups' };
   if (first === 'roles') return { section: 'roles' };
@@ -608,6 +611,8 @@ export function App() {
   const [healthModal, setHealthModal] = useState<InstanceHealthModalKind | null>(null);
   const [healthDetails, setHealthDetails] = useState<InstanceHealthDetails | null>(null);
   const [isHealthDetailsLoading, setIsHealthDetailsLoading] = useState(false);
+  const [selectedWorkflowTriggerId, setSelectedWorkflowTriggerId] = useState<string | null>(null);
+  const [embeddedOxygenTriggerUrl, setEmbeddedOxygenTriggerUrl] = useState<string | null>(null);
   const [metadataDraft, setMetadataDraft] = useState<unknown | null>(null);
   const [notesDraft, setNotesDraft] = useState('');
   const [isSavingHealthDetail, setIsSavingHealthDetail] = useState(false);
@@ -652,7 +657,15 @@ export function App() {
   const availableRoles = roles.length ? roles : [{ id: 'operator', name: 'Operator', description: null, tenantId: null, isSystem: false, permissionKeys: DEFAULT_ROLE_PERMISSIONS.Operator }];
   const instanceName = (instanceId: string) => instances.find((instance) => instance.id === instanceId)?.name || instanceId;
   const accessLabel = (mode: string, instanceIds: string[]) => mode === 'all' ? 'All instances' : mode === 'none' ? 'No instances' : mode === 'inherit' ? 'Inherited from groups' : `${instanceIds.length} specific instance${instanceIds.length === 1 ? '' : 's'}`;
-  const launchUrlForInstance = (instance: OxyGenInstance) => `${instance.protocol}://${instance.host}:${instance.port ?? (instance.protocol === 'http' ? 80 : 443)}/optws/oxygen.aspx`;
+  const launchUrlForInstance = (instance: OxyGenInstance) => instance.launchUrl || `${instance.protocol}://${instance.host}:${instance.port ?? (instance.protocol === 'http' ? 80 : 443)}/OPTWS/oxygen.aspx`;
+  const oxygenTriggerGridUrl = (instance: OxyGenInstance, triggerId?: string | null) => {
+    const base = launchUrlForInstance(instance);
+    const params = new URLSearchParams();
+    params.set('Status', 'Active,Pending,Errored,Recovery');
+    if (triggerId) params.set('WorkflowTriggerId', triggerId);
+    const separator = base.includes('?') ? '&' : '?';
+    return `${base}${separator}HideMenu=true#/workflows/triggers?${params.toString()}`;
+  };
   const formatDateTime = (value: string | null) => value ? new Date(value).toLocaleString() : 'Not checked';
   const daysUntilDate = (value: string | null) => value ? Math.ceil((new Date(value).getTime() - Date.now()) / 86400000) : null;
   const tlsConnectionPattern = /\bTLS connection failed\b|secure TLS connection|TLS handshake|ECONNRESET|ERR_CONNECTION_CLOSED|unexpected eof/i;
@@ -1465,7 +1478,7 @@ export function App() {
           setLogSeverityFilter(['Critical', 'Error', 'Warning', 'Logging', 'Verbose']);
         }
       }
-      if (route.section === 'instance-dashboard') {
+      if (route.section === 'instance-dashboard' || route.section === 'workflow-errors') {
         const routeInstanceId = route.entityId || '';
         setSelectedInstanceId(routeInstanceId);
         const matched = routeInstanceId ? instances.find((instance) => instance.id === routeInstanceId) : null;
@@ -1783,6 +1796,24 @@ export function App() {
     await hydrateInstanceDashboard(instance.id, true);
   }
 
+  async function openWorkflowErrorsDashboard(instance: OxyGenInstance) {
+    clearStatus();
+    setSelectedInstanceId(instance.id);
+    setSelectedInstanceDetail(instance);
+    setHealthModal(null);
+    setSelectedWorkflowTriggerId(null);
+    setRoute('workflow-errors', instance.id);
+    setActiveSection('workflow-errors');
+    await hydrateInstanceDashboard(instance.id, true);
+    try {
+      const details = await api<{ healthDetails: InstanceHealthDetails }>(`/api/instances/${instance.id}/health-details`, { token });
+      setHealthDetails(details.healthDetails);
+      setSelectedInstanceDetail(details.healthDetails.instance);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to load workflow error details.');
+    }
+  }
+
 
 
   function openInstanceLogs(instance: OxyGenInstance) {
@@ -2095,6 +2126,7 @@ export function App() {
   const hasLicenseIssue = (instance: DashboardInstance | OxyGenInstance) => Boolean((instance as DashboardInstance).issueDetails?.some((issue) => issue.label.toLowerCase().startsWith('license ')));
   const hasLicenseFailure = (instance: DashboardInstance | OxyGenInstance) => Boolean((instance as DashboardInstance).issueDetails?.some((issue) => issue.label.toLowerCase().startsWith('license ') && issue.severity === 'failure'));
   const hasLicenseWarning = (instance: DashboardInstance | OxyGenInstance) => Boolean((instance as DashboardInstance).issueDetails?.some((issue) => issue.label.toLowerCase().startsWith('license ') && issue.severity === 'warning'));
+  const hasTriggerErrors = (instance: DashboardInstance | OxyGenInstance) => Boolean((instance as DashboardInstance).issueDetails?.some((issue) => issue.label === 'Trigger errors')) || (workflowSummary(instance.workflowSummaryJson)?.activeErrorCount ?? 0) > 0;
   const hasProcessingFailure = (instance: OxyGenInstance) => instance.processingStatus === 'error' || instance.emmQueueStatus === 'error' || instance.smsStatus === 'error' || instance.hangfireStatus === 'error';
   const hasProcessingWarning = (instance: OxyGenInstance) => instance.processingStatus === 'warning' || instance.emmQueueStatus === 'warning' || instance.smsStatus === 'warning' || instance.hangfireStatus === 'warning';
   const hasProcessingIssue = (instance: OxyGenInstance) => hasProcessingFailure(instance) || hasProcessingWarning(instance);
@@ -2107,6 +2139,7 @@ export function App() {
     if (filter === 'connectivity') return hasConnectivityIssue(instance);
     if (filter === 'ssl') return hasSslIssue(instance);
     if (filter === 'license') return hasLicenseIssue(instance);
+    if (filter === 'trigger-errors') return hasTriggerErrors(instance);
     if (filter === 'processing') return hasProcessingIssue(instance);
     if (filter.startsWith('issue:')) return (instance.issueDetails || []).some((issue) => issueFilterValue(issue.label) === filter);
     return true;
@@ -2127,6 +2160,7 @@ export function App() {
       { value: 'connectivity', label: 'Connectivity issues' },
       { value: 'ssl', label: 'SSL warnings' },
       { value: 'license', label: 'License issues' },
+      { value: 'trigger-errors', label: 'Trigger errors' },
       { value: 'processing', label: 'Processing issues' }
     ];
     for (const instance of dashboardTenantScopedInstances) {
@@ -2161,6 +2195,7 @@ export function App() {
       licenseIssues: visibleInstances.filter(hasLicenseIssue).length,
       licenseFailures: visibleInstances.filter(hasLicenseFailure).length,
       licenseWarnings: visibleInstances.filter(hasLicenseWarning).length,
+      triggerErrors: visibleInstances.filter(hasTriggerErrors).length,
       processingIssues: visibleInstances.filter(hasProcessingIssue).length,
       tenants: tenantFiltered ? 0 : dashboard?.counts.tenants ?? tenants.length,
       users: usersCount,
@@ -2288,6 +2323,12 @@ export function App() {
   const queueEnabledLabel = (enabled: boolean | null) => enabled === null ? 'Unknown' : enabled ? 'Enabled' : 'Paused';
   const queueEnabledTone = (enabled: boolean | null) => enabled === null ? 'unknown' : enabled ? 'enabled' : 'paused';
   const queueStatusMessage = (value: string | null | undefined) => formatNullable(value, 'Unknown');
+  const workflowQueueStatusTone = (message: string) => {
+    const normalized = message.trim().toLowerCase();
+    if (['error', 'failed', 'failure', 'down'].includes(normalized) || normalized.includes('error') || normalized.includes('fail')) return 'issue';
+    if (normalized === 'ok' || normalized === 'healthy' || normalized === 'up') return 'enabled';
+    return 'unknown';
+  };
   const queueRows = (instance: OxyGenInstance) => {
     const settings = instance.settingsJson;
     const schedulingLast = formatSettingValue(settingValueByKey(settings, queueSettingTargets.schedulingLastCheckIn.group, queueSettingTargets.schedulingLastCheckIn.variable));
@@ -2301,22 +2342,71 @@ export function App() {
   const renderQueueStatusList = (instance: OxyGenInstance) => <>
     {queueRows(instance).map((queue) => <Fragment key={queue.label}>
       <dt className="workflow-queue-name">{queue.label}</dt>
-      <dd className="workflow-queue-value"><span className={`queue-state-dot ${queueEnabledTone(queue.enabled)}`} title={queueEnabledLabel(queue.enabled)} /><span className="queue-status-message">{queue.message}</span>{queue.enabled !== null && <span className={`queue-state-label ${queueEnabledTone(queue.enabled)}`}>{queueEnabledLabel(queue.enabled)}</span>}{queue.detail && <small>{queue.detail}</small>}</dd>
+      <dd className="workflow-queue-value"><span className={`queue-state-dot ${workflowQueueStatusTone(queue.message)}`} title={queue.message} /><span className="queue-status-message">{queue.message}</span>{queue.enabled !== null && <span className={`queue-state-label ${queueEnabledTone(queue.enabled)}`}>{queueEnabledLabel(queue.enabled)}</span>}{queue.detail && <small>{queue.detail}</small>}</dd>
     </Fragment>)}
   </>;
-  const workflowSummary = (value: unknown): WorkflowProbeSummary | null => value && typeof value === 'object' ? value as WorkflowProbeSummary : null;
-  const workflowIssueTitle = (issue: WorkflowTriggerIssue) => issue.workflowName || issue.workflowTriggerId || issue.workflowEventId || issue.serviceEventId || 'Workflow trigger error';
-  const renderWorkflowIssueList = (summary: WorkflowProbeSummary | null, latestWorkflow?: InstanceCheckHistoryEntry | null) => {
+  function workflowSummary(value: unknown): WorkflowProbeSummary | null {
+    return value && typeof value === 'object' ? value as WorkflowProbeSummary : null;
+  }
+  const workflowStatusCountEntries = (summary: WorkflowProbeSummary | null) => Object.entries(summary?.triggerStatusCounts ?? {}).sort(([left], [right]) => left.localeCompare(right));
+  const workflowTriggerTone = (status: string | null | undefined, hasErrors?: boolean) => {
+    const normalized = (status || '').toLowerCase();
+    if (hasErrors || ['error', 'errored', 'failed', 'recovery'].includes(normalized) || normalized.includes('recovery') || normalized.includes('exception')) return 'issue';
+    if (normalized === 'pending') return 'warning';
+    if (normalized === 'active') return 'ok';
+    return 'unknown';
+  };
+  const workflowTriggerKey = (trigger: WorkflowTriggerSummary, index = 0) => trigger.workflowTriggerId || `${trigger.workflowName || 'trigger'}-${trigger.triggerDate || index}`;
+  const workflowErrorKey = (issue: WorkflowTriggerIssue) => issue.serviceErrorMessage || issue.workflowEventLastError || issue.triggerStatus || issue.workflowEventStatus || 'Unknown error';
+  const workflowErrorGroups = (errors: WorkflowTriggerIssue[]) => {
+    const groups = new Map<string, { key: string; count: number; latest: WorkflowTriggerIssue; rows: WorkflowTriggerIssue[] }>();
+    for (const issue of errors) {
+      const moduleKey = [issue.serviceIdentifier, issue.serviceName, issue.serviceEventSequence].filter((value) => value !== null && value !== undefined && value !== '').join('|');
+      const normalizedError = workflowErrorKey(issue).replace(/\s+/g, ' ').trim().toLowerCase();
+      const key = `${moduleKey || 'module'}|${normalizedError || 'unknown'}`;
+      const current = groups.get(key);
+      if (!current) {
+        groups.set(key, { key, count: 1, latest: issue, rows: [issue] });
+        continue;
+      }
+      current.count += 1;
+      current.rows.push(issue);
+      const currentTime = current.latest.triggerDate ? new Date(current.latest.triggerDate).getTime() : 0;
+      const issueTime = issue.triggerDate ? new Date(issue.triggerDate).getTime() : 0;
+      if (issueTime >= currentTime) current.latest = issue;
+    }
+    return Array.from(groups.values()).sort((left, right) => right.count - left.count || workflowErrorKey(left.latest).localeCompare(workflowErrorKey(right.latest)));
+  };
+  const renderWorkflowTriggerTable = (triggers: WorkflowTriggerSummary[], selectedTriggerId: string | null) => {
+    if (!triggers.length) return <p className="panel-copy small-copy">No open triggers returned by the latest probe.</p>;
+    return <div className="workflow-trigger-table-wrap" aria-label="Open workflow triggers"><table className="workflow-trigger-table workflow-main-trigger-table"><thead><tr><th>Trigger ID</th><th>Workflow</th><th>Source</th><th>Status</th><th>Triggered</th><th>Errors</th><th>Children</th></tr></thead><tbody>{triggers.map((trigger, index) => {
+      const key = workflowTriggerKey(trigger, index);
+      const tone = workflowTriggerTone(trigger.triggerStatus, trigger.hasErrors);
+      const isSelected = key === selectedTriggerId;
+      return <tr key={key} tabIndex={0} aria-selected={isSelected} className={`${tone}${isSelected ? ' selected' : ''}`} onClick={() => setSelectedWorkflowTriggerId(key)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedWorkflowTriggerId(key); } }}><td>{formatNullable(trigger.workflowTriggerId)}</td><td><strong>{formatNullable(trigger.workflowName, 'Unnamed workflow')}</strong>{trigger.statusInfo && <small>{trigger.statusInfo}</small>}</td><td>{formatNullable(trigger.sourceIdentifier || trigger.sourceEndpointName)}</td><td><span className={`workflow-status-pill ${tone}`}>{formatNullable(trigger.triggerStatus, 'Unknown')}</span></td><td>{trigger.triggerDate ? formatDateTime(trigger.triggerDate) : 'Unknown'}</td><td>{trigger.hasErrors ? 'Yes' : 'No'}</td><td>{trigger.childTriggers ?? 0}</td></tr>;
+    })}</tbody></table></div>;
+  };
+  const renderWorkflowErrorDrilldown = (errors: WorkflowTriggerIssue[], selectedTrigger: WorkflowTriggerSummary | null, instance: OxyGenInstance) => {
+    if (!selectedTrigger && !errors.length) return null;
+    const selectedErrors = selectedTrigger ? errors.filter((issue) => issue.workflowTriggerId === selectedTrigger.workflowTriggerId) : errors;
+    const groups = workflowErrorGroups(selectedErrors);
+    const triggerId = selectedTrigger?.workflowTriggerId ?? null;
+    const oxygenUrl = oxygenTriggerGridUrl(instance, triggerId);
+    return <section className="workflow-error-drilldown" aria-label="Workflow trigger error drilldown"><header><div><p className="eyebrow small">Selected Trigger Errors</p><h4>{selectedTrigger ? formatNullable(selectedTrigger.workflowName, `Trigger ${formatNullable(selectedTrigger.workflowTriggerId)}`) : 'Active error aggregation'}</h4><small>{selectedTrigger ? `Trigger ${formatNullable(selectedTrigger.workflowTriggerId)} · ${formatNullable(selectedTrigger.triggerStatus)}` : 'Select a trigger row to filter this aggregation.'}</small></div><div className="workflow-error-header-actions"><span>{groups.reduce((total, group) => total + group.count, 0)} row{groups.reduce((total, group) => total + group.count, 0) === 1 ? '' : 's'} · {groups.length} type{groups.length === 1 ? '' : 's'}</span><Button className="compact-button" type="button" fillMode="flat" onClick={() => setEmbeddedOxygenTriggerUrl(oxygenUrl)}><ExternalLink /> Embed OxyGen Grid</Button><Button className="compact-button" type="button" fillMode="flat" onClick={() => window.open(oxygenUrl, '_blank', 'noopener,noreferrer')}><ExternalLink /> Open OxyGen</Button></div></header>{groups.length ? <div className="workflow-trigger-table-wrap"><table className="workflow-trigger-table workflow-error-table"><thead><tr><th>Error type</th><th>Count</th><th>Latest status</th><th>Seq</th><th>Module</th><th>Latest error</th></tr></thead><tbody>{groups.map((group) => <tr key={group.key} className="issue"><td><strong>{workflowErrorKey(group.latest).slice(0, 96)}</strong><small>{group.count === 1 ? 'One matching error row' : `${group.count} matching error rows`}</small></td><td><span className="workflow-error-count">{group.count}</span></td><td><span className="workflow-status-pill issue">{group.latest.triggerStatus || group.latest.workflowEventStatus || 'Error'}</span></td><td>{group.latest.serviceEventSequence ?? group.latest.workflowEventSequence ?? '—'}</td><td>{[group.latest.serviceIdentifier, group.latest.serviceName].filter(Boolean).join(' · ') || 'Unknown'}</td><td><details className="workflow-error-detail" open={groups.length === 1}><summary>{formatNullable(workflowErrorKey(group.latest), 'View latest error')}</summary><dl className="detail-list workflow-trigger-detail-list"><dt>Latest Error</dt><dd>{formatNullable(workflowErrorKey(group.latest))}</dd><dt>Rows in Error</dt><dd>{group.count}</dd><dt>Trigger ID</dt><dd>{formatNullable(group.latest.workflowTriggerId)}</dd><dt>Workflow Event ID</dt><dd>{formatNullable(group.latest.workflowEventId)}</dd><dt>Service Event ID</dt><dd>{formatNullable(group.latest.serviceEventId)}</dd>{group.latest.serviceStackTrace && <><dt>Stack Trace</dt><dd><pre>{group.latest.serviceStackTrace}</pre></dd></>}{group.latest.processingOutputs && <><dt>Processing Outputs</dt><dd><pre>{group.latest.processingOutputs}</pre></dd></>}</dl>{group.latest.mappedIndexData !== null && group.latest.mappedIndexData !== undefined && <ReadOnlyJsonEditor value={group.latest.mappedIndexData} />}</details></td></tr>)}</tbody></table></div> : <p className="panel-copy small-copy">No active error rows are linked to the selected trigger. Select another trigger with Errors = Yes to review its grouped error types.</p>}</section>;
+  };
+  const renderWorkflowIssueList = (summary: WorkflowProbeSummary | null, latestWorkflow: InstanceCheckHistoryEntry | null | undefined, instance: OxyGenInstance, expanded = false) => {
     const activeErrors = summary?.activeErrors ?? [];
+    const openTriggers = summary?.openTriggers ?? [];
     const recovered = summary?.recoveredErrorKeys ?? [];
-    return <section className="workflow-trigger-summary" aria-label="Workflow trigger errors">
-      <div className={`workflow-trigger-count ${activeErrors.length ? 'issue' : summary?.step?.skipped ? 'unknown' : 'ok'}`}><strong>{summary?.step?.skipped ? 'Not collected' : `${summary?.activeErrorCount ?? activeErrors.length} active trigger error${(summary?.activeErrorCount ?? activeErrors.length) === 1 ? '' : 's'}`}</strong><span>{summary?.step?.message ?? (activeErrors.length ? 'Workflow trigger errors require review.' : 'No active workflow trigger errors detected.')}</span></div>
+    const activeErrorCount = summary?.activeErrorCount ?? activeErrors.length;
+    const selectedTrigger = openTriggers.find((trigger, index) => workflowTriggerKey(trigger, index) === selectedWorkflowTriggerId) ?? openTriggers.find((trigger) => trigger.hasErrors) ?? openTriggers[0] ?? null;
+    const selectedTriggerKey = selectedTrigger ? workflowTriggerKey(selectedTrigger, openTriggers.indexOf(selectedTrigger)) : selectedWorkflowTriggerId;
+    return <section className={`workflow-trigger-summary${expanded ? ' workflow-errors-dashboard-summary' : ''}`} aria-label="Workflow trigger errors">
+      <div className={`workflow-trigger-count ${activeErrorCount ? 'issue' : summary?.step?.skipped ? 'unknown' : 'ok'}`}><strong>{summary?.step?.skipped ? 'Not collected' : `${activeErrorCount} active trigger error${activeErrorCount === 1 ? '' : 's'}`}</strong><span>{summary?.step?.message ?? (activeErrorCount ? 'Workflow trigger errors require review.' : 'No active workflow trigger errors detected.')}</span></div>
+      {!summary?.step?.skipped && workflowStatusCountEntries(summary).length > 0 && <dl className="workflow-trigger-status-counts">{workflowStatusCountEntries(summary).map(([status, count]) => <Fragment key={status}><dt>{status}</dt><dd>{count}</dd></Fragment>)}</dl>}
       {latestWorkflow && <p className="panel-copy small-copy">Latest workflow check: {formatDateTime(latestWorkflow.startedAt)} · {latestWorkflow.status}</p>}
-      {activeErrors.length > 0 && <div className="workflow-trigger-list">{activeErrors.map((issue, index) => <article className="workflow-trigger-card" key={`${issue.workflowTriggerId || 'trigger'}-${issue.workflowEventId || index}-${issue.serviceEventId || 'service'}`}>
-        <header><strong>{workflowIssueTitle(issue)}</strong><span>{issue.triggerStatus || issue.workflowEventStatus || 'Error'}</span></header>
-        <dl className="detail-list workflow-trigger-detail-list"><dt>Trigger ID</dt><dd>{formatNullable(issue.workflowTriggerId)}</dd><dt>Workflow Event ID</dt><dd>{formatNullable(issue.workflowEventId)}</dd><dt>Service Event ID</dt><dd>{formatNullable(issue.serviceEventId)}</dd><dt>Last Error</dt><dd>{formatNullable(issue.workflowEventLastError || issue.serviceErrorMessage)}</dd>{issue.serviceIdentifier && <><dt>Service</dt><dd>{issue.serviceIdentifier}</dd></>}{issue.serviceStackTrace && <><dt>Stack Trace</dt><dd><pre>{issue.serviceStackTrace}</pre></dd></>}{issue.processingOutputs && <><dt>Processing Outputs</dt><dd><pre>{issue.processingOutputs}</pre></dd></>}</dl>
-        {issue.mappedIndexData !== null && issue.mappedIndexData !== undefined && <ReadOnlyJsonEditor value={issue.mappedIndexData} />}
-      </article>)}</div>}
+      {!summary?.step?.skipped && <section className="workflow-trigger-open-grid"><header><div><p className="eyebrow small">Open Triggers</p><h4>Full trigger grid</h4><small>Select a trigger row to review aggregated error types below.</small></div><span>{openTriggers.length} / {summary?.totalTriggers ?? openTriggers.length}</span></header>{renderWorkflowTriggerTable(openTriggers, selectedTriggerKey)}</section>}
+      {renderWorkflowErrorDrilldown(activeErrors, selectedTrigger, instance)}
       {recovered.length > 0 && <p className="panel-copy small-copy">Recovered trigger errors: {recovered.join(', ')}</p>}
     </section>;
   };
@@ -2362,6 +2452,7 @@ export function App() {
     setSelectedInstanceId(targetInstance.id);
     setSelectedInstanceDetail(targetInstance);
     setHealthModal(kind);
+    if (kind === 'workflow') setSelectedWorkflowTriggerId(null);
     setHealthDetails(null);
     if (kind === 'metadata') setMetadataDraft(targetInstance.metadata ?? null);
     if (kind === 'notes') setNotesDraft(notesToEditorHtml(targetInstance.notes));
@@ -2390,6 +2481,7 @@ export function App() {
     if (label === 'Connectivity') return 'connectivity';
     if (label === 'SSL') return 'ssl';
     if (label === 'License') return 'license';
+    if (label === 'Trigger Errors') return 'trigger-errors';
     if (label === 'Processing Issues') return 'processing';
     return 'all';
   }
@@ -2505,7 +2597,7 @@ export function App() {
       {!isHealthDetailsLoading && healthModal === 'response' && <div className="health-detail-panel"><p className="panel-copy small-copy">Timing from the last persisted check. Response is Resolve + Connect + SSL + Auth for collected, non-skipped phases.</p><ol className="response-step-list">{renderTimingRow('Resolve', stepDetails.dns)}{renderTimingRow('Connect', stepDetails.connect)}{instance.protocol === 'https' && renderTimingRow('SSL', stepDetails.ssl)}{renderTimingRow('Auth', stepDetails.authentication)}{instance.checkLicense && renderTimingRow('License', stepDetails.license)}{renderTimingRow('Settings', stepDetails.api)}{renderTimingRow('Triggers', triggersStep)}</ol><dl className="detail-list"><dt>Card response</dt><dd>{formatDuration(instance.responseTimeMs)}</dd><dt>Total check duration</dt><dd>{formatDuration(latestConnectivity?.durationMs)}</dd><dt>Last checked</dt><dd>{formatDateTime(instance.lastCheckedAt)}</dd></dl></div>}
       {!isHealthDetailsLoading && healthModal === 'endpoint' && <div className="health-detail-panel"><dl className="detail-list"><dt>{tenantLabel}</dt><dd>{tenantName(instance.tenantId)}</dd><dt>Host</dt><dd>{instance.host}</dd><dt>Resolved IP</dt><dd>{resolvedIpLabel(stepDetails)}</dd><dt>Port</dt><dd>{formatNullable(instance.port)}</dd><dt>Base URL</dt><dd>{instance.baseUrl}</dd><dt>API Base URL</dt><dd>{instance.apiBaseUrl}</dd><dt>Launch URL</dt><dd>{instance.launchUrl}</dd><dt>Username</dt><dd>{instance.username}</dd></dl></div>}
       {!isHealthDetailsLoading && healthModal === 'monitoring' && <div className="health-detail-panel"><dl className="detail-list"><dt>Enabled</dt><dd>{booleanPill(instance.isEnabled, 'green', 'red', { trueLabel: 'Enabled', falseLabel: 'Disabled' })}</dd><dt>Check License</dt><dd>{booleanPill(instance.checkLicense, 'green', 'grey', { trueLabel: 'Enabled', falseLabel: 'Disabled' })}</dd><dt>Archived</dt><dd>{booleanPill(instance.archived, 'red', 'green')}</dd><dt>Last success</dt><dd>{formatDateTime(instance.lastSuccessAt)}</dd><dt>Last failure</dt><dd>{formatDateTime(instance.lastFailureAt)}</dd><dt>Uptime 24h</dt><dd>{instance.uptimePercent24h === null ? 'Unknown' : `${instance.uptimePercent24h}%`}</dd><dt>Uptime 7d</dt><dd>{instance.uptimePercent7d === null ? 'Unknown' : `${instance.uptimePercent7d}%`}</dd><dt>Last error</dt><dd>{formatNullable(instance.lastError, 'None')}</dd></dl></div>}
-      {!isHealthDetailsLoading && healthModal === 'workflow' && <div className="health-detail-panel"><dl className="detail-list workflow-queue-detail-list">{renderQueueStatusList(instance)}<dt>Workflow summary</dt><dd>{instance.workflowSummaryJson ? 'Collected' : 'Not collected yet'}</dd></dl>{renderWorkflowIssueList(workflowSummary(instance.workflowSummaryJson), healthDetails?.latestWorkflow)}{Boolean(instance.workflowSummaryJson) && <ReadOnlyJsonEditor value={instance.workflowSummaryJson} />}</div>}
+      {!isHealthDetailsLoading && healthModal === 'workflow' && <div className="health-detail-panel"><dl className="detail-list workflow-queue-detail-list">{renderQueueStatusList(instance)}<dt>Workflow summary</dt><dd>{instance.workflowSummaryJson ? 'Collected' : 'Not collected yet'}</dd></dl><div className="workflow-modal-actions"><Button className="compact-button" type="button" themeColor="primary" onClick={() => void openWorkflowErrorsDashboard(instance)}>Open Processing Errors</Button></div>{renderWorkflowIssueList(workflowSummary(instance.workflowSummaryJson), healthDetails?.latestWorkflow, instance)}{Boolean(instance.workflowSummaryJson) && <details className="workflow-raw-json"><summary>Raw workflow JSON</summary><ReadOnlyJsonEditor value={instance.workflowSummaryJson} /></details>}</div>}
       {!isHealthDetailsLoading && healthModal === 'settings' && <div className="health-detail-panel"><p className="panel-copy small-copy">Key values extracted from the latest collected global settings payload.</p>{renderSettingsTree(instance.settingsJson)}<ReadOnlyJsonEditor value={instance.settingsJson ?? { message: 'No settings JSON collected yet.' }} /></div>}
       {!isHealthDetailsLoading && healthModal === 'metadata' && <div className="health-detail-panel"><p className="panel-copy small-copy">Edit custom instance metadata stored with this instance.</p><EditableJsonEditor value={metadataDraft ?? {}} onChange={setMetadataDraft} /></div>}
       {!isHealthDetailsLoading && healthModal === 'notes' && <div className="health-detail-panel"><dl className="detail-list"><dt>Detected format</dt><dd>{detectNotesFormat(instance.notes).toUpperCase()}</dd><dt>Editor mode</dt><dd>{detectNotesFormat(instance.notes) === 'markdown' ? 'Markdown rendered through Kendo Editor' : 'Rich text HTML'}</dd></dl><Editor className="instance-notes-editor" defaultEditMode="div" value={notesDraft} onChange={(event: EditorChangeEvent) => setNotesDraft(event.html)} tools={notesEditorTools} contentStyle={{ height: 360, backgroundColor: '#020b14', color: '#f8fafc' }} /></div>}
@@ -2514,10 +2606,21 @@ export function App() {
     if (isMobileViewport) {
       return <section className="mobile-health-screen" aria-labelledby="mobile-health-title"><header className="mobile-health-screen-header"><button className="mobile-editor-back" type="button" onClick={() => setHealthModal(null)} aria-label="Back"><ChevronLeft /></button><div><p className="eyebrow small">Instance health</p><h2 id="mobile-health-title">{title}</h2></div></header><div className="mobile-health-screen-body">{body}<div className="mobile-editor-actions">{healthModal === 'metadata' && <Button className="compact-button" type="button" themeColor="primary" onClick={() => void saveInstanceMetadata()} disabled={isSavingHealthDetail}>Save Metadata</Button>}{healthModal === 'notes' && <Button className="compact-button" type="button" themeColor="primary" onClick={() => void saveInstanceNotes()} disabled={isSavingHealthDetail}>Save Notes</Button>}</div></div></section>;
     }
-    return <Dialog className="cms-dialog instance-health-dialog" title={title} onClose={() => setHealthModal(null)} width={healthModal === 'license' || healthModal === 'settings' || healthModal === 'metadata' || healthModal === 'notes' ? 920 : 760}>
+    return <Dialog className={`cms-dialog instance-health-dialog${healthModal === 'workflow' ? ' workflow-health-dialog' : ''}`} title={title} onClose={() => setHealthModal(null)} width={healthModal === 'workflow' ? 1180 : healthModal === 'license' || healthModal === 'settings' || healthModal === 'metadata' || healthModal === 'notes' ? 920 : 760}>
       {body}
       <DialogActionsBar>{healthModal === 'metadata' && <Button className="compact-button" type="button" themeColor="primary" onClick={() => void saveInstanceMetadata()} disabled={isSavingHealthDetail}>Save Metadata</Button>}{healthModal === 'notes' && <Button className="compact-button" type="button" themeColor="primary" onClick={() => void saveInstanceNotes()} disabled={isSavingHealthDetail}>Save Notes</Button>}<Button className="compact-button instance-health-dialog-close" type="button" fillMode="flat" onClick={() => setHealthModal(null)}>Close</Button></DialogActionsBar>
     </Dialog>;
+  }
+
+  function renderWorkflowErrorsDashboard() {
+    if (!selectedInstance) {
+      return <article className="panel workflow-errors-page"><p className="panel-copy">Select an instance to open its Processing Errors dashboard.</p><Button className="compact-button" type="button" onClick={() => { setRoute('instances'); setActiveSection('instances'); }}><ChevronLeft /> Back to Instances</Button></article>;
+    }
+    const instance = healthDetails?.instance?.id === selectedInstance.id ? healthDetails.instance : selectedInstance;
+    const summary = workflowSummary(instance.workflowSummaryJson);
+    const activeErrors = summary?.activeErrors ?? [];
+    const openTriggers = summary?.openTriggers ?? [];
+    return <section className="workflow-errors-page" aria-label="Processing Errors dashboard"><div className="workflow-errors-page-head"><div><p className="eyebrow small">Processing Errors</p><h2>{instance.name}</h2><p className="panel-copy small-copy">Instance-scoped processing dashboard with selectable trigger rows, aggregated error types, and OxyGen drill-in links.</p></div><div className="workflow-errors-page-actions"><Button className="compact-button" type="button" fillMode="flat" onClick={() => void openInstanceDashboard(instance)}><ChevronLeft /> Back to Instance</Button><Button className="compact-button" type="button" fillMode="flat" onClick={() => void hydrateInstanceDashboard(instance.id, true)}><RotateCw /> Refresh</Button><Button className="compact-button" type="button" onClick={() => setEmbeddedOxygenTriggerUrl(oxygenTriggerGridUrl(instance, selectedWorkflowTriggerId))}><ExternalLink /> Embed OxyGen Grid</Button><Button className="compact-button" type="button" fillMode="flat" onClick={() => window.open(oxygenTriggerGridUrl(instance, selectedWorkflowTriggerId), '_blank', 'noopener,noreferrer')}><ExternalLink /> Open OxyGen</Button></div></div><div className="workflow-errors-page-kpis"><article><span>Open Triggers</span><strong>{openTriggers.length}</strong></article><article className={activeErrors.length ? 'issue' : ''}><span>Active Error Rows</span><strong>{activeErrors.length}</strong></article><article><span>Grouped Error Types</span><strong>{workflowErrorGroups(activeErrors).length}</strong></article><article><span>Latest Check</span><strong>{healthDetails?.latestWorkflow ? formatDateTime(healthDetails.latestWorkflow.startedAt) : formatDateTime(instance.lastCheckedAt)}</strong></article></div><dl className="detail-list workflow-queue-detail-list workflow-errors-queue-strip">{renderQueueStatusList(instance)}<dt>Workflow summary</dt><dd>{instance.workflowSummaryJson ? 'Collected' : 'Not collected yet'}</dd></dl>{renderWorkflowIssueList(summary, healthDetails?.latestWorkflow, instance, true)}</section>;
   }
 
   function renderDashboard() {
@@ -2530,6 +2633,7 @@ export function App() {
       { label: 'Connectivity', value: `${dashboardScopedCounts.connectivityIssues} / ${dashboardScopedCounts.totalInstances}`, detail: 'Connection failures / total instances', tone: dashboardScopedCounts.connectivityIssues ? 'issue' : 'ok' },
       { label: 'SSL', value: `${dashboardScopedCounts.sslIssues} / ${dashboardScopedCounts.httpsInstances}`, detail: 'SSL warnings / HTTPS instances', tone: dashboardScopedCounts.sslIssues ? 'warning' : 'ok' },
       { label: 'License', value: `${dashboardScopedCounts.licenseIssues} / ${dashboardScopedCounts.totalInstances}`, detail: 'Missing, invalid, or expired / total instances', tone: dashboardScopedCounts.licenseFailures ? 'issue' : dashboardScopedCounts.licenseWarnings ? 'warning' : 'ok' },
+      { label: 'Trigger Errors', value: `${dashboardScopedCounts.triggerErrors} / ${dashboardScopedCounts.totalInstances}`, detail: 'Trigger errors / total instances', tone: dashboardScopedCounts.triggerErrors ? 'issue' : 'ok' },
       { label: 'Processing Issues', value: `${dashboardScopedCounts.processingIssues} / ${dashboardScopedCounts.totalInstances}`, detail: 'Processing issue instances / total instances', tone: dashboardScopedCounts.processingIssues ? 'issue' : 'ok' }
     ];
     const adminCards = [
@@ -2871,6 +2975,7 @@ export function App() {
       case 'organizations': return { eyebrow: 'Organizations', heading: tenantLabelPlural };
       case 'instances': return { eyebrow: 'Organizations', heading: showArchivedInstances ? 'Archived Instances' : 'Instances' };
       case 'instance-dashboard': return { eyebrow: 'Instance Dashboard', heading: selectedInstance?.name || 'Instance Detail' };
+      case 'workflow-errors': return { eyebrow: 'Processing Errors', heading: selectedInstance?.name || 'Processing Errors Dashboard' };
       case 'users': return { eyebrow: 'Security', heading: 'Users' };
       case 'user-groups': return { eyebrow: 'Security', heading: 'User Groups' };
       case 'roles': return { eyebrow: 'Security', heading: 'Roles' };
@@ -2886,6 +2991,7 @@ export function App() {
 
   const gridSection = activeSection === 'users' || activeSection === 'user-groups' || activeSection === 'roles' || activeSection === 'organizations' || activeSection === 'instances' || activeSection === 'settings-logs' || activeSection === 'settings-issues';
   const settingsSection = activeSection.startsWith('settings-');
+  const processingErrorsSection = activeSection === 'workflow-errors';
 
   function TenantSelect({ disabled = false, allowGlobal = canSelectGlobalTenantScope }: { disabled?: boolean; allowGlobal?: boolean }) {
     const lockedToActorTenant = !canSelectAnyTenantScope;
@@ -3032,13 +3138,14 @@ export function App() {
       {profile && isMobileViewport && isMobileDrawerOpen && <button className="mobile-drawer-backdrop" type="button" aria-label="Close navigation" onClick={() => setIsMobileDrawerOpen(false)} />}
 
       {profile && (<div className={`admin-layout ${isDrawerExpanded ? 'drawer-expanded' : 'drawer-collapsed'} ${isMobileDrawerOpen ? 'mobile-drawer-open' : ''}`}><aside className={`admin-sidebar ${isDrawerExpanded ? 'expanded' : 'collapsed'} ${isMobileDrawerOpen ? 'mobile-open' : ''}`}><button className="mobile-drawer-close" type="button" onClick={() => setIsMobileDrawerOpen(false)} aria-label="Close navigation"><X /></button><button className="sidebar-toggle" type="button" onClick={() => setIsDrawerExpanded((v) => !v)} aria-label={isDrawerExpanded ? 'Collapse navigation' : 'Expand navigation'}>{isDrawerExpanded ? <ChevronLeft /> : <ChevronRight />}</button><div className="sidebar-user"><UserCircle /><div><span className="su-name">{profile.user.displayName}</span><span className="su-role">{displayRoleName(profile.roles[0])}</span></div></div><nav className="sidebar-nav"><button className={`nav-link${activeSection === 'dashboard' ? ' active' : ''}`} onClick={() => nav('dashboard')}><LayoutDashboard /><span>Dashboard</span></button>{(canViewTenants || canViewInstances) && <div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => handleSidebarParentClick('organizations')}><Server /><span>Organizations</span>{openAccordions.has('organizations') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('organizations') && (<div className="nav-accordion-children">{canViewInstances && <button className={`nav-link child${activeSection === 'instances' ? ' active' : ''}`} onClick={() => { nav('instances'); loadInstances(); }}><span>Instances</span></button>}{canViewTenants && <button className={`nav-link child${activeSection === 'organizations' ? ' active' : ''}`} onClick={() => nav('organizations')}><span>{tenantLabelPlural}</span></button>}</div>)}</div>}{canManageSecurity && <div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => handleSidebarParentClick('security')}><ShieldCheck /><span>Security</span>{openAccordions.has('security') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('security') && (<div className="nav-accordion-children">{canManageRoles && <button className={`nav-link child${activeSection === 'roles' ? ' active' : ''}`} onClick={() => nav('roles')}><span>Roles</span></button>}{canManageGroups && <button className={`nav-link child${activeSection === 'user-groups' ? ' active' : ''}`} onClick={() => nav('user-groups')}><span>User Groups</span></button>}{canManageUsers && <button className={`nav-link child${activeSection === 'users' ? ' active' : ''}`} onClick={() => nav('users')}><span>Users</span></button>}</div>)}</div>}{canUseSettings && <div className="nav-accordion"><button className="nav-link nav-accordion-toggle" onClick={() => handleSidebarParentClick('settings')}><Settings /><span>System</span>{openAccordions.has('settings') ? <ChevronDown /> : <ChevronRight />}</button>{openAccordions.has('settings') && (<div className="nav-accordion-children">{canViewDatabase && <button className={`nav-link child${activeSection === 'settings-database' ? ' active' : ''}`} onClick={() => nav('settings-database')}><span>Database</span></button>}{canViewIssueTypes && <button className={`nav-link child${activeSection === 'settings-issues' ? ' active' : ''}`} onClick={() => nav('settings-issues')}><span>Issue Types</span></button>}{canViewLogs && <button className={`nav-link child${activeSection === 'settings-logs' ? ' active' : ''}`} onClick={() => nav('settings-logs')}><span>Logs</span></button>}{canViewJobs && <button className={`nav-link child${activeSection === 'settings-queue' ? ' active' : ''}`} onClick={() => nav('settings-queue')}><span>Queue</span></button>}{canManageSettings && <button className={`nav-link child${activeSection === 'settings-general' ? ' active' : ''}`} onClick={() => nav('settings-general')}><span>Settings</span></button>}{canViewVersion && <button className={`nav-link child${activeSection === 'settings-update' ? ' active' : ''}`} onClick={() => nav('settings-update')}><span>Updates</span></button>}</div>)}</div>}</nav><button className="sidebar-logout" onClick={handleLogout}><LogOut /><span>Sign out</span></button></aside>
-        <section className={`admin-content ${gridSection ? 'grid-section' : ''} ${settingsSection ? 'settings-section' : ''}`}>{activeSection !== 'dashboard' && <div className="page-header"><p className="eyebrow small">{sectionMeta.eyebrow}</p><h2>{sectionMeta.heading}</h2></div>}
+        <section className={`admin-content ${gridSection ? 'grid-section' : ''} ${settingsSection ? 'settings-section' : ''} ${processingErrorsSection ? 'processing-errors-section' : ''}`}>{activeSection !== 'dashboard' && <div className="page-header"><p className="eyebrow small">{sectionMeta.eyebrow}</p><h2>{sectionMeta.heading}</h2></div>}
           {activeSection !== 'settings-general' && activeSection !== 'settings-update' && renderUpdateNotice()}
           {activeSection === 'dashboard' && renderDashboard()}
           {activeSection === 'organizations' && canViewTenants && <ManagedGrid gridKey="tenants" token={token!} rows={tenantRows} loading={isAdminDataRefreshing} loadingLabel="Loading Tenants…" columns={tenantColumnDefs} actionCell={TenantActionCell} mobileActions={(row) => <TenantActionMenu tenant={row.raw} mobile />} toolbar={canManageTenants ? <Button className="btn-create" onClick={openCreateTenantModal} type="button" themeColor="primary"><Plus /> Create “{tenantLabel}”</Button> : null} />}
           {activeSection === 'instances' && canViewInstances && <ManagedGrid gridKey="instances" token={token!} rows={visibleInstanceRows} loading={isAdminDataRefreshing || isDashboardRefreshing} loadingLabel="Loading Instances…" columns={labeledInstanceColumnDefs} actionCell={InstanceActionCell} actionWidth={58} mobileActions={mobileInstanceActions} toolbar={canImportExportInstances || canManageInstances ? renderInstanceToolbar() : null} />}
           {activeSection === 'instance-dashboard' && selectedInstance && <div className="instance-detail-dashboard"><div className="instance-dashboard-actions"><Button className="compact-button" type="button" fillMode="flat" onClick={closeInstanceDashboard}><ChevronLeft /> Back to Instances</Button>{canManageInstances && <Button className="compact-button" type="button" onClick={() => openEditInstanceModal(selectedInstance)}><Pencil /> Edit</Button>}{canManageInstances && <Button className="compact-button" type="button" onClick={() => testInstanceConnectivity(selectedInstance)}><RotateCw /> Run Health Check</Button>}{canManageInstances && <Button className="compact-button" type="button" onClick={() => void setInstanceArchived(selectedInstance, !selectedInstance.archived)}>{selectedInstance.archived ? <ArchiveRestore /> : <Archive />} {selectedInstance.archived ? 'Unarchive' : 'Archive'}</Button>}{canViewLogs && <Button className="compact-button" type="button" onClick={() => openInstanceLogs(selectedInstance)}><ClipboardList /> View Logs</Button>}<Button className="compact-button" type="button" onClick={() => window.open(launchUrlForInstance(selectedInstance), '_blank', 'noopener,noreferrer')}><ExternalLink /> Launch OxyGen</Button></div><div className="instance-health-strip"><button className={`instance-health-card clickable status-${selectedInstance.status}`} type="button" onClick={() => void openInstanceHealthModal('availability')}><span>Availability</span><strong>{availabilityLabel(selectedInstance)}</strong><small>{formatDateTime(selectedInstance.lastCheckedAt)}</small></button>{selectedInstance.protocol === 'https' && <button className="instance-health-card clickable status-unknown" type="button" onClick={() => void openInstanceHealthModal('ssl')}><span>SSL Certificate</span><strong>{sslCardLabel(selectedInstance)}</strong><small>{sslCardDetail(selectedInstance, connectivityDetails(healthDetails?.latestConnectivity).ssl)}</small></button>}{selectedInstance.checkLicense && <button className={`instance-health-card clickable status-${licenseCardStatusClass(selectedInstance, connectivityDetails(healthDetails?.latestConnectivity).license)}`} type="button" onClick={() => void openInstanceHealthModal('license')}><span>License</span><strong>{licenseCardLabel(selectedInstance)}</strong><small>{licenseCardDetail(selectedInstance, connectivityDetails(healthDetails?.latestConnectivity).license)}</small></button>}<button className={`instance-health-card clickable status-${selectedInstance.status}`} type="button" onClick={() => void openInstanceHealthModal('response')}><span>Response</span><strong>{selectedInstance.responseTimeMs === null ? '—' : `${selectedInstance.responseTimeMs} ms`}</strong><small>Polling every {selectedInstance.pollingIntervalSeconds}s</small></button></div><div className="instance-detail-grid"><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('endpoint')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'endpoint')}><div className="panel-heading"><Server /><div><p className="eyebrow small">Endpoint</p><h3>Connection Details</h3></div></div><dl className="detail-list"><dt>{tenantLabel}</dt><dd>{tenantName(selectedInstance.tenantId)}</dd><dt>Host</dt><dd>{selectedInstance.host}</dd><dt>Resolved IP</dt><dd>{resolvedIpLabel(connectivityDetails(healthDetails?.latestConnectivity))}</dd><dt>Port</dt><dd>{formatNullable(selectedInstance.port)}</dd><dt>Base URL</dt><dd>{selectedInstance.baseUrl}</dd><dt>API Base URL</dt><dd>{selectedInstance.apiBaseUrl}</dd><dt>Launch URL</dt><dd>{selectedInstance.launchUrl}</dd><dt>Username</dt><dd>{selectedInstance.username}</dd></dl></article><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('monitoring')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'monitoring')}><div className="panel-heading"><Activity /><div><p className="eyebrow small">Monitoring</p><h3>Health Status</h3></div></div><dl className="detail-list"><dt>Enabled</dt><dd>{booleanPill(selectedInstance.isEnabled, 'green', 'red', { trueLabel: 'Enabled', falseLabel: 'Disabled' })}</dd><dt>Last Success</dt><dd>{formatDateTime(selectedInstance.lastSuccessAt)}</dd><dt>Last Failure</dt><dd>{formatDateTime(selectedInstance.lastFailureAt)}</dd><dt>Uptime 24h</dt><dd>{selectedInstance.uptimePercent24h === null ? 'Unknown' : `${selectedInstance.uptimePercent24h}%`}</dd><dt>Uptime 7d</dt><dd>{selectedInstance.uptimePercent7d === null ? 'Unknown' : `${selectedInstance.uptimePercent7d}%`}</dd><dt>Check License</dt><dd>{booleanPill(selectedInstance.checkLicense, 'green', 'grey', { trueLabel: 'Enabled', falseLabel: 'Disabled' })}</dd><dt>Archived</dt><dd>{booleanPill(selectedInstance.archived, 'red', 'green')}</dd><dt>Last Error</dt><dd>{formatNullable(selectedInstance.lastError, 'None')}</dd></dl></article><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('workflow')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'workflow')}><div className="panel-heading"><Database /><div><p className="eyebrow small">OxyGen BPM</p><h3>Workflow & Components</h3></div></div><dl className="detail-list workflow-queue-detail-list">{renderQueueStatusList(selectedInstance)}<dt>Workflow Summary</dt><dd>{selectedInstance.workflowSummaryJson ? 'Collected' : 'Not collected yet'}</dd></dl></article><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('settings')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'settings')}><div className="panel-heading"><Settings /><div><p className="eyebrow small">OxyGen BPM</p><h3>Settings</h3></div></div>{renderSettingsTree(selectedInstance.settingsJson, true)}<dl className="detail-list settings-card-summary"><dt>Raw JSON</dt><dd>{selectedInstance.settingsJson ? `${collectedSettingsCount(selectedInstance.settingsJson)} key setting(s) found` : 'Not collected yet'}</dd></dl></article><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('metadata')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'metadata')}><div className="panel-heading"><Database /><div><p className="eyebrow small">Custom Data</p><h3>Metadata</h3></div></div><dl className="detail-list"><dt>Status</dt><dd>{selectedInstance.metadata ? 'Custom metadata added' : 'No metadata'}</dd><dt>Type</dt><dd>{selectedInstance.metadata === null ? 'None' : Array.isArray(selectedInstance.metadata) ? 'Array' : typeof selectedInstance.metadata}</dd></dl></article><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('notes')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'notes')}><div className="panel-heading"><ClipboardList /><div><p className="eyebrow small">Knowledge</p><h3>Notes</h3></div></div><dl className="detail-list"><dt>Detected format</dt><dd>{detectNotesFormat(selectedInstance.notes).toUpperCase()}</dd><dt>Status</dt><dd>{selectedInstance.notes ? 'Notes added' : 'No notes'}</dd></dl></article><article className="panel instance-detail-card clickable" role="button" tabIndex={0} onClick={() => void openInstanceHealthModal('record')} onKeyDown={(event) => handleInstanceDetailTileKeyDown(event, 'record')}><div className="panel-heading"><ShieldCheck /><div><p className="eyebrow small">Record</p><h3>Metadata</h3></div></div><dl className="detail-list"><dt>Description</dt><dd>{formatNullable(selectedInstance.description, 'No description')}</dd><dt>Created</dt><dd>{formatDateTime(selectedInstance.createdAt)}</dd><dt>Updated</dt><dd>{formatDateTime(selectedInstance.updatedAt)}</dd><dt>Instance ID</dt><dd>{selectedInstance.id}</dd></dl></article></div></div>}
           {activeSection === 'instance-dashboard' && !selectedInstance && <article className="panel"><p className="panel-copy">Select an instance from the grid to open its dashboard.</p><Button className="compact-button" type="button" onClick={() => setActiveSection('instances')}><ChevronLeft /> Back to Instances</Button></article>}
+          {activeSection === 'workflow-errors' && renderWorkflowErrorsDashboard()}
           {activeSection === 'user-groups' && canManageGroups && <ManagedGrid gridKey="user-groups" token={token!} rows={groupRows} loading={isAdminDataRefreshing} loadingLabel="Loading User Groups…" columns={labeledGroupColumnDefs} actionCell={GroupActionCell} mobileActions={(row) => <MobileStandardActions onEdit={() => openEditGroupModal(row.raw)} onDelete={() => deleteItem('group', row.raw.id, `group ${row.raw.name}`)} />} toolbar={<Button className="btn-create" onClick={openCreateGroupModal} type="button" themeColor="primary"><Plus /> Create &quot;Group&quot;</Button>} />}
           {activeSection === 'users' && canManageUsers && <ManagedGrid gridKey="users" token={token!} rows={userRows} loading={isAdminDataRefreshing} loadingLabel="Loading Users…" columns={labeledUserColumnDefs} actionCell={UserActionCell} mobileActions={(row) => <MobileStandardActions onEdit={() => openEditUserModal(row.raw)} onDelete={() => deleteItem('user', row.raw.user.id, `user ${row.raw.user.email}`)} />} toolbar={<Button className="btn-create" onClick={openCreateUserModal} type="button" themeColor="primary"><Plus /> Create &quot;User&quot;</Button>} />}
           {activeSection === 'roles' && canManageRoles && <ManagedGrid gridKey="roles" token={token!} rows={roleRows} loading={isAdminDataRefreshing} loadingLabel="Loading Roles…" columns={labeledRoleColumnDefs} actionCell={RoleActionCell} mobileActions={(row) => row.raw.isSystem ? <MobileStandardActions protectedOnly onEdit={() => setMessage(`${row.raw.name} is a protected global role and cannot be modified/deleted.`)} /> : <MobileStandardActions onEdit={() => openEditRoleModal(row.raw)} onDelete={() => deleteItem('role', row.raw.id, `role ${row.raw.name}`)} />} toolbar={<Button className="btn-create" onClick={openCreateRoleModal} type="button" themeColor="primary"><Plus /> Create &quot;Role&quot;</Button>} />}
@@ -3068,6 +3175,8 @@ export function App() {
       {renderRowActionMenu()}
 
       {renderInstanceHealthModal()}
+
+      {embeddedOxygenTriggerUrl && <Dialog className="cms-dialog oxygen-embed-dialog" title="Embedded OxyGen Trigger Grid" onClose={() => setEmbeddedOxygenTriggerUrl(null)} width="95vw"><div className="oxygen-embed-shell"><div className="oxygen-embed-toolbar"><p className="panel-copy small-copy">CMS opens OxyGen's React route with the trigger filter in an embedded frame. If the frame is blocked by OxyGen response headers or there is no existing OxyGen session cookie, use Open in OxyGen and sign in there.</p><code>{embeddedOxygenTriggerUrl}</code></div><iframe title="OxyGen trigger grid" src={embeddedOxygenTriggerUrl} /></div><DialogActionsBar><Button className="compact-button" type="button" fillMode="flat" onClick={() => window.open(embeddedOxygenTriggerUrl, '_blank', 'noopener,noreferrer')}><ExternalLink /> Open in OxyGen</Button><Button className="compact-button" type="button" fillMode="flat" onClick={() => setEmbeddedOxygenTriggerUrl(null)}>Close</Button></DialogActionsBar></Dialog>}
 
       {modal && isMobileViewport && <section className="mobile-editor-screen" aria-labelledby="mobile-editor-title">
         <header className="mobile-editor-screen-header"><button className="mobile-editor-back" type="button" onClick={() => setModal(null)} aria-label="Back"><ChevronLeft /></button><h2 id="mobile-editor-title">{modalTitle}</h2></header>

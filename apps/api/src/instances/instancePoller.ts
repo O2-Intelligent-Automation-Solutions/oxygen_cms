@@ -42,7 +42,7 @@ const DEFAULT_TICK_INTERVAL_MS = 30_000;
 const CMS_SERVICE_SOURCE = 'OxyGen CMS';
 
 function issueSignature(result: Awaited<ReturnType<InstanceRepository['testConnectivity']>>) {
-  return result.ok ? null : `${result.status}:${result.message}:${result.dns.errorCode ?? ''}:${result.ssl.errorCode ?? ''}:${result.authentication.errorCode ?? ''}:${result.api.errorCode ?? ''}:${result.license.step.errorCode ?? ''}`;
+  return result.ok ? null : `${result.status}:${result.message}:${result.dns.errorCode ?? ''}:${result.ssl.errorCode ?? ''}:${result.authentication.errorCode ?? ''}:${result.api.errorCode ?? ''}:${result.license.step.errorCode ?? ''}:${result.workflows.step.errorCode ?? ''}:${result.workflows.activeErrorCount}`;
 }
 
 function issueSeverity(result: Awaited<ReturnType<InstanceRepository['testConnectivity']>>) {
@@ -53,6 +53,7 @@ function issueSeverity(result: Awaited<ReturnType<InstanceRepository['testConnec
 
 function issueMessage(instance: OxyGenInstance, result: Awaited<ReturnType<InstanceRepository['testConnectivity']>>) {
   if (result.ok) return `${instance.name} is now nominal.`;
+  if (!result.workflows.step.skipped && result.workflows.activeErrorCount > 0) return `${instance.name} reported trigger errors: ${result.message}`;
   if (result.status === 'ssl-error') return `${instance.name} reported an SSL warning: ${result.message}`;
   if (result.status === 'auth-error') return `${instance.name} authentication failed: ${result.message}`;
   return `${instance.name} connectivity failed: ${result.message}`;
@@ -67,7 +68,7 @@ function checkDetails(instance: OxyGenInstance, result: Awaited<ReturnType<Insta
     ok: result.ok,
     message: result.message,
     error: result.ok ? null : result.message,
-    errorCode: result.dns.errorCode ?? result.ssl.errorCode ?? result.authentication.errorCode ?? result.api.errorCode ?? result.license.step.errorCode ?? null,
+    errorCode: result.dns.errorCode ?? result.ssl.errorCode ?? result.authentication.errorCode ?? result.api.errorCode ?? result.license.step.errorCode ?? result.workflows.step.errorCode ?? null,
     httpStatusCode: result.httpStatusCode,
     responseTimeMs: result.responseTimeMs,
     durationMs: result.durationMs,
@@ -75,7 +76,10 @@ function checkDetails(instance: OxyGenInstance, result: Awaited<ReturnType<Insta
     ssl: result.ssl,
     authentication: result.authentication,
     api: result.api,
-    license: result.license.step
+    license: result.license.step,
+    workflows: result.workflows.step,
+    workflowActiveErrorCount: result.workflows.activeErrorCount,
+    workflowTriggerStatusCounts: result.workflows.triggerStatusCounts
   };
 }
 
