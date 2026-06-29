@@ -1,4 +1,4 @@
-import type { CompositeFilterDescriptor, SortDescriptor } from '@progress/kendo-data-query';
+import type { CompositeFilterDescriptor, GroupDescriptor, SortDescriptor } from '@progress/kendo-data-query';
 
 export type ProcessingGridRecord = Record<string, unknown>;
 
@@ -48,9 +48,10 @@ export type ProcessingGridState = {
   take: number;
   sort: SortDescriptor[];
   filter?: CompositeFilterDescriptor;
+  group?: GroupDescriptor[];
 };
 
-export type ProcessingFilterPreset = 'active-errors' | 'recent' | 'all-visible';
+export type ProcessingFilterPreset = 'active-failed-recovery' | 'recent' | 'all-visible';
 
 export type TriggerGridQuery = {
   state: ProcessingGridState;

@@ -1,6 +1,7 @@
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@progress/kendo-react-buttons';
 import { Copy, Download, LoaderCircle, Mail, RotateCw } from 'lucide-react';
+import { createJSONEditor, Mode, type Content } from 'vanilla-jsoneditor';
 import type { ProcessingGridRecord, ProcessingQueueEntryDetail, ProcessingMessageAttachment, ProcessingMessageDetails } from './types';
 import { downloadBase64Attachment, downloadServiceEventFile, getServiceEventDetail, getServiceEventMessage, getServiceEventMessageSchema, recordValue } from './api';
 import { serviceEventIdField } from './schemaColumns';
@@ -29,14 +30,52 @@ const GROUPS: Array<{ name: string; fields: string[] }> = [
   { name: 'Event', fields: ['Id', 'ParentId', 'EventId', 'Status', 'ProcessState', 'ProcessingErorr'] },
   { name: 'Triggered', fields: ['CreatedDate', 'ModifiedDate', 'TriggeredBy', 'TriggeredDate'] },
   { name: 'File', fields: ['FileName', 'Source', 'Destination'] },
-  { name: 'Error', fields: ['ErrorMessage', 'LastError', 'StackTrace'] },
-  { name: 'Payload', fields: ['Payload', 'OutgoingPayload'] }
+  { name: 'Error', fields: ['ErrorMessage', 'LastError', 'StackTrace'] }
 ];
 
 function displayValue(value: unknown) {
   if (value === null || value === undefined || value === '') return '—';
   if (typeof value === 'string') return value;
   try { return JSON.stringify(value, null, 2); } catch { return String(value); }
+}
+
+function firstDetailValue(detail: ProcessingGridRecord | null, fields: string[]) {
+  if (!detail) return null;
+  for (const field of fields) {
+    const value = recordValue(detail, field);
+    if (value !== null && value !== undefined && value !== '') return value;
+  }
+  return null;
+}
+
+function parseJsonLike(value: unknown) {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try { return JSON.parse(trimmed); } catch { return trimmed; }
+}
+
+function BoundedJsonViewer({ value, emptyLabel = 'No payload available.' }: { value: unknown; emptyLabel?: string }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const editorRef = useRef<ReturnType<typeof createJSONEditor> | null>(null);
+  const parsed = useMemo(() => parseJsonLike(value), [value]);
+  const content: Content = typeof parsed === 'string' ? { text: parsed } : { json: parsed ?? { message: emptyLabel } };
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    editorRef.current = createJSONEditor({ target: containerRef.current, props: { content, readOnly: true, mode: Mode.tree, mainMenuBar: true, navigationBar: true, statusBar: true } });
+    return () => {
+      void editorRef.current?.destroy();
+      editorRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    editorRef.current?.updateProps({ content, readOnly: true });
+  }, [JSON.stringify(content)]);
+
+  return <div className="processing-json-viewer jse-theme-dark" ref={containerRef} />;
 }
 
 type DetailGroup = { name: string; entries: Array<readonly [string, unknown]> };
@@ -149,6 +188,10 @@ export function EventDetailsPanel({ instanceId, token, serviceIdentifier, select
   const eventId = selectedServiceEvent ? recordValue(selectedServiceEvent, serviceEventIdField(null)) : null;
   const groups = useMemo(() => groupedDetails(detail, advanced), [advanced, detail]);
   const files = useMemo(() => extractFiles(detail), [detail]);
+  const primaryError = useMemo(() => firstDetailValue(detail, ['ErrorMessage', 'LastError', 'StackTrace', 'ProcessingErorr']), [detail]);
+  const stackTrace = useMemo(() => firstDetailValue(detail, ['StackTrace', 'ServiceStackTrace', 'ExceptionStackTrace']), [detail]);
+  const incomingPayload = useMemo(() => firstDetailValue(detail, ['IncomingPayload', 'Payload']), [detail]);
+  const outgoingPayload = useMemo(() => firstDetailValue(detail, ['OutgoingPayload']), [detail]);
 
   useEffect(() => {
     if (!serviceIdentifier || eventId === null || eventId === undefined) {
@@ -222,6 +265,14 @@ export function EventDetailsPanel({ instanceId, token, serviceIdentifier, select
     {error && <p className="panel-copy warning">{error}</p>}
     {downloadError && <p className="panel-copy warning">{downloadError}</p>}
     {detail && <div className="processing-details-body">
+      {primaryError && <section className="processing-detail-group processing-primary-error">
+        <header><p className="eyebrow small">Error Message</p><Button className="compact-button" type="button" fillMode="flat" onClick={() => void copyError()}><Copy /> Copy Error</Button></header>
+        <pre className="processing-error-message-block">{displayValue(primaryError)}</pre>
+      </section>}
+      {advanced && stackTrace && <section className="processing-detail-group processing-stack-trace">
+        <header><p className="eyebrow small">Stack Trace</p><span className="panel-copy small-copy">Advanced diagnostic detail</span></header>
+        <pre className="processing-stack-trace-block">{displayValue(stackTrace)}</pre>
+      </section>}
       {files.length > 0 && <section className="processing-detail-group processing-file-downloads">
         <header><p className="eyebrow small">Files</p><span className="panel-copy small-copy">Downloads use typed CMS endpoints and remain lazy until clicked.</span></header>
         <div className="processing-file-list">
@@ -242,13 +293,19 @@ export function EventDetailsPanel({ instanceId, token, serviceIdentifier, select
           {message.OriginalMessage && <MessageSummary title="Original Message" message={message.OriginalMessage} />}
         </>}
       </section>}
-      {groups.map((group) => <section key={group.name} className={`processing-detail-group ${group.name === 'Error' ? 'error' : ''}`}>
+      {(incomingPayload !== null || outgoingPayload !== null) && <section className="processing-detail-group processing-payload-comparison">
+        <header><p className="eyebrow small">Payload Comparison</p><span className="panel-copy small-copy">Incoming and outgoing payloads stay side-by-side with bounded JSON viewers.</span></header>
+        <div className="processing-payload-grid">
+          <article><h4>Incoming Payload</h4><BoundedJsonViewer value={incomingPayload} emptyLabel="No incoming payload available." /></article>
+          <article><h4>Outgoing Payload</h4><BoundedJsonViewer value={outgoingPayload} emptyLabel="No outgoing payload available." /></article>
+        </div>
+      </section>}
+      {groups.filter((group) => !(primaryError && group.name === 'Error')).map((group) => <section key={group.name} className={`processing-detail-group ${group.name === 'Error' ? 'error' : ''}`}>
         <header><p className="eyebrow small">{group.name}</p>{group.name === 'Error' && <Button className="compact-button" type="button" fillMode="flat" onClick={() => void copyError()}><Copy /> Copy Error</Button>}</header>
         <dl className="detail-list processing-selected-detail">
           {group.entries.map(([field, value]) => <Fragment key={`${group.name}-${field}`}><dt>{field}</dt><dd><pre>{displayValue(value)}</pre></dd></Fragment>)}
         </dl>
       </section>)}
     </div>}
-    <p className="panel-copy small-copy">Message editing, queue reset/cancel, bulk actions, and non-EMM message surfaces remain deferred to later guarded slices; raw message content is loaded only behind typed CMS endpoints and named permissions.</p>
   </article>;
 }

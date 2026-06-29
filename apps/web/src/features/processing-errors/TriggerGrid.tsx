@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Grid, GridColumn, type GridCellProps, type GridDataStateChangeEvent, type GridRowClickEvent } from '@progress/kendo-react-grid';
+import { type GridCellProps, type GridRowClickEvent } from '@progress/kendo-react-grid';
 import { Button } from '@progress/kendo-react-buttons';
-import { Ban, ChevronDown, ChevronRight, LoaderCircle, RotateCw } from 'lucide-react';
+import { Ban, RotateCw } from 'lucide-react';
+import { ProcessingRowActionMenu } from './ProcessingRowActionMenu';
 import type { ProcessingFilterPreset, ProcessingGridRecord, ProcessingGridState, ProcessingSchema } from './types';
 import { cancelTrigger, getTriggerGrid, recordValue } from './api';
 import { schemaColumns, triggerIdField, triggerStatusField } from './schemaColumns';
-import { ChildTriggerGrid } from './ChildTriggerGrid';
+import { ProcessingServerGrid } from './ProcessingServerGrid';
+
 
 type TriggerGridProps = {
   instanceId: string;
@@ -15,6 +17,8 @@ type TriggerGridProps = {
   canCancelTrigger: boolean;
   onSelectedTriggerChange: (trigger: ProcessingGridRecord | null) => void;
   onLoaded: (timestamp: string) => void;
+  initialSearch?: string;
+  initialSelectedTriggerId?: string;
 };
 
 function rowId(schema: ProcessingSchema | null, row: ProcessingGridRecord) {
@@ -22,10 +26,6 @@ function rowId(schema: ProcessingSchema | null, row: ProcessingGridRecord) {
   return id === null || id === undefined ? JSON.stringify(row) : String(id);
 }
 
-function hasChildren(row: ProcessingGridRecord) {
-  const childTriggers = row.ChildTriggers ?? row.childTriggers;
-  return Boolean((row.IsParent ?? row.isParent) && (childTriggers === true || Number(childTriggers) > 0));
-}
 
 function statusTone(status: unknown) {
   const value = String(status ?? '').toLowerCase();
@@ -40,10 +40,10 @@ function actionResultMessage(result: unknown, fallback: string) {
   return fallback;
 }
 
-export function TriggerGrid({ instanceId, token, schema, selectedTrigger, canCancelTrigger, onSelectedTriggerChange, onLoaded }: TriggerGridProps) {
+export function TriggerGrid({ instanceId, token, schema, selectedTrigger, canCancelTrigger, onSelectedTriggerChange, onLoaded, initialSearch = '', initialSelectedTriggerId }: TriggerGridProps) {
   const [state, setState] = useState<ProcessingGridState>({ skip: 0, take: 50, sort: [] });
-  const [preset, setPreset] = useState<ProcessingFilterPreset>('active-errors');
-  const [search, setSearch] = useState('');
+  const [preset, setPreset] = useState<ProcessingFilterPreset>('active-failed-recovery');
+  const [search, setSearch] = useState(initialSearch);
   const [rows, setRows] = useState<ProcessingGridRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -51,9 +51,14 @@ export function TriggerGrid({ instanceId, token, schema, selectedTrigger, canCan
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionBusyId, setActionBusyId] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [expandedTriggerId, setExpandedTriggerId] = useState<string | null>(null);
+
   const columns = useMemo(() => schemaColumns(schema, 'Parent'), [schema]);
   const selectedId = selectedTrigger ? rowId(schema, selectedTrigger) : null;
+
+  useEffect(() => {
+    setSearch(initialSearch);
+    setState((current) => ({ ...current, skip: 0 }));
+  }, [initialSearch]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -64,6 +69,13 @@ export function TriggerGrid({ instanceId, token, schema, selectedTrigger, canCan
         setRows(response.data);
         setTotal(response.total);
         onLoaded(new Date().toISOString());
+        if (initialSelectedTriggerId && selectedId !== initialSelectedTriggerId) {
+          const match = response.data.find((row) => rowId(schema, row) === initialSelectedTriggerId);
+          if (match) {
+            onSelectedTriggerChange(match);
+            return;
+          }
+        }
         if (selectedId && !response.data.some((row) => rowId(schema, row) === selectedId)) onSelectedTriggerChange(null);
       })
       .catch((err: unknown) => {
@@ -72,7 +84,7 @@ export function TriggerGrid({ instanceId, token, schema, selectedTrigger, canCan
       })
       .finally(() => setLoading(false));
     return () => controller.abort();
-  }, [instanceId, onLoaded, onSelectedTriggerChange, preset, refreshKey, schema, search, selectedId, state, token]);
+  }, [initialSelectedTriggerId, instanceId, onLoaded, onSelectedTriggerChange, preset, refreshKey, schema, search, selectedId, state, token]);
 
   function handleRowClick(event: GridRowClickEvent) {
     onSelectedTriggerChange(event.dataItem as ProcessingGridRecord);
@@ -96,23 +108,13 @@ export function TriggerGrid({ instanceId, token, schema, selectedTrigger, canCan
     }
   }
 
-  function ExpandCell(props: GridCellProps) {
-    const row = props.dataItem as ProcessingGridRecord;
-    const id = rowId(schema, row);
-    const expandable = hasChildren(row);
-    return <td className="k-table-td processing-expand-cell">
-      <Button className="compact-button processing-expand-button" type="button" fillMode="flat" disabled={!expandable} onClick={(event) => { event.stopPropagation(); setExpandedTriggerId((current) => current === id ? null : id); onSelectedTriggerChange(row); }}>
-        {expandedTriggerId === id ? <ChevronDown /> : <ChevronRight />}{expandable ? 'Children' : '—'}
-      </Button>
-    </td>;
-  }
 
   function ActionCell(props: GridCellProps) {
     const row = props.dataItem as ProcessingGridRecord;
     const id = rowId(schema, row);
     const status = String(recordValue(row, triggerStatusField(schema)) ?? '').toLowerCase();
     const disabledByStatus = status.includes('cancel') || status.includes('complete') || status.includes('success');
-    return <td className="k-table-td processing-action-cell"><Button className="compact-button" type="button" fillMode="flat" disabled={!canCancelTrigger || disabledByStatus || actionBusyId === id} title={canCancelTrigger ? 'Cancel Trigger' : 'Permission required'} onClick={(event) => { event.stopPropagation(); void handleCancel(row); }}><Ban /> Cancel</Button></td>;
+    return <td className="k-table-td processing-action-cell"><ProcessingRowActionMenu label={`Actions for trigger ${id}`}>{(close) => <Button className="compact-button" type="button" fillMode="flat" disabled={!canCancelTrigger || disabledByStatus || actionBusyId === id} title={canCancelTrigger ? 'Cancel Trigger' : 'Permission required'} onClick={() => { close(); void handleCancel(row); }}><Ban /> Cancel</Button>}</ProcessingRowActionMenu></td>;
   }
 
   function StatusCell(props: GridCellProps) {
@@ -120,42 +122,27 @@ export function TriggerGrid({ instanceId, token, schema, selectedTrigger, canCan
     return <td className="k-table-td"><span className={`processing-status-pill ${statusTone(value)}`}>{String(value ?? 'Unknown')}</span></td>;
   }
 
-  const expandedRow = expandedTriggerId ? rows.find((row) => rowId(schema, row) === expandedTriggerId) ?? null : null;
-
   return <article className="panel processing-trigger-panel">
-    <div className="processing-grid-toolbar">
-      <div className="processing-grid-toolbar-summary"><strong>Workflow Triggers</strong><span>{total.toLocaleString()} matching rows · server-paged</span></div>
-      <label className="processing-inline-filter"><span>Default scope</span><select value={preset} onChange={(event) => { setPreset(event.target.value as ProcessingFilterPreset); setState((current) => ({ ...current, skip: 0 })); }}><option value="active-errors">Active / Error / Recovery</option><option value="recent">Recent records</option><option value="all-visible">All visible parents</option></select></label>
-      <label className="processing-inline-filter"><span>Search</span><input value={search} onChange={(event) => { setSearch(event.target.value); setState((current) => ({ ...current, skip: 0 })); }} placeholder="Workflow, trigger, service, job, status" /></label>
-      <Button className="compact-button" type="button" onClick={() => setRefreshKey((value) => value + 1)}><RotateCw /> Refresh</Button>
-    </div>
+    <ProcessingServerGrid
+      gridKey="processing-triggers"
+      title="Workflow Triggers"
+      summary={`${total.toLocaleString()} matching rows · server-paged`}
+      rows={rows}
+      total={total}
+      state={state}
+      onStateChange={setState}
+      columns={columns}
+      dataItemKey={triggerIdField(schema)}
+      loading={loading}
+      loadingLabel="Loading Processing Errors trigger page…"
+      actionCell={ActionCell}
+      statusField={triggerStatusField(schema)}
+      statusCell={StatusCell}
+      onRowClick={handleRowClick}
+      toolbar={<><label className="processing-inline-filter"><span>Status scope</span><select value={preset} onChange={(event) => { setPreset(event.target.value as ProcessingFilterPreset); setState((current) => ({ ...current, skip: 0 })); }}><option value="active-failed-recovery">Active / Failed / Recovery</option><option value="recent">Recent records</option><option value="all-visible">All visible parents</option></select></label><label className="processing-inline-filter"><span>Search</span><input value={search} onChange={(event) => { setSearch(event.target.value); setState((current) => ({ ...current, skip: 0 })); }} placeholder="Workflow, trigger, service, job, status" /></label><Button className="compact-button" type="button" onClick={() => setRefreshKey((value) => value + 1)}><RotateCw /> Refresh</Button></>}
+    />
     {actionMessage && <p className="panel-copy success">{actionMessage}</p>}
     {error && <p className="panel-copy warning">{error}</p>}
-    <div className="processing-grid-scroll">
-      {loading && <div className="cms-loading-overlay grid-loading-overlay" role="status" aria-live="polite"><LoaderCircle className="cms-loading-spinner" /><span>Loading Processing Errors trigger page…</span></div>}
-      <Grid
-        className="cms-kendo-grid processing-kendo-grid"
-        data={{ data: rows, total }}
-        skip={state.skip}
-        take={state.take}
-        total={total}
-        pageable={{ buttonCount: 5, pageSizes: [25, 50, 100, 250] }}
-        sortable
-        sort={state.sort}
-        filterable
-        filter={state.filter}
-        scrollable="scrollable"
-        dataItemKey={triggerIdField(schema)}
-        selectable={{ enabled: true, mode: 'single' }}
-        onRowClick={handleRowClick}
-        onDataStateChange={(event: GridDataStateChangeEvent) => setState({ skip: event.dataState.skip ?? 0, take: event.dataState.take ?? 50, sort: event.dataState.sort ?? [], filter: event.dataState.filter })}
-      >
-        <GridColumn title="Expand" width={120} filterable={false} sortable={false} cells={{ data: ExpandCell }} />
-        <GridColumn title="Actions" width={140} filterable={false} sortable={false} cells={{ data: ActionCell }} />
-        {columns.map((column) => <GridColumn key={String(column.field)} {...column} cells={String(column.field) === triggerStatusField(schema) ? { data: StatusCell } : column.cells} />)}
-      </Grid>
-    </div>
     <section className="processing-selection-strip" aria-live="polite"><strong>Selected trigger</strong><span>{selectedTrigger ? `${rowId(schema, selectedTrigger)} · ${String(recordValue(selectedTrigger, triggerStatusField(schema)) ?? 'Unknown')}` : 'Select a trigger row to drive downstream Processing Errors panes.'}</span></section>
-    {expandedRow && <ChildTriggerGrid instanceId={instanceId} token={token} schema={schema} parent={expandedRow} />}
   </article>;
 }

@@ -49,11 +49,13 @@ function atomicFilter(field: string, operator: string, value: string | number | 
 function presetFilters(preset: string): FilterDescriptor[] {
   if (preset === 'recent') return [atomicFilter('TriggerDate', 'gte', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString())];
   if (preset === 'all-visible') return [];
-  return [
-    { field: 'Status', operator: 'neq', value: 'Completed' },
-    { field: 'Status', operator: 'neq', value: 'Complete' },
-    { field: 'Status', operator: 'neq', value: 'Success' }
-  ];
+  return [{ logic: 'or', filters: [
+    atomicFilter('Status', 'eq', 'Active'),
+    atomicFilter('Status', 'eq', 'Failed'),
+    atomicFilter('Status', 'eq', 'Recovery'),
+    atomicFilter('Status', 'eq', 'Active - In Recovery'),
+    atomicFilter('Status', 'contains', 'Recovery')
+  ] } as unknown as FilterDescriptor];
 }
 
 function searchFilter(search: string | undefined, fields: string[]): CompositeFilterDescriptor | null {
@@ -79,6 +81,7 @@ function buildGridQuery({ state, preset, search }: TriggerGridQuery) {
     skip: Math.max(0, Math.floor(state.skip || 0)),
     take: normalizeTake(state.take),
     sort: state.sort,
+    group: state.group,
     filter: mergeFilter([atomicFilter('IsChild', 'neq', true), ...presetFilters(preset)], state.filter, searchFilter(search, ['WorkflowId', 'WorkflowTriggerId', 'ServiceIdentifier', 'JobId', 'Status']))
   };
   return toDataSourceRequestString(safeState);
@@ -89,6 +92,7 @@ function buildWorkflowEventGridQuery({ state, workflowTriggerId, search }: Workf
     skip: Math.max(0, Math.floor(state.skip || 0)),
     take: normalizeTake(state.take),
     sort: sortedState(state, [{ field: 'Id', dir: 'asc' }]),
+    group: state.group,
     filter: mergeFilter([atomicFilter('WorkflowTriggerId', 'eq', workflowTriggerId)], state.filter, searchFilter(search, ['WorkflowId', 'WorkflowTriggerId', 'ServiceIdentifier', 'Status']))
   };
   return toDataSourceRequestString(safeState);
@@ -106,6 +110,7 @@ function buildServiceEventGridQuery({ state, workflowEventId, search }: ServiceE
     skip: Math.max(0, Math.floor(state.skip || 0)),
     take: normalizeTake(state.take),
     sort: state.sort,
+    group: state.group,
     filter: mergeFilter([atomicFilter('WorkflowEventId', 'eq', workflowEventId), parentFilter as unknown as FilterDescriptor], state.filter, searchFilter(search, ['WorkflowId', 'WorkflowTriggerId', 'WorkflowEventId', 'ServiceIdentifier', 'JobId', 'Status']))
   };
   return toDataSourceRequestString(safeState);

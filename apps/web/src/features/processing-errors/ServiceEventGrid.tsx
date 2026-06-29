@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Grid, GridColumn, type GridCellProps, type GridDataStateChangeEvent, type GridRowClickEvent } from '@progress/kendo-react-grid';
+import { type GridCellProps, type GridRowClickEvent } from '@progress/kendo-react-grid';
 import { Button } from '@progress/kendo-react-buttons';
-import { ChevronDown, ChevronRight, LoaderCircle, RotateCw, RotateCcw } from 'lucide-react';
+import { RotateCw, RotateCcw } from 'lucide-react';
 import type { ProcessingGridRecord, ProcessingGridState, ProcessingSchema } from './types';
 import { getServiceEventGrid, getServiceEventSchema, recordValue, restoreServiceEvent } from './api';
 import { schemaColumns, serviceEventIdField, serviceEventStatusField, workflowEventIdField } from './schemaColumns';
-import { ChildServiceEventGrid } from './ChildServiceEventGrid';
+import { ProcessingServerGrid } from './ProcessingServerGrid';
+import { ProcessingRowActionMenu } from './ProcessingRowActionMenu';
+
 
 type ServiceEventGridProps = {
   instanceId: string;
@@ -14,6 +16,8 @@ type ServiceEventGridProps = {
   selectedServiceEvent: ProcessingGridRecord | null;
   canRestoreServiceEvent: boolean;
   onSelectedServiceEventChange: (event: ProcessingGridRecord | null) => void;
+  initialSearch?: string;
+  initialSelectedServiceEventId?: string;
 };
 
 function rowId(schema: ProcessingSchema | null, row: ProcessingGridRecord) {
@@ -29,16 +33,13 @@ function statusTone(status: unknown) {
   return 'unknown';
 }
 
-function hasChildren(row: ProcessingGridRecord) {
-  return Boolean(row.HasChild ?? row.hasChild ?? row.ChildEvents ?? row.childEvents);
-}
 
 function actionResultMessage(result: unknown, fallback: string) {
   if (typeof result === 'string' && result.trim()) return result;
   return fallback;
 }
 
-export function ServiceEventGrid({ instanceId, token, selectedWorkflowEvent, selectedServiceEvent, canRestoreServiceEvent, onSelectedServiceEventChange }: ServiceEventGridProps) {
+export function ServiceEventGrid({ instanceId, token, selectedWorkflowEvent, selectedServiceEvent, canRestoreServiceEvent, onSelectedServiceEventChange, initialSearch = '', initialSelectedServiceEventId }: ServiceEventGridProps) {
   const [schema, setSchema] = useState<ProcessingSchema | null>(null);
   const [schemaError, setSchemaError] = useState<string | null>(null);
   const [state, setState] = useState<ProcessingGridState>({ skip: 0, take: 50, sort: [] });
@@ -50,18 +51,22 @@ export function ServiceEventGrid({ instanceId, token, selectedWorkflowEvent, sel
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionBusyId, setActionBusyId] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
+
   const serviceIdentifier = selectedWorkflowEvent ? recordValue(selectedWorkflowEvent, 'ServiceIdentifier') : null;
   const workflowEventId = selectedWorkflowEvent ? recordValue(selectedWorkflowEvent, workflowEventIdField(null)) ?? recordValue(selectedWorkflowEvent, 'WorkflowEventId') : null;
   const columns = useMemo(() => schemaColumns(schema, 'ServiceEvent'), [schema]);
   const selectedId = selectedServiceEvent ? rowId(schema, selectedServiceEvent) : null;
 
   useEffect(() => {
+    setSearch(initialSearch);
+    setState((current) => ({ ...current, skip: 0 }));
+  }, [initialSearch]);
+
+  useEffect(() => {
     if (!serviceIdentifier) {
       setSchema(null);
       setRows([]);
       setTotal(0);
-      setExpandedEventId(null);
       onSelectedServiceEventChange(null);
       return undefined;
     }
@@ -85,6 +90,13 @@ export function ServiceEventGrid({ instanceId, token, selectedWorkflowEvent, sel
       .then((response) => {
         setRows(response.data);
         setTotal(response.total);
+        if (initialSelectedServiceEventId && selectedId !== initialSelectedServiceEventId) {
+          const match = response.data.find((row) => rowId(schema, row) === initialSelectedServiceEventId);
+          if (match) {
+            onSelectedServiceEventChange(match);
+            return;
+          }
+        }
         if (selectedId && !response.data.some((row) => rowId(schema, row) === selectedId)) onSelectedServiceEventChange(null);
       })
       .catch((err: unknown) => {
@@ -93,7 +105,7 @@ export function ServiceEventGrid({ instanceId, token, selectedWorkflowEvent, sel
       })
       .finally(() => setLoading(false));
     return () => controller.abort();
-  }, [instanceId, onSelectedServiceEventChange, refreshKey, schema, search, selectedId, serviceIdentifier, state, token, workflowEventId]);
+  }, [initialSelectedServiceEventId, instanceId, onSelectedServiceEventChange, refreshKey, schema, search, selectedId, serviceIdentifier, state, token, workflowEventId]);
 
   function handleRowClick(event: GridRowClickEvent) {
     onSelectedServiceEventChange(event.dataItem as ProcessingGridRecord);
@@ -117,17 +129,11 @@ export function ServiceEventGrid({ instanceId, token, selectedWorkflowEvent, sel
     }
   }
 
-  function ExpandCell(props: GridCellProps) {
-    const row = props.dataItem as ProcessingGridRecord;
-    const id = rowId(schema, row);
-    const expandable = hasChildren(row);
-    return <td className="k-table-td processing-expand-cell"><Button className="compact-button processing-expand-button" type="button" fillMode="flat" disabled={!expandable} onClick={(event) => { event.stopPropagation(); setExpandedEventId((current) => current === id ? null : id); onSelectedServiceEventChange(row); }}>{expandedEventId === id ? <ChevronDown /> : <ChevronRight />}{expandable ? 'Children' : '—'}</Button></td>;
-  }
 
   function ActionCell(props: GridCellProps) {
     const row = props.dataItem as ProcessingGridRecord;
     const id = rowId(schema, row);
-    return <td className="k-table-td processing-action-cell"><Button className="compact-button" type="button" fillMode="flat" disabled={!canRestoreServiceEvent || actionBusyId === id} title={canRestoreServiceEvent ? 'Restore service event' : 'Permission required'} onClick={(event) => { event.stopPropagation(); void handleRestore(row); }}><RotateCcw /> Restore</Button></td>;
+    return <td className="k-table-td processing-action-cell"><ProcessingRowActionMenu label={`Actions for service event ${id}`}>{(close) => <Button className="compact-button" type="button" fillMode="flat" disabled={!canRestoreServiceEvent || actionBusyId === id} title={canRestoreServiceEvent ? 'Restore service event' : 'Permission required'} onClick={() => { close(); void handleRestore(row); }}><RotateCcw /> Restore</Button>}</ProcessingRowActionMenu></td>;
   }
 
   function StatusCell(props: GridCellProps) {
@@ -135,46 +141,32 @@ export function ServiceEventGrid({ instanceId, token, selectedWorkflowEvent, sel
     return <td className="k-table-td"><span className={`processing-status-pill ${statusTone(value)}`}>{String(value ?? 'Unknown')}</span></td>;
   }
 
-  const expandedRow = expandedEventId ? rows.find((row) => rowId(schema, row) === expandedEventId) ?? null : null;
-
   if (!selectedWorkflowEvent || !serviceIdentifier) {
     return <article className="panel processing-trigger-panel processing-service-panel"><div className="processing-grid-toolbar"><div className="processing-grid-toolbar-summary"><strong>Service Events</strong><span>Select a workflow event with a service identifier to load service events.</span></div></div><section className="processing-selection-strip"><strong>No workflow event selected</strong><span>Service events are lazy-loaded only after workflow-event selection.</span></section></article>;
   }
 
   return <article className="panel processing-trigger-panel processing-service-panel">
-    <div className="processing-grid-toolbar">
-      <div className="processing-grid-toolbar-summary"><strong>{String(serviceIdentifier).toUpperCase()} Service Events</strong><span>{total.toLocaleString()} matching rows · workflow event {String(workflowEventId ?? 'unknown')} · parent rows only</span></div>
-      <label className="processing-inline-filter"><span>Search</span><input value={search} onChange={(event) => { setSearch(event.target.value); setState((current) => ({ ...current, skip: 0 })); }} placeholder="Workflow, trigger, event, service, job, status" /></label>
-      <Button className="compact-button" type="button" onClick={() => setRefreshKey((value) => value + 1)}><RotateCw /> Refresh Service Events</Button>
-    </div>
+    <ProcessingServerGrid
+      gridKey="processing-service-events"
+      title={`${String(serviceIdentifier).toUpperCase()} Service Events`}
+      summary={`${total.toLocaleString()} matching rows · workflow event ${String(workflowEventId ?? 'unknown')}`}
+      rows={rows}
+      total={total}
+      state={state}
+      onStateChange={setState}
+      columns={columns}
+      dataItemKey={serviceEventIdField(schema)}
+      loading={loading}
+      loadingLabel="Loading service event page…"
+      actionCell={ActionCell}
+      statusField={serviceEventStatusField(schema)}
+      statusCell={StatusCell}
+      onRowClick={handleRowClick}
+      toolbar={<><label className="processing-inline-filter"><span>Search</span><input value={search} onChange={(event) => { setSearch(event.target.value); setState((current) => ({ ...current, skip: 0 })); }} placeholder="Workflow, trigger, event, service, job, status" /></label><Button className="compact-button" type="button" onClick={() => setRefreshKey((value) => value + 1)}><RotateCw /> Refresh Service Events</Button></>}
+    />
     {schemaError && <p className="panel-copy warning">{schemaError}</p>}
     {actionMessage && <p className="panel-copy success">{actionMessage}</p>}
     {error && <p className="panel-copy warning">{error}</p>}
-    <div className="processing-grid-scroll">
-      {loading && <div className="cms-loading-overlay grid-loading-overlay" role="status" aria-live="polite"><LoaderCircle className="cms-loading-spinner" /><span>Loading service event page…</span></div>}
-      <Grid
-        className="cms-kendo-grid processing-kendo-grid processing-service-grid"
-        data={{ data: rows, total }}
-        skip={state.skip}
-        take={state.take}
-        total={total}
-        pageable={{ buttonCount: 5, pageSizes: [25, 50, 100, 250] }}
-        sortable
-        sort={state.sort}
-        filterable
-        filter={state.filter}
-        scrollable="scrollable"
-        dataItemKey={serviceEventIdField(schema)}
-        selectable={{ enabled: true, mode: 'single' }}
-        onRowClick={handleRowClick}
-        onDataStateChange={(event: GridDataStateChangeEvent) => setState({ skip: event.dataState.skip ?? 0, take: event.dataState.take ?? 50, sort: event.dataState.sort ?? [], filter: event.dataState.filter })}
-      >
-        <GridColumn title="Expand" width={120} filterable={false} sortable={false} cells={{ data: ExpandCell }} />
-        <GridColumn title="Actions" width={150} filterable={false} sortable={false} cells={{ data: ActionCell }} />
-        {columns.map((column) => <GridColumn key={String(column.field)} {...column} cells={String(column.field) === serviceEventStatusField(schema) ? { data: StatusCell } : column.cells} />)}
-      </Grid>
-    </div>
     <section className="processing-selection-strip" aria-live="polite"><strong>Selected service event</strong><span>{selectedServiceEvent ? `${rowId(schema, selectedServiceEvent)} · ${String(recordValue(selectedServiceEvent, serviceEventStatusField(schema)) ?? 'Unknown')}` : 'Select a service event row to prepare event details.'}</span></section>
-    {expandedRow && <ChildServiceEventGrid instanceId={instanceId} serviceIdentifier={String(serviceIdentifier)} token={token} schema={schema} parent={expandedRow} />}
   </article>;
 }

@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Grid, GridColumn, type GridCellProps, type GridDataStateChangeEvent, type GridRowClickEvent } from '@progress/kendo-react-grid';
+import { type GridCellProps, type GridRowClickEvent } from '@progress/kendo-react-grid';
 import { Button } from '@progress/kendo-react-buttons';
-import { Ban, LoaderCircle, RotateCw, RotateCcw } from 'lucide-react';
+import { Ban, RotateCw, RotateCcw } from 'lucide-react';
 import type { ProcessingGridRecord, ProcessingGridState, ProcessingSchema } from './types';
 import { cancelWorkflowEvent, getWorkflowEventGrid, getWorkflowEventSchema, recoverWorkflowEvent, recordValue } from './api';
 import { schemaColumns, triggerIdField, workflowEventIdField, workflowEventStatusField } from './schemaColumns';
+import { ProcessingServerGrid } from './ProcessingServerGrid';
+import { ProcessingRowActionMenu } from './ProcessingRowActionMenu';
 
 type WorkflowEventGridProps = {
   instanceId: string;
@@ -15,6 +17,8 @@ type WorkflowEventGridProps = {
   canRecoverWorkflowEvent: boolean;
   canCancelWorkflowEvent: boolean;
   onSelectedWorkflowEventChange: (event: ProcessingGridRecord | null) => void;
+  initialSearch?: string;
+  initialSelectedWorkflowEventId?: string;
 };
 
 function rowId(schema: ProcessingSchema | null, row: ProcessingGridRecord) {
@@ -35,7 +39,7 @@ function actionResultMessage(result: unknown, fallback: string) {
   return fallback;
 }
 
-export function WorkflowEventGrid({ instanceId, token, triggerSchema, selectedTrigger, selectedWorkflowEvent, canRecoverWorkflowEvent, canCancelWorkflowEvent, onSelectedWorkflowEventChange }: WorkflowEventGridProps) {
+export function WorkflowEventGrid({ instanceId, token, triggerSchema, selectedTrigger, selectedWorkflowEvent, canRecoverWorkflowEvent, canCancelWorkflowEvent, onSelectedWorkflowEventChange, initialSearch = '', initialSelectedWorkflowEventId }: WorkflowEventGridProps) {
   const [schema, setSchema] = useState<ProcessingSchema | null>(null);
   const [schemaError, setSchemaError] = useState<string | null>(null);
   const [state, setState] = useState<ProcessingGridState>({ skip: 0, take: 50, sort: [{ field: 'Id', dir: 'asc' }] });
@@ -50,6 +54,11 @@ export function WorkflowEventGrid({ instanceId, token, triggerSchema, selectedTr
   const columns = useMemo(() => schemaColumns(schema, 'WorkflowEvent'), [schema]);
   const triggerId = selectedTrigger ? recordValue(selectedTrigger, triggerSchema?.IdColumns?.WorkflowTriggerIdField || triggerIdField(triggerSchema)) : null;
   const selectedId = selectedWorkflowEvent ? rowId(schema, selectedWorkflowEvent) : null;
+
+  useEffect(() => {
+    setSearch(initialSearch);
+    setState((current) => ({ ...current, skip: 0 }));
+  }, [initialSearch]);
 
   useEffect(() => {
     if (!selectedTrigger) {
@@ -78,6 +87,13 @@ export function WorkflowEventGrid({ instanceId, token, triggerSchema, selectedTr
       .then((response) => {
         setRows(response.data);
         setTotal(response.total);
+        if (initialSelectedWorkflowEventId && selectedId !== initialSelectedWorkflowEventId) {
+          const match = response.data.find((row) => rowId(schema, row) === initialSelectedWorkflowEventId);
+          if (match) {
+            onSelectedWorkflowEventChange(match);
+            return;
+          }
+        }
         if (selectedId && !response.data.some((row) => rowId(schema, row) === selectedId)) onSelectedWorkflowEventChange(null);
       })
       .catch((err: unknown) => {
@@ -86,7 +102,7 @@ export function WorkflowEventGrid({ instanceId, token, triggerSchema, selectedTr
       })
       .finally(() => setLoading(false));
     return () => controller.abort();
-  }, [instanceId, onSelectedWorkflowEventChange, refreshKey, schema, search, selectedId, state, token, triggerId]);
+  }, [initialSelectedWorkflowEventId, instanceId, onSelectedWorkflowEventChange, refreshKey, schema, search, selectedId, state, token, triggerId]);
 
   function handleRowClick(event: GridRowClickEvent) {
     onSelectedWorkflowEventChange(event.dataItem as ProcessingGridRecord);
@@ -144,10 +160,7 @@ export function WorkflowEventGrid({ instanceId, token, triggerSchema, selectedTr
     const status = String(recordValue(row, workflowEventStatusField(schema)) ?? '').toLowerCase();
     const recoverDisabled = status.includes('complete') || status.includes('pending') || status.includes('recover') || status.includes('cancel');
     const cancelDisabled = status.includes('complete') || status.includes('cancel');
-    return <td className="k-table-td processing-action-cell">
-      <Button className="compact-button" type="button" fillMode="flat" disabled={!canRecoverWorkflowEvent || recoverDisabled || actionBusyId === id} title={canRecoverWorkflowEvent ? 'Recover workflow event' : 'Permission required'} onClick={(event) => { event.stopPropagation(); void handleRecovery(row); }}><RotateCcw /> Recover</Button>
-      <Button className="compact-button" type="button" fillMode="flat" disabled={!canCancelWorkflowEvent || cancelDisabled || actionBusyId === id} title={canCancelWorkflowEvent ? 'Cancel workflow event' : 'Permission required'} onClick={(event) => { event.stopPropagation(); void handleCancel(row); }}><Ban /> Cancel</Button>
-    </td>;
+    return <td className="k-table-td processing-action-cell"><ProcessingRowActionMenu label={`Actions for workflow event ${id}`}>{(close) => <><Button className="compact-button" type="button" fillMode="flat" disabled={!canRecoverWorkflowEvent || recoverDisabled || actionBusyId === id} title={canRecoverWorkflowEvent ? 'Recover workflow event' : 'Permission required'} onClick={() => { close(); void handleRecovery(row); }}><RotateCcw /> Recover</Button><Button className="compact-button" type="button" fillMode="flat" disabled={!canCancelWorkflowEvent || cancelDisabled || actionBusyId === id} title={canCancelWorkflowEvent ? 'Cancel workflow event' : 'Permission required'} onClick={() => { close(); void handleCancel(row); }}><Ban /> Cancel</Button></>}</ProcessingRowActionMenu></td>;
   }
 
   function StatusCell(props: GridCellProps) {
@@ -160,37 +173,27 @@ export function WorkflowEventGrid({ instanceId, token, triggerSchema, selectedTr
   }
 
   return <article className="panel processing-trigger-panel processing-workflow-panel">
-    <div className="processing-grid-toolbar">
-      <div className="processing-grid-toolbar-summary"><strong>Workflow Events</strong><span>{total.toLocaleString()} matching rows · trigger {String(triggerId ?? 'unknown')} · Id ascending</span></div>
-      <label className="processing-inline-filter"><span>Search</span><input value={search} onChange={(event) => { setSearch(event.target.value); setState((current) => ({ ...current, skip: 0 })); }} placeholder="Workflow, trigger, service, status" /></label>
-      <Button className="compact-button" type="button" onClick={() => setRefreshKey((value) => value + 1)}><RotateCw /> Refresh Events</Button>
-    </div>
+    <ProcessingServerGrid
+      gridKey="processing-workflow-events"
+      title="Workflow Events"
+      summary={`${total.toLocaleString()} matching rows · trigger ${String(triggerId ?? 'unknown')}`}
+      rows={rows}
+      total={total}
+      state={state}
+      onStateChange={setState}
+      columns={columns}
+      dataItemKey={workflowEventIdField(schema)}
+      loading={loading}
+      loadingLabel="Loading workflow event page…"
+      actionCell={ActionCell}
+      statusField={workflowEventStatusField(schema)}
+      statusCell={StatusCell}
+      onRowClick={handleRowClick}
+      toolbar={<><label className="processing-inline-filter"><span>Search</span><input value={search} onChange={(event) => { setSearch(event.target.value); setState((current) => ({ ...current, skip: 0 })); }} placeholder="Workflow, trigger, service, status" /></label><Button className="compact-button" type="button" onClick={() => setRefreshKey((value) => value + 1)}><RotateCw /> Refresh Events</Button></>}
+    />
     {schemaError && <p className="panel-copy warning">{schemaError}</p>}
     {actionMessage && <p className="panel-copy success">{actionMessage}</p>}
     {error && <p className="panel-copy warning">{error}</p>}
-    <div className="processing-grid-scroll">
-      {loading && <div className="cms-loading-overlay grid-loading-overlay" role="status" aria-live="polite"><LoaderCircle className="cms-loading-spinner" /><span>Loading workflow event page…</span></div>}
-      <Grid
-        className="cms-kendo-grid processing-kendo-grid processing-workflow-grid"
-        data={{ data: rows, total }}
-        skip={state.skip}
-        take={state.take}
-        total={total}
-        pageable={{ buttonCount: 5, pageSizes: [25, 50, 100, 250] }}
-        sortable
-        sort={state.sort}
-        filterable
-        filter={state.filter}
-        scrollable="scrollable"
-        dataItemKey={workflowEventIdField(schema)}
-        selectable={{ enabled: true, mode: 'single' }}
-        onRowClick={handleRowClick}
-        onDataStateChange={(event: GridDataStateChangeEvent) => setState({ skip: event.dataState.skip ?? 0, take: event.dataState.take ?? 50, sort: event.dataState.sort ?? [{ field: 'Id', dir: 'asc' }], filter: event.dataState.filter })}
-      >
-        <GridColumn title="Actions" width={230} filterable={false} sortable={false} cells={{ data: ActionCell }} />
-        {columns.map((column) => <GridColumn key={String(column.field)} {...column} cells={String(column.field) === workflowEventStatusField(schema) ? { data: StatusCell } : column.cells} />)}
-      </Grid>
-    </div>
     <section className="processing-selection-strip" aria-live="polite"><strong>Selected workflow event</strong><span>{selectedWorkflowEvent ? `${rowId(schema, selectedWorkflowEvent)} · ${String(recordValue(selectedWorkflowEvent, workflowEventStatusField(schema)) ?? 'Unknown')}` : 'Select a workflow event row to drive the service-event context.'}</span></section>
   </article>;
 }
