@@ -14,7 +14,7 @@ function fakeDatabaseSnapshot(): DatabasePerformanceSnapshot {
     database: 'O2IAS_CMS',
     generatedAt: '2026-06-14T12:00:00.000Z',
     error: null,
-    schema: { currentVersion: '0.17', targetVersion: '0.20', current: true, upgradeAvailable: false },
+    schema: { currentVersion: '0.17', targetVersion: '0.21', current: true, upgradeAvailable: false },
     queryDigestStatus: { available: true, state: 'empty', reason: null },
     summary: { tableCount: 0, estimatedRows: 0, dataSizeBytes: 0, indexSizeBytes: 0, freeBytes: 0, totalSizeBytes: 0 },
     server: { version: null, uptimeSeconds: null, maxConnections: null, threadsConnected: null, maxUsedConnections: null, slowQueries: null, longQueryTimeSeconds: null, questions: null, abortedConnects: null, bufferPoolReadHitPercent: null },
@@ -110,13 +110,14 @@ describe('Phase 1 RBAC security controls', () => {
 
     const tenantAdminMe = await fixture.app.inject({ method: 'GET', url: '/api/auth/me', headers: { authorization: `Bearer ${fixture.tokens.tenantAdmin}` } });
     expect(tenantAdminMe.statusCode).toBe(200);
-    expect(tenantAdminMe.json().permissions).toEqual(expect.arrayContaining(['users.manage', 'groups.manage', 'roles.manage', 'instances.manage', 'instances.importExport', 'logs.view']));
+    expect(tenantAdminMe.json().permissions).toEqual(expect.arrayContaining(['users.manage', 'groups.manage', 'roles.manage', 'instances.manage', 'instances.importExport', 'logs.view', 'processing.errors.view', 'processing.errors.cancelTrigger', 'processing.errors.viewServiceEventMessage']));
     expect(tenantAdminMe.json().permissions).not.toContain('tenants.manage');
     expect(tenantAdminMe.json().permissions).not.toContain('settings.database.maintain');
 
     const viewerMe = await fixture.app.inject({ method: 'GET', url: '/api/auth/me', headers: { authorization: `Bearer ${fixture.tokens.viewer}` } });
     expect(viewerMe.statusCode).toBe(200);
-    expect(viewerMe.json().permissions).toEqual(expect.arrayContaining(['dashboard.view', 'instances.view', 'issueTypes.view']));
+    expect(viewerMe.json().permissions).toEqual(expect.arrayContaining(['dashboard.view', 'instances.view', 'issueTypes.view', 'processing.errors.view']));
+    expect(viewerMe.json().permissions).not.toContain('processing.errors.cancelTrigger');
     expect(viewerMe.json().permissions).not.toContain('instances.manage');
 
     await fixture.app.close();

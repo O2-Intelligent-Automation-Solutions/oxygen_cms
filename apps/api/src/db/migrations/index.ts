@@ -610,6 +610,15 @@ const jobPermissionsSql = `INSERT IGNORE INTO role_permissions (role_id, permiss
 SELECT id, 'jobs.view' FROM roles WHERE name = 'SystemAdmin'
 UNION ALL SELECT id, 'jobs.manage' FROM roles WHERE name = 'SystemAdmin';`;
 
+const processingErrorsPermissionsSql = `INSERT IGNORE INTO role_permissions (role_id, permission_key)
+SELECT id, 'processing.errors.view' FROM roles WHERE name IN ('SystemAdmin', 'TenantAdmin', 'Operator', 'Viewer')
+UNION ALL SELECT id, 'processing.errors.cancelTrigger' FROM roles WHERE name IN ('SystemAdmin', 'TenantAdmin')
+UNION ALL SELECT id, 'processing.errors.recoverWorkflowEvent' FROM roles WHERE name IN ('SystemAdmin', 'TenantAdmin')
+UNION ALL SELECT id, 'processing.errors.cancelWorkflowEvent' FROM roles WHERE name IN ('SystemAdmin', 'TenantAdmin')
+UNION ALL SELECT id, 'processing.errors.restoreServiceEvent' FROM roles WHERE name IN ('SystemAdmin', 'TenantAdmin')
+UNION ALL SELECT id, 'processing.errors.downloadServiceEventFile' FROM roles WHERE name IN ('SystemAdmin', 'TenantAdmin')
+UNION ALL SELECT id, 'processing.errors.viewServiceEventMessage' FROM roles WHERE name IN ('SystemAdmin', 'TenantAdmin');`;
+
 const sslExpiringSoonIssueTypeSql = `INSERT INTO discovered_issue_types (id, code, label, description, category_id, severity_id, match_kind, match_value, sort_order) VALUES
   ('ssl-expiring-soon', 'SSL_EXPIRING_SOON', 'SSL certificate expiring soon', 'Remote HTTPS certificate is valid but within the global expiration warning threshold.', 'ssl', 'warning', 'ssl-expiring-soon', NULL, 125)
 ON DUPLICATE KEY UPDATE
@@ -754,5 +763,11 @@ export const schemaMigrations: SchemaMigration[] = [
     name: 'queue job permissions',
     checksum: '7308402be9fd8b384c80e020d1dffae160a96768591fb6b0b32db8136ec3a671',
     upSql: jobPermissionsSql
+  },
+  {
+    version: '0.21',
+    name: 'processing errors permissions',
+    checksum: '7f57f9501bc10c243ffef341e2d5b4d2c7fc86efc19e130e5e2452ef9d7a88d9',
+    upSql: processingErrorsPermissionsSql
   }
 ];

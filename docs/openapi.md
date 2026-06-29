@@ -7,7 +7,7 @@ docs/openapi.yaml
 ```
 
 Current API spec version: `0.8.0`.
-Current CMS schema version: `0.20`.
+Current CMS schema version: `0.21`.
 
 The canonical rich contract summary is maintained in the GitHub Wiki. This repo pointer tracks the current schema/security checkpoint: protected routes use bearer authentication plus explicit permission and Tenant/global/instance scope checks; auth profiles expose effective permission keys; role create/update accepts explicit `permissionKeys` assignments.
 

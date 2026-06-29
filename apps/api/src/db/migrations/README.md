@@ -12,7 +12,7 @@ Runtime migration source of truth remains:
 apps/api/src/db/migrations/index.ts
 ```
 
-Current runtime schema version: `0.16`.
+Current runtime schema version: `0.21`.
 
 Current migrations include the MySQL-backed setup/auth foundation, persisted CMS Audit/Service/CRUD/Connection/Security/UI logging, instance health/detail indexes, static issue classification catalog tables, and durable `role_permissions` assignments for finalized MVP RBAC.
 

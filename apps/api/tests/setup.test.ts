@@ -53,6 +53,15 @@ describe('first-run database setup API', () => {
     expect(historyRetentionIndexMigration?.upSql).toContain('(started_at)');
   });
 
+  it('backfills Processing Errors permissions for built-in roles', () => {
+    const processingPermissionsMigration = schemaMigrations.find((migration) => migration.version === '0.21');
+
+    expect(processingPermissionsMigration?.name).toBe('processing errors permissions');
+    expect(processingPermissionsMigration?.upSql).toContain("SELECT id, 'processing.errors.view' FROM roles WHERE name IN ('SystemAdmin', 'TenantAdmin', 'Operator', 'Viewer')");
+    expect(processingPermissionsMigration?.upSql).toContain("'processing.errors.viewServiceEventMessage'");
+    expect(processingPermissionsMigration?.upSql).toContain("WHERE name IN ('SystemAdmin', 'TenantAdmin')");
+  });
+
   it('reports database setup is required before first admin creation on a fresh install', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'oxygen-cms-setup-api-'));
     tempDirs.push(dir);
@@ -74,7 +83,7 @@ describe('first-run database setup API', () => {
         connected: false,
         schemaCurrent: false,
         defaultDatabaseName: 'O2IAS_CMS',
-        targetSchemaVersion: '0.20'
+        targetSchemaVersion: '0.21'
       },
       admin: {
         exists: false

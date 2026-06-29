@@ -8,7 +8,7 @@ This documentation has been migrated to the GitHub Wiki:
 
 ### Schema version
 
-Current CMS schema version: `0.20`.
+Current CMS schema version: `0.21`.
 
 ### `role_permissions`
 
